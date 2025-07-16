@@ -37,7 +37,7 @@ const ManageStudents = ({ navigation }) => {
       </View>
       
       <View style={styles.studentActions}>
-        <TouchableOpacity style={styles.actionButton}>
+        <TouchableOpacity style={styles.actionButton} onPress={() => navigation.navigate('StudentDetails', { student: item })}>
           <Ionicons name="eye" size={16} color="#2196F3" />
           <Text style={styles.actionText}>View</Text>
         </TouchableOpacity>

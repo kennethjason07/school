@@ -12,6 +12,7 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import Header from '../../components/Header';
+import { Picker } from '@react-native-picker/picker';
 
 const ManageClasses = ({ navigation }) => {
   const [classes, setClasses] = useState([
@@ -87,7 +88,7 @@ const ManageClasses = ({ navigation }) => {
           text: 'Delete',
           style: 'destructive',
           onPress: () => {
-            setClasses(classes.filter(cls => cls.id !== classId));
+            setClasses(classes => classes.filter(cls => cls.id !== classId));
             Alert.alert('Success', 'Class deleted successfully!');
           },
         },
@@ -125,7 +126,13 @@ const ManageClasses = ({ navigation }) => {
       <View style={styles.classActions}>
         <TouchableOpacity 
           style={[styles.actionButton, styles.viewButton]}
-          onPress={() => navigation.navigate('ManageStudents', { classId: item.id })}
+          onPress={() => navigation.navigate('StudentDetails', { student: {
+            name: 'Emma Johnson',
+            class: item.name,
+            rollNo: 15,
+            attendance: '92%',
+            parent: 'Mr. John Johnson'
+          } })}
         >
           <Ionicons name="people" size={16} color="#2196F3" />
           <Text style={styles.viewButtonText}>View Students</Text>
@@ -222,30 +229,21 @@ const ManageClasses = ({ navigation }) => {
 
             <View style={styles.inputGroup}>
               <Text style={styles.inputLabel}>Class Teacher</Text>
-              <View style={styles.pickerContainer}>
-                {teachers.map((teacher) => (
-                  <TouchableOpacity
-                    key={teacher}
-                    style={[
-                      styles.pickerOption,
-                      (isEdit ? selectedClass?.teacher : newClass.teacher) === teacher && 
-                      styles.pickerOptionSelected
-                    ]}
-                    onPress={() => 
-                      isEdit 
-                        ? setSelectedClass({ ...selectedClass, teacher })
-                        : setNewClass({ ...newClass, teacher })
-                    }
-                  >
-                    <Text style={[
-                      styles.pickerOptionText,
-                      (isEdit ? selectedClass?.teacher : newClass.teacher) === teacher && 
-                      styles.pickerOptionTextSelected
-                    ]}>
-                      {teacher}
-                    </Text>
-                  </TouchableOpacity>
-                ))}
+              <View style={styles.pickerDropdownContainer}>
+                <Picker
+                  selectedValue={isEdit ? selectedClass?.teacher : newClass.teacher}
+                  onValueChange={(itemValue) =>
+                    isEdit
+                      ? setSelectedClass({ ...selectedClass, teacher: itemValue })
+                      : setNewClass({ ...newClass, teacher: itemValue })
+                  }
+                  style={styles.pickerDropdown}
+                >
+                  <Picker.Item label="Select Teacher" value="" />
+                  {teachers.map((teacher) => (
+                    <Picker.Item key={teacher} label={teacher} value={teacher} />
+                  ))}
+                </Picker>
               </View>
             </View>
           </View>
@@ -451,6 +449,7 @@ const styles = StyleSheet.create({
     padding: 20,
     width: '90%',
     maxHeight: '80%',
+    overflow: 'hidden', // fix: prevent overflow
   },
   modalHeader: {
     flexDirection: 'row',
@@ -492,7 +491,7 @@ const styles = StyleSheet.create({
   pickerOption: {
     paddingHorizontal: 16,
     paddingVertical: 8,
-    borderRadius: 20,
+    borderRadius: 10,
     borderWidth: 1,
     borderColor: '#e0e0e0',
     marginRight: 8,
@@ -513,9 +512,13 @@ const styles = StyleSheet.create({
   modalActions: {
     flexDirection: 'row',
     justifyContent: 'space-between',
+    width: '100%',
+    flexWrap: 'wrap', // allow vertical stacking if needed
+    gap: 8, // add gap between buttons
   },
   cancelButton: {
     flex: 1,
+    minWidth: 0, // fix: allow flex shrink
     paddingVertical: 12,
     paddingHorizontal: 16,
     borderRadius: 8,
@@ -531,6 +534,7 @@ const styles = StyleSheet.create({
   },
   saveButton: {
     flex: 1,
+    minWidth: 0, // fix: allow flex shrink
     backgroundColor: '#2196F3',
     paddingVertical: 12,
     paddingHorizontal: 16,
@@ -542,6 +546,24 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontSize: 16,
     fontWeight: '600',
+  },
+  pickerDropdownContainer: {
+    borderWidth: 1,
+    borderColor: '#e0e0e0',
+    borderRadius: 10,
+    backgroundColor: '#f9f9f9',
+    marginBottom: 8,
+    justifyContent: 'center',
+    minHeight: 44,
+    borderWidth: 1, // ensure enough height for Picker text
+  },
+  pickerDropdown: {
+    width: '100%',
+    backgroundColor: '#fff',
+    color: '#222',
+    fontSize: 16,
+    textAlignVertical: 'center',
+    // removed height and paddingHorizontal for best compatibility
   },
 });
 

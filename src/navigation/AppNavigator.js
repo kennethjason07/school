@@ -22,6 +22,8 @@ import AttendanceManagement from '../screens/admin/AttendanceManagement';
 import FeeManagement from '../screens/admin/FeeManagement';
 import AnalyticsReports from '../screens/admin/AnalyticsReports';
 import NotificationManagement from '../screens/admin/NotificationManagement';
+import StudentDetails from '../screens/admin/StudentDetails';
+import StudentList from '../screens/admin/StudentList';
 
 // Teacher Screens
 import TeacherDashboard from '../screens/teacher/TeacherDashboard';
@@ -90,6 +92,7 @@ function AdminTabNavigator() {
       <Tab.Screen name="Students" component={ManageStudents} />
       <Tab.Screen name="Teachers" component={ManageTeachers} />
       <Tab.Screen name="Reports" component={AnalyticsReports} />
+      {/* Removed StudentDetails and StudentList from Tab.Navigator */}
     </Tab.Navigator>
   );
 }
@@ -230,6 +233,7 @@ export default function AppNavigator() {
             {/* Universal Screens */}
             <Stack.Screen name="Profile" component={ProfileScreen} />
             <Stack.Screen name="Settings" component={SettingsScreen} />
+            <Stack.Screen name="StudentDetails" component={StudentDetails} />
           </>
         )}
       </Stack.Navigator>
