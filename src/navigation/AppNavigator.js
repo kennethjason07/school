@@ -215,7 +215,14 @@ export default function AppNavigator() {
           // Role-based Stacks - when user is authenticated
           <>
             {userType === 'admin' && (
-              <Stack.Screen name="AdminTabs" component={AdminTabNavigator} />
+              <>
+                <Stack.Screen name="AdminTabs" component={AdminTabNavigator} />
+                <Stack.Screen name="SubjectsTimetable" component={SubjectsTimetable} />
+                <Stack.Screen name="AttendanceManagement" component={AttendanceManagement} />
+                <Stack.Screen name="FeeManagement" component={FeeManagement} />
+                <Stack.Screen name="ExamsMarks" component={ExamsMarks} />
+                <Stack.Screen name="NotificationManagement" component={NotificationManagement} />
+              </>
             )}
             {userType === 'teacher' && (
               <Stack.Screen name="TeacherTabs" component={TeacherTabNavigator} />
