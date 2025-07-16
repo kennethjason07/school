@@ -1,0 +1,28 @@
+1. Implement real user login and signup
+2. Create admin dashboard
+3. Add manage classes screen
+4. Add manage students screen
+5. Add manage teachers screen
+6. Add subjects and timetable screen
+7. Add exams and marks screen
+8. Add attendance management screen
+9. Add fee management screen
+10. Add notification management screen
+11. Create teacher dashboard
+12. Add take attendance screen for teachers
+13. Add marks entry screen for teachers
+14. Add upload homework screen for teachers
+15. Add view student info screen for teachers
+16. Create parent dashboard
+17. Add view report card screen for parents
+18. Add attendance summary screen for parents
+19. Add fee payment screen for parents
+20. Add notifications screen for parents
+21. Add chat with teacher screen for parents
+22. Create student dashboard
+23. Add view assignments screen for students
+24. Add attendance and marks screen for students
+25. Add notifications screen for students
+26. Add chat with teacher screen for students
+27. Add profile screen
+28. Add settings screen 

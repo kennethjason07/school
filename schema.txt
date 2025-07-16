@@ -1,0 +1,222 @@
+🎓 Full Database Schema (PostgreSQL/Supabase-Compatible)
+
+\-- 1. Roles
+CREATE TABLE roles (
+id SERIAL PRIMARY KEY,
+role\_name TEXT UNIQUE NOT NULL
+);
+
+\-- 2. Users
+CREATE TABLE users (
+id UUID PRIMARY KEY DEFAULT gen\_random\_uuid(),
+email TEXT UNIQUE NOT NULL,
+role\_id INT REFERENCES roles(id),
+linked\_student\_id UUID REFERENCES students(id),
+linked\_teacher\_id UUID REFERENCES teachers(id),
+linked\_parent\_of UUID REFERENCES students(id),
+created\_at TIMESTAMP DEFAULT CURRENT\_TIMESTAMP
+);
+
+\-- 3. Classes
+CREATE TABLE classes (
+id UUID PRIMARY KEY DEFAULT gen\_random\_uuid(),
+class\_name TEXT NOT NULL,
+section TEXT NOT NULL,
+academic\_year TEXT NOT NULL,
+class\_teacher\_id UUID REFERENCES teachers(id) ON DELETE SET NULL,
+created\_at TIMESTAMP DEFAULT CURRENT\_TIMESTAMP,
+CONSTRAINT unique\_class\_section\_year UNIQUE (class\_name, section, academic\_year)
+);
+
+\-- 4. Students (with roll\_no added)
+CREATE TABLE students (
+id UUID PRIMARY KEY DEFAULT gen\_random\_uuid(),
+admission\_no TEXT UNIQUE NOT NULL,
+name TEXT NOT NULL,
+dob DATE NOT NULL,
+aadhar\_no TEXT,
+place\_of\_birth TEXT,
+nationality TEXT,
+gender TEXT CHECK (gender IN ('Male', 'Female')) NOT NULL,
+religion TEXT,
+caste TEXT CHECK (caste IN ('BC', 'SC', 'ST', 'OC', 'Other')),
+address TEXT,
+pin\_code TEXT,
+blood\_group TEXT,
+mother\_tongue TEXT,
+identification\_mark\_1 TEXT,
+identification\_mark\_2 TEXT,
+academic\_year TEXT NOT NULL,
+general\_behaviour TEXT CHECK (general\_behaviour IN ('Mild', 'Normal', 'Hyperactive')),
+remarks TEXT,
+roll\_no INT,
+parent\_id UUID REFERENCES users(id),
+class\_id UUID REFERENCES classes(id),
+created\_at TIMESTAMP DEFAULT CURRENT\_TIMESTAMP,
+CONSTRAINT unique\_class\_roll UNIQUE (class\_id, roll\_no)
+);
+
+\-- 5. Teachers
+CREATE TABLE teachers (
+id UUID PRIMARY KEY DEFAULT gen\_random\_uuid(),
+name TEXT NOT NULL,
+qualification TEXT,
+age INT CHECK (age > 18),
+salary\_type TEXT CHECK (salary\_type IN ('monthly', 'hourly')) NOT NULL,
+salary\_amount NUMERIC(10,2) NOT NULL,
+address TEXT,
+is\_class\_teacher BOOLEAN DEFAULT FALSE,
+assigned\_class\_id UUID REFERENCES classes(id),
+created\_at TIMESTAMP DEFAULT CURRENT\_TIMESTAMP
+);
+
+\-- 6. Student Attendance
+CREATE TABLE student\_attendance (
+id UUID PRIMARY KEY DEFAULT gen\_random\_uuid(),
+student\_id UUID NOT NULL REFERENCES students(id) ON DELETE CASCADE,
+class\_id UUID NOT NULL REFERENCES classes(id),
+date DATE NOT NULL,
+status TEXT CHECK (status IN ('Present', 'Absent')) NOT NULL,
+marked\_by UUID REFERENCES users(id),
+created\_at TIMESTAMP DEFAULT CURRENT\_TIMESTAMP,
+CONSTRAINT unique\_attendance\_per\_day UNIQUE (student\_id, date)
+);
+
+\-- 7. Teacher Attendance
+CREATE TABLE teacher\_attendance (
+id UUID PRIMARY KEY DEFAULT gen\_random\_uuid(),
+teacher\_id UUID NOT NULL REFERENCES teachers(id) ON DELETE CASCADE,
+date DATE NOT NULL,
+status TEXT CHECK (status IN ('Present', 'Absent')) NOT NULL,
+marked\_by UUID REFERENCES users(id),
+created\_at TIMESTAMP DEFAULT CURRENT\_TIMESTAMP,
+CONSTRAINT unique\_teacher\_attendance UNIQUE (teacher\_id, date)
+);
+
+\-- 8. Fee Structure
+CREATE TABLE fee\_structure (
+id UUID PRIMARY KEY DEFAULT gen\_random\_uuid(),
+academic\_year TEXT NOT NULL,
+class\_id UUID REFERENCES classes(id),
+student\_id UUID REFERENCES students(id),
+fee\_component TEXT NOT NULL,
+amount NUMERIC(10, 2) NOT NULL,
+created\_at TIMESTAMP DEFAULT CURRENT\_TIMESTAMP
+);
+
+\-- 9. Student Fees
+CREATE TABLE student\_fees (
+id UUID PRIMARY KEY DEFAULT gen\_random\_uuid(),
+student\_id UUID REFERENCES students(id) ON DELETE CASCADE,
+academic\_year TEXT NOT NULL,
+fee\_component TEXT NOT NULL,
+amount\_paid NUMERIC(10, 2) NOT NULL,
+payment\_date DATE NOT NULL,
+payment\_mode TEXT CHECK (payment\_mode IN ('Cash', 'Card', 'Online', 'UPI')),
+remarks TEXT,
+created\_at TIMESTAMP DEFAULT CURRENT\_TIMESTAMP
+);
+
+\-- 10. Subjects
+CREATE TABLE subjects (
+id UUID PRIMARY KEY DEFAULT gen\_random\_uuid(),
+name TEXT NOT NULL,
+class\_id UUID REFERENCES classes(id) NOT NULL,
+academic\_year TEXT NOT NULL,
+is\_optional BOOLEAN DEFAULT FALSE,
+created\_at TIMESTAMP DEFAULT CURRENT\_TIMESTAMP,
+CONSTRAINT unique\_class\_subject UNIQUE (name, class\_id, academic\_year)
+);
+
+\-- 11. Teacher Subjects
+CREATE TABLE teacher\_subjects (
+id UUID PRIMARY KEY DEFAULT gen\_random\_uuid(),
+teacher\_id UUID REFERENCES teachers(id) ON DELETE CASCADE,
+subject\_id UUID REFERENCES subjects(id) ON DELETE CASCADE,
+assigned\_on TIMESTAMP DEFAULT CURRENT\_TIMESTAMP,
+CONSTRAINT unique\_teacher\_subject UNIQUE (teacher\_id, subject\_id)
+);
+
+\-- 12. Exams
+CREATE TABLE exams (
+id UUID PRIMARY KEY DEFAULT gen\_random\_uuid(),
+name TEXT NOT NULL,
+class\_id UUID REFERENCES classes(id) NOT NULL,
+academic\_year TEXT NOT NULL,
+start\_date DATE NOT NULL,
+end\_date DATE NOT NULL,
+remarks TEXT,
+created\_at TIMESTAMP DEFAULT CURRENT\_TIMESTAMP
+);
+
+\-- 13. Marks
+CREATE TABLE marks (
+id UUID PRIMARY KEY DEFAULT gen\_random\_uuid(),
+student\_id UUID REFERENCES students(id) ON DELETE CASCADE,
+exam\_id UUID REFERENCES exams(id) ON DELETE CASCADE,
+subject\_id UUID REFERENCES subjects(id) ON DELETE CASCADE,
+marks\_obtained NUMERIC(5, 2),
+grade TEXT,
+max\_marks NUMERIC(5, 2) NOT NULL,
+remarks TEXT,
+created\_at TIMESTAMP DEFAULT CURRENT\_TIMESTAMP,
+CONSTRAINT unique\_exam\_subject\_student UNIQUE (student\_id, exam\_id, subject\_id)
+);
+
+\-- 14. Assignments
+CREATE TABLE assignments (
+id UUID PRIMARY KEY DEFAULT gen\_random\_uuid(),
+title TEXT NOT NULL,
+description TEXT,
+file\_url TEXT,
+class\_id UUID REFERENCES classes(id) NOT NULL,
+subject\_id UUID REFERENCES subjects(id) NOT NULL,
+assigned\_by UUID REFERENCES teachers(id) NOT NULL,
+assigned\_date DATE NOT NULL DEFAULT CURRENT\_DATE,
+due\_date DATE NOT NULL,
+academic\_year TEXT NOT NULL,
+created\_at TIMESTAMP DEFAULT CURRENT\_TIMESTAMP
+);
+
+\-- 15. Notifications
+CREATE TABLE notifications (
+id UUID PRIMARY KEY DEFAULT gen\_random\_uuid(),
+type TEXT CHECK (type IN ('Absentee', 'Exam', 'General')) NOT NULL,
+student\_id UUID REFERENCES students(id),
+parent\_id UUID REFERENCES users(id),
+message TEXT NOT NULL,
+delivery\_mode TEXT CHECK (delivery\_mode IN ('InApp', 'SMS', 'WhatsApp')) DEFAULT 'InApp',
+delivery\_status TEXT CHECK (delivery\_status IN ('Pending', 'Sent', 'Failed')) DEFAULT 'Pending',
+sent\_by UUID REFERENCES users(id),
+scheduled\_at TIMESTAMP,
+sent\_at TIMESTAMP,
+created\_at TIMESTAMP DEFAULT CURRENT\_TIMESTAMP
+);
+
+\-- 16. Messages
+CREATE TABLE messages (
+id UUID PRIMARY KEY DEFAULT gen\_random\_uuid(),
+sender\_id UUID REFERENCES users(id) NOT NULL,
+receiver\_id UUID REFERENCES users(id) NOT NULL,
+student\_id UUID REFERENCES students(id),
+message TEXT NOT NULL,
+sent\_at TIMESTAMP DEFAULT CURRENT\_TIMESTAMP,
+is\_read BOOLEAN DEFAULT FALSE
+);
+
+\-- 17. Timetable Entries
+CREATE TABLE timetable\_entries (
+id UUID PRIMARY KEY DEFAULT gen\_random\_uuid(),
+class\_id UUID REFERENCES classes(id) NOT NULL,
+subject\_id UUID REFERENCES subjects(id) NOT NULL,
+teacher\_id UUID REFERENCES teachers(id) NOT NULL,
+day\_of\_week TEXT CHECK (
+day\_of\_week IN ('Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday')
+) NOT NULL,
+period\_number INT CHECK (period\_number > 0) NOT NULL,
+start\_time TIME NOT NULL,
+end\_time TIME NOT NULL,
+academic\_year TEXT NOT NULL,
+created\_at TIMESTAMP DEFAULT CURRENT\_TIMESTAMP,
+CONSTRAINT unique\_period\_per\_day UNIQUE (class\_id, day\_of\_week, period\_number)
+);
