@@ -10,12 +10,15 @@ import {
   Modal,
   TextInput,
   Alert,
+  Platform,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { LineChart, BarChart, PieChart } from 'react-native-chart-kit';
 import Header from '../../components/Header';
 import StatCard from '../../components/StatCard';
 import DateTimePicker from '@react-native-community/datetimepicker';
+import CrossPlatformPieChart from '../../components/CrossPlatformPieChart';
+import CrossPlatformBarChart from '../../components/CrossPlatformBarChart';
 
 const { width } = Dimensions.get('window');
 
@@ -320,23 +323,26 @@ const AdminDashboard = ({ navigation }) => {
             </TouchableOpacity>
           </View>
           <View style={styles.upcomingList}>
-            {events.map((item, idx) => (
-              <View key={idx} style={styles.upcomingItem}>
-                <View style={[styles.upcomingIcon, { backgroundColor: item.color }]}> 
-                  <Ionicons name={item.icon} size={20} color="#fff" />
+            {events.slice().sort((a, b) => new Date(a.date) - new Date(b.date)).map((item, idx) => {
+              const originalIdx = events.findIndex(e => e.title === item.title && e.date === item.date);
+              return (
+                <View key={idx} style={styles.upcomingItem}>
+                  <View style={[styles.upcomingIcon, { backgroundColor: item.color }]}> 
+                    <Ionicons name={item.icon} size={20} color="#fff" />
+                  </View>
+                  <View style={styles.upcomingContent}>
+                    <Text style={styles.upcomingTitle}>{item.title}</Text>
+                    <Text style={styles.upcomingSubtitle}>{item.type} • {(() => { const [y, m, d] = item.date.split('-'); return `${d}-${m}-${y}`; })()}</Text>
+                  </View>
+                  <TouchableOpacity onPress={() => openEditEventModal(item, idx)} style={{ marginRight: 8 }}>
+                    <Ionicons name="create-outline" size={20} color="#2196F3" />
+                  </TouchableOpacity>
+                  <TouchableOpacity onPress={() => deleteEvent(originalIdx)}>
+                    <Ionicons name="trash" size={20} color="#F44336" />
+                  </TouchableOpacity>
                 </View>
-                <View style={styles.upcomingContent}>
-                  <Text style={styles.upcomingTitle}>{item.title}</Text>
-                  <Text style={styles.upcomingSubtitle}>{item.type} • {(() => { const [y, m, d] = item.date.split('-'); return `${d}-${m}-${y}`; })()}</Text>
-                </View>
-                <TouchableOpacity onPress={() => openEditEventModal(item, idx)} style={{ marginRight: 8 }}>
-                  <Ionicons name="create-outline" size={20} color="#2196F3" />
-                </TouchableOpacity>
-                <TouchableOpacity onPress={() => deleteEvent(idx)}>
-                  <Ionicons name="trash" size={20} color="#F44336" />
-                </TouchableOpacity>
-              </View>
-            ))}
+              );
+            })}
           </View>
           {/* Event Modal */}
           <Modal
@@ -355,15 +361,21 @@ const AdminDashboard = ({ navigation }) => {
                   style={styles.input}
                 />
                 {/* Date Picker Button for Events */}
-                <TouchableOpacity
-                  style={styles.input}
-                  onPress={() => setShowEventDatePicker(true)}
-                >
-                  <Text style={{ color: eventInput.date ? '#333' : '#aaa' }}>
-                    {eventInput.date ? (() => { const [y, m, d] = eventInput.date.split('-'); return `${d}-${m}-${y}`; })() : 'Select Date'}
-                  </Text>
-                </TouchableOpacity>
-                {showEventDatePicker && (
+                {Platform.OS === 'web' ? (
+                  <input
+                    type="date"
+                    value={eventInput.date}
+                    onChange={e => setEventInput({ ...eventInput, date: e.target.value })}
+                    style={{ ...styles.input, padding: 10, fontSize: 15, borderRadius: 8, borderWidth: 1, borderColor: '#e0e0e0', marginBottom: 12 }}
+                  />
+                ) : (
+                  <TouchableOpacity style={styles.input} onPress={() => setShowEventDatePicker(true)}>
+                    <Text style={{ color: eventInput.date ? '#333' : '#aaa' }}>
+                      {eventInput.date ? (() => { const [y, m, d] = eventInput.date.split('-'); return `${d}-${m}-${y}`; })() : 'Select Date'}
+                    </Text>
+                  </TouchableOpacity>
+                )}
+                {showEventDatePicker && Platform.OS !== 'web' && (
                   <DateTimePicker
                     value={eventInput.date ? new Date(eventInput.date) : new Date()}
                     mode="date"
@@ -406,21 +418,7 @@ const AdminDashboard = ({ navigation }) => {
           <View style={{ alignItems: 'center', marginBottom: 16, width: '100%', flexDirection: 'column', justifyContent: 'center' }}>
             <Text style={{ fontSize: 15, fontWeight: 'bold', marginBottom: 0, textAlign: 'center' }}></Text>
             <View style={{ width: '100%', alignItems: 'center', justifyContent: 'center' }}>
-              <PieChart
-                data={[
-                  { name: 'Collected', population: 1200000, color: '#2196F3', legendFontColor: '#333', legendFontSize: 14 },
-                  { name: 'Due', population: 300000, color: '#F44336', legendFontColor: '#333', legendFontSize: 14 },
-                ]}
-                width={Math.min(width * 0.8, 350)}
-                height={200}
-                chartConfig={chartConfig}
-                accessor={'population'}
-                backgroundColor={'transparent'}
-                paddingLeft={'70'}
-                absolute
-                style={[styles.chart, feeLoading && { opacity: 0.5, alignSelf: 'center' }]}
-                hasLegend={false}
-              />
+              <CrossPlatformPieChart data={[{ name: 'Collected', population: 1200000, color: '#2196F3', legendFontColor: '#333', legendFontSize: 14 }, { name: 'Due', population: 300000, color: '#F44336', legendFontColor: '#333', legendFontSize: 14 }]} width={Math.min(width * 0.8, 350)} height={200} chartConfig={chartConfig} accessor={'population'} backgroundColor={'transparent'} paddingLeft={'70'} absolute style={[styles.chart, feeLoading ? { opacity: 0.5, alignSelf: 'center' } : null]} hasLegend={false} />
               {feeLoading && (
                 <View style={styles.pieLoadingOverlay}>
                   <ActivityIndicator size="large" color="#2196F3" />
@@ -443,58 +441,10 @@ const AdminDashboard = ({ navigation }) => {
           <Text style={styles.sectionTitle}>Class Performance Analysis</Text>
           {/* Attendance per Class Chart */}
           <Text style={{ fontWeight: 'bold', marginBottom: 4 }}>Attendance per Class (%)</Text>
-          <BarChart
-            data={{
-              labels: ['1A', '2A', '3A', '4A', '5A'],
-              datasets: [
-                { data: [95, 92, 88, 90, 93] },
-              ],
-            }}
-            width={Math.min(width * 0.9, 400)}
-            height={220}
-            yAxisLabel={''}
-            xAxisLabel={'%'}
-            fromZero
-            chartConfig={{
-              ...chartConfig,
-              decimalPlaces: 0,
-              barPercentage: 0.6,
-              backgroundGradientFrom: '#fff',
-              backgroundGradientTo: '#fff',
-              color: (opacity = 1) => `rgba(33, 150, 243, ${opacity})`,
-              labelColor: (opacity = 1) => `rgba(0, 0, 0, ${opacity})`,
-            }}
-            verticalLabelRotation={0}
-            style={{ marginBottom: 32, borderRadius: 12, alignSelf: 'center' }}
-            horizontal={true}
-          />
+          <CrossPlatformBarChart data={{ labels: ['1A', '2A', '3A', '4A', '5A'], datasets: [ { data: [95, 92, 88, 90, 93] } ] }} width={Math.min(width * 0.9, 400)} height={220} yAxisLabel={''} xAxisLabel={'%'} fromZero chartConfig={{ ...chartConfig, decimalPlaces: 0, barPercentage: 0.6, backgroundGradientFrom: '#fff', backgroundGradientTo: '#fff', color: (opacity = 1) => `rgba(33, 150, 243, ${opacity})`, labelColor: (opacity = 1) => `rgba(0, 0, 0, ${opacity})`, }} verticalLabelRotation={0} style={{ marginBottom: 32, borderRadius: 12, alignSelf: 'center' }} />
           {/* Marks Trend per Class Chart */}
           <Text style={{ fontWeight: 'bold', marginBottom: 4 }}>Marks Trend per Class</Text>
-          <BarChart
-            data={{
-              labels: ['1A', '2A', '3A', '4A', '5A'],
-              datasets: [
-                { data: [78, 85, 69, 88, 91] },
-              ],
-            }}
-            width={Math.min(width * 0.9, 400)}
-            height={220}
-            yAxisLabel={''}
-            xAxisLabel={' marks'}
-            fromZero
-            chartConfig={{
-              ...chartConfig,
-              decimalPlaces: 0,
-              barPercentage: 0.6,
-              backgroundGradientFrom: '#fff',
-              backgroundGradientTo: '#fff',
-              color: (opacity = 1) => `rgba(76, 175, 80, ${opacity})`,
-              labelColor: (opacity = 1) => `rgba(0, 0, 0, ${opacity})`,
-            }}
-            verticalLabelRotation={0}
-            style={{ borderRadius: 12, alignSelf: 'center' }}
-            horizontal={true}
-          />
+          <CrossPlatformBarChart data={{ labels: ['1A', '2A', '3A', '4A', '5A'], datasets: [ { data: [78, 85, 69, 88, 91] } ] }} width={Math.min(width * 0.9, 400)} height={220} yAxisLabel={''} xAxisLabel={' marks'} fromZero chartConfig={{ ...chartConfig, decimalPlaces: 0, barPercentage: 0.6, backgroundGradientFrom: '#fff', backgroundGradientTo: '#fff', color: (opacity = 1) => `rgba(76, 175, 80, ${opacity})`, labelColor: (opacity = 1) => `rgba(0, 0, 0, ${opacity})`, }} verticalLabelRotation={0} style={{ borderRadius: 12, alignSelf: 'center' }} />
         </View>
 
         {/* Recent Activities - moved to bottom */}
@@ -527,23 +477,26 @@ const AdminDashboard = ({ navigation }) => {
             </TouchableOpacity>
           </View>
           <View style={styles.announcementsList}>
-            {announcements.map((item, idx) => (
-              <View key={idx} style={styles.announcementItem}>
-                <View style={[styles.announcementIcon, { backgroundColor: item.color }]}> 
-                  <Ionicons name={item.icon} size={20} color="#fff" />
+            {announcements.slice().sort((a, b) => new Date(a.date) - new Date(b.date)).map((item, idx) => {
+              const originalIdx = announcements.findIndex(a => a.message === item.message && a.date === item.date);
+              return (
+                <View key={idx} style={styles.announcementItem}>
+                  <View style={[styles.announcementIcon, { backgroundColor: item.color }]}> 
+                    <Ionicons name={item.icon} size={20} color="#fff" />
+                  </View>
+                  <View style={styles.announcementContent}>
+                    <Text style={styles.announcementText}>{item.message}</Text>
+                    <Text style={styles.announcementDate}>{(() => { const [y, m, d] = item.date.split('-'); return `${d}-${m}-${y}`; })()}</Text>
+                  </View>
+                  <TouchableOpacity onPress={() => openEditAnnouncementModal(item, idx)} style={{ marginRight: 8 }}>
+                    <Ionicons name="create-outline" size={20} color="#2196F3" />
+                  </TouchableOpacity>
+                  <TouchableOpacity onPress={() => deleteAnnouncement(originalIdx)}>
+                    <Ionicons name="trash" size={20} color="#F44336" />
+                  </TouchableOpacity>
                 </View>
-                <View style={styles.announcementContent}>
-                  <Text style={styles.announcementText}>{item.message}</Text>
-                  <Text style={styles.announcementDate}>{(() => { const [y, m, d] = item.date.split('-'); return `${d}-${m}-${y}`; })()}</Text>
-                </View>
-                <TouchableOpacity onPress={() => openEditAnnouncementModal(item, idx)} style={{ marginRight: 8 }}>
-                  <Ionicons name="create-outline" size={20} color="#2196F3" />
-                </TouchableOpacity>
-                <TouchableOpacity onPress={() => deleteAnnouncement(idx)}>
-                  <Ionicons name="trash" size={20} color="#F44336" />
-                </TouchableOpacity>
-              </View>
-            ))}
+              );
+            })}
           </View>
           {/* Announcement Modal */}
           <Modal
@@ -563,14 +516,20 @@ const AdminDashboard = ({ navigation }) => {
                   multiline
                 />
                 {/* Date Picker Button for Announcements */}
-                <TouchableOpacity
-                  style={styles.input}
-                  onPress={() => setShowAnnouncementDatePicker(true)}
-                >
-                  <Text style={{ color: announcementInput.date ? '#333' : '#aaa' }}>
-                    {announcementInput.date ? (() => { const [y, m, d] = announcementInput.date.split('-'); return `${d}-${m}-${y}`; })() : 'Select Date'}
-                  </Text>
-                </TouchableOpacity>
+                {Platform.OS === 'web' ? (
+                  <input
+                    type="date"
+                    value={announcementInput.date}
+                    onChange={e => setAnnouncementInput({ ...announcementInput, date: e.target.value })}
+                    style={{ ...styles.input, padding: 10, fontSize: 15, borderRadius: 8, borderWidth: 1, borderColor: '#e0e0e0', marginBottom: 12 }}
+                  />
+                ) : (
+                  <TouchableOpacity style={styles.input} onPress={() => setShowAnnouncementDatePicker(true)}>
+                    <Text style={{ color: announcementInput.date ? '#333' : '#aaa' }}>
+                      {announcementInput.date ? (() => { const [y, m, d] = announcementInput.date.split('-'); return `${d}-${m}-${y}`; })() : 'Select Date'}
+                    </Text>
+                  </TouchableOpacity>
+                )}
                 {showAnnouncementDatePicker && (
                   <DateTimePicker
                     value={announcementInput.date ? new Date(announcementInput.date) : new Date()}
