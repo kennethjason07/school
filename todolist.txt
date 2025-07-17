@@ -1,7 +1,71 @@
+Task Assignments:
+1. Hanok - Create admin dashboard (feature/admin-dashboard) (completed)
+   - Display key statistics (students, teachers, classes, fees, etc.)
+   - Show recent activity or notifications
+   - Add quick links to manage classes, students, teachers, subjects
+   - Display upcoming events, exams, or deadlines
+   - Show fee collection summary and outstanding dues
+   - Add analytics charts (attendance trends, marks distribution, etc.)
+   - Provide access to reports (attendance, marks, fees, etc.)
+   - Add section for admin messages or announcements
+   - Implement responsive and user-friendly layout
+   - Add navigation to other admin features/screens
+2. Hanok - Add manage teachers screen (feature/manage-teachers)
+   - List all teachers with details (name, subjects, classes, contact info)
+   - Add a new teacher (form for name, subjects, classes, contact info)
+   - Edit teacher details (update name, subjects, classes, contact info)
+   - Delete a teacher
+   - Assign or change subjects/classes for a teacher
+   - View teacher's schedule
+   - Search and filter teachers
+   - Responsive and user-friendly UI for teacher management
+
+2. Abhishek - Add manage classes screen (feature/manage-classes) (completed)
+   - List all classes with details (name, section, assigned teacher, etc.)
+   - Add a new class (form for class name, section, assign teacher)
+   - Edit class details (update name, section, teacher)
+   - Delete a class
+   - Assign or change class teacher
+   - View students in a class
+   - Move students between classes/sections
+   - Search and filter classes
+   - Display number of students per class
+   - Responsive and user-friendly UI for class management
+3. Abhishek - Add subjects and timetable screen (feature/subjects-timetable)
+   - List all subjects with details (name, code, assigned teacher, etc.)
+   - Add a new subject (form for name, code, assign teacher)
+   - Edit subject details (update name, code, teacher)
+   - Delete a subject
+   - Create and edit class timetables
+   - Assign subjects to classes/sections
+   - View and edit timetable for each class/section
+   - Responsive and user-friendly UI for timetable management
+
+3. Arsahd - Add manage students screen (feature/manage-students) (completed)
+   - List all students with details (name, class, section, parent info, etc.)
+   - Add a new student (form for name, class, section, parent, contact info)
+   - Edit student details (update name, class, section, parent, etc.)
+   - Delete a student
+   - Assign or change class/section for a student
+   - View detailed student profile (attendance, marks, fees, etc.)
+   - Search and filter students by name, class, section, etc.
+   - Import/export student data (CSV or Excel)
+   - Link student to parent account
+   - Responsive and user-friendly UI for student management
+4. Arsahd - Add exams and marks screen (feature/exams-marks)
+   - List all exams with details (name, date, class, subjects, etc.)
+   - Add a new exam (form for name, date, class, subjects)
+   - Edit exam details (update name, date, class, subjects)
+   - Delete an exam
+   - Enter and view marks for students
+   - Generate and view report cards
+   - Search and filter exams/marks
+   - Responsive and user-friendly UI for exams and marks management
+
 1. Implement real user login and signup
-2. Create admin dashboard
-3. Add manage classes screen
-4. Add manage students screen
+2. Create admin dashboard (completed)
+3. Add manage classes screen (completed)
+4. Add manage students screen (completed)
 5. Add manage teachers screen
 6. Add subjects and timetable screen
 7. Add exams and marks screen
