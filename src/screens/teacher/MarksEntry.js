@@ -1,44 +1,46 @@
 import React from 'react';
-import { View, Text, StyleSheet } from 'react-native';
-import Header from '../../components/Header';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 
-const MarksEntry = () => {
+// Mock data: classes and their subjects
+const MOCK_CLASSES = [
+  { id: 'c1', name: '5A', subjects: ['Maths', 'Science'] },
+  { id: 'c2', name: '6A', subjects: ['Maths', 'English'] },
+];
+
+export default function MarksEntry({ navigation }) {
   return (
     <View style={styles.container}>
-      <Header title="Marks Entry" showBack={true} />
-      <View style={styles.content}>
-        <Text style={styles.title}>Marks Entry</Text>
-        <Text style={styles.subtitle}>
-          This is a placeholder screen. Here, teachers can enter marks for students per subject & exam, auto-calculate grade, and validate maximum marks.
-        </Text>
-      </View>
+      <ScrollView contentContainerStyle={{ padding: 16 }}>
+        <Text style={styles.title}>Select Class & Subject</Text>
+        {MOCK_CLASSES.map(cls => (
+          <View key={cls.id} style={styles.classBox}>
+            <Text style={styles.classTitle}>{cls.name}</Text>
+            <View style={styles.subjectsRow}>
+              {cls.subjects.map(subj => (
+                <TouchableOpacity
+                  key={subj}
+                  style={styles.subjectCard}
+                  onPress={() => navigation.navigate('MarksEntryStudentsScreen', { className: cls.name, subject: subj })}
+                >
+                  <Ionicons name="book" size={20} color="#1976d2" style={{ marginRight: 6 }} />
+                  <Text style={styles.subjectText}>{subj}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+          </View>
+        ))}
+      </ScrollView>
     </View>
   );
-};
+}
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#f5f5f5',
-  },
-  content: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    padding: 24,
-  },
-  title: {
-    fontSize: 24,
-    fontWeight: 'bold',
-    color: '#333',
-    marginBottom: 16,
-  },
-  subtitle: {
-    fontSize: 16,
-    color: '#666',
-    textAlign: 'center',
-    lineHeight: 24,
-  },
-});
-
-export default MarksEntry; 
+  container: { flex: 1, backgroundColor: '#f5f5f5' },
+  title: { fontSize: 22, fontWeight: 'bold', color: '#1976d2', marginBottom: 18 },
+  classBox: { backgroundColor: '#fff', borderRadius: 10, padding: 14, marginBottom: 18, elevation: 2 },
+  classTitle: { fontWeight: 'bold', color: '#388e3c', fontSize: 18, marginBottom: 8 },
+  subjectsRow: { flexDirection: 'row', flexWrap: 'wrap' },
+  subjectCard: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#e3f2fd', borderRadius: 8, paddingHorizontal: 14, paddingVertical: 8, marginRight: 10, marginBottom: 8, elevation: 1 },
+  subjectText: { color: '#1976d2', fontWeight: 'bold', fontSize: 15 },
+}); 
