@@ -161,8 +161,8 @@ const ManageTeachers = ({ navigation }) => {
             <Ionicons name="search" size={24} color="#2196F3" />
           </TouchableOpacity>
           <TouchableOpacity style={styles.addButton} onPress={openAddModal}>
-            <Ionicons name="add" size={24} color="#fff" />
-          </TouchableOpacity>
+          <Ionicons name="add" size={24} color="#fff" />
+        </TouchableOpacity>
         </View>
       </View>
       <FlatList
