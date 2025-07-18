@@ -33,6 +33,7 @@ import TakeAttendance from '../screens/teacher/TakeAttendance';
 import MarksEntry from '../screens/teacher/MarksEntry';
 import UploadHomework from '../screens/teacher/UploadHomework';
 import ViewStudentInfo from '../screens/teacher/ViewStudentInfo';
+import MarksEntryStudentsScreen from '../screens/teacher/MarksEntryStudentsScreen';
 
 // Parent Screens
 import ParentDashboard from '../screens/parent/ParentDashboard';
@@ -232,7 +233,10 @@ export default function AppNavigator() {
               </>
             )}
             {userType === 'teacher' && (
-              <Stack.Screen name="TeacherTabs" component={TeacherTabNavigator} />
+              <>
+                <Stack.Screen name="TeacherTabs" component={TeacherTabNavigator} />
+                <Stack.Screen name="MarksEntryStudentsScreen" component={MarksEntryStudentsScreen} />
+              </>
             )}
             {userType === 'parent' && (
               <Stack.Screen name="ParentTabs" component={ParentTabNavigator} />
