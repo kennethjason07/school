@@ -184,12 +184,12 @@ const ManageStudents = () => {
             <Text style={styles.teacherParent}>Parent: {item.parent}</Text>
             <Text style={styles.teacherContact}>Contact: {item.contact}</Text>
             <Text style={styles.marksFees}>Fees: <Text style={item.fees === 'Paid' ? styles.feesPaid : styles.feesUnpaid}>{item.fees}</Text></Text>
-          </View>
-          <View style={styles.teacherStats}>
-            <Text style={styles.attendanceText}>{item.attendance}</Text>
-            <Text style={styles.attendanceLabel}>Attendance</Text>
-          </View>
         </View>
+          <View style={styles.teacherStats}>
+          <Text style={styles.attendanceText}>{item.attendance}</Text>
+          <Text style={styles.attendanceLabel}>Attendance</Text>
+        </View>
+      </View>
       </TouchableOpacity>
       <View style={styles.studentActions}>
         <TouchableOpacity style={styles.actionButton} onPress={() => navigation.navigate('StudentDetails', { student: item })}>
