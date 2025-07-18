@@ -1,5 +1,5 @@
 import React from 'react';
-import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
+import { View, Text, TouchableOpacity, StyleSheet, Image } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
 
@@ -16,15 +16,16 @@ const Header = ({ title, showBack = false, showProfile = true, onProfilePress })
         )}
         <Text style={styles.title}>{title}</Text>
       </View>
-      
-      {showProfile && (
-        <TouchableOpacity 
-          onPress={onProfilePress || (() => navigation.navigate('Profile'))} 
-          style={styles.profileButton}
-        >
-          <Ionicons name="person-circle" size={32} color="#2196F3" />
-        </TouchableOpacity>
-      )}
+      <View style={styles.rightSection}>
+        {showProfile && (
+          <TouchableOpacity 
+            onPress={onProfilePress || (() => navigation.navigate('Profile'))} 
+            style={styles.profileButton}
+          >
+            <Ionicons name="person-circle" size={32} color="#2196F3" />
+          </TouchableOpacity>
+        )}
+      </View>
     </View>
   );
 };
@@ -46,6 +47,10 @@ const styles = StyleSheet.create({
     shadowRadius: 2,
   },
   leftSection: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  rightSection: {
     flexDirection: 'row',
     alignItems: 'center',
   },
