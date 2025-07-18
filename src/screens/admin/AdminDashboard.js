@@ -163,12 +163,12 @@ const AdminDashboard = ({ navigation }) => {
 
   // Upcoming Events state
   const [events, setEvents] = useState([
-    { type: 'Event', title: 'Annual Sports Day', date: '2024-08-20', icon: 'trophy', color: '#FF9800' },
-    { type: 'Exam', title: 'Mathematics Final Exam', date: '2024-09-05', icon: 'document-text', color: '#2196F3' },
-    { type: 'Exam', title: 'Mid Term Exams', date: '2024-10-10', icon: 'school', color: '#9C27B0' },
-    { type: 'Event', title: 'Science Exhibition', date: '2024-09-18', icon: 'flask', color: '#4CAF50' },
-    { type: 'Event', title: 'Parent-Teacher Meeting', date: '2024-08-30', icon: 'people', color: '#607D8B' },
-    { type: 'Event', title: 'Art & Craft Fair', date: '2024-11-15', icon: 'color-palette', color: '#E91E63' },
+    { id: 1, type: 'Event', title: 'Annual Sports Day', date: '2024-08-20', icon: 'trophy', color: '#FF9800' },
+    { id: 2, type: 'Exam', title: 'Mathematics Final Exam', date: '2024-09-05', icon: 'document-text', color: '#2196F3' },
+    { id: 3, type: 'Exam', title: 'Mid Term Exams', date: '2024-10-10', icon: 'school', color: '#9C27B0' },
+    { id: 4, type: 'Event', title: 'Science Exhibition', date: '2024-09-18', icon: 'flask', color: '#4CAF50' },
+    { id: 5, type: 'Event', title: 'Parent-Teacher Meeting', date: '2024-08-30', icon: 'people', color: '#607D8B' },
+    { id: 6, type: 'Event', title: 'Art & Craft Fair', date: '2024-11-15', icon: 'color-palette', color: '#E91E63' },
   ]);
   const [isEventModalVisible, setIsEventModalVisible] = useState(false);
   const [eventInput, setEventInput] = useState({ type: 'Event', title: '', date: '', icon: 'trophy', color: '#FF9800' });
@@ -194,20 +194,20 @@ const AdminDashboard = ({ navigation }) => {
     if (editEventIndex !== null) {
       // Edit existing
       const updated = [...events];
-      updated[editEventIndex] = eventInput;
+      updated[editEventIndex] = { ...eventInput, id: events[editEventIndex].id };
       setEvents(updated);
     } else {
       // Add new
-      setEvents([{ ...eventInput }, ...events]);
+      setEvents([{ ...eventInput, id: Date.now() }, ...events]);
     }
     setIsEventModalVisible(false);
   };
 
-  const deleteEvent = (idx) => {
+  const deleteEvent = (id) => {
     Alert.alert('Delete Event', 'Are you sure you want to delete this event?', [
       { text: 'Cancel', style: 'cancel' },
       { text: 'Delete', style: 'destructive', onPress: () => {
-        setEvents(events.filter((_, i) => i !== idx));
+        setEvents(events.filter((e) => e.id !== id));
       }},
     ]);
   };
@@ -323,26 +323,23 @@ const AdminDashboard = ({ navigation }) => {
             </TouchableOpacity>
           </View>
           <View style={styles.upcomingList}>
-            {events.slice().sort((a, b) => new Date(a.date) - new Date(b.date)).map((item, idx) => {
-              const originalIdx = events.findIndex(e => e.title === item.title && e.date === item.date);
-              return (
-                <View key={idx} style={styles.upcomingItem}>
-                  <View style={[styles.upcomingIcon, { backgroundColor: item.color }]}> 
-                    <Ionicons name={item.icon} size={20} color="#fff" />
-                  </View>
-                  <View style={styles.upcomingContent}>
-                    <Text style={styles.upcomingTitle}>{item.title}</Text>
-                    <Text style={styles.upcomingSubtitle}>{item.type} • {(() => { const [y, m, d] = item.date.split('-'); return `${d}-${m}-${y}`; })()}</Text>
-                  </View>
-                  <TouchableOpacity onPress={() => openEditEventModal(item, idx)} style={{ marginRight: 8 }}>
-                    <Ionicons name="create-outline" size={20} color="#2196F3" />
-                  </TouchableOpacity>
-                  <TouchableOpacity onPress={() => deleteEvent(originalIdx)}>
-                    <Ionicons name="trash" size={20} color="#F44336" />
-                  </TouchableOpacity>
+            {events.slice().sort((a, b) => new Date(a.date) - new Date(b.date)).map((item, idx) => (
+              <View key={item.id} style={styles.upcomingItem}>
+                <View style={[styles.upcomingIcon, { backgroundColor: item.color }]}> 
+                  <Ionicons name={item.icon} size={20} color="#fff" />
                 </View>
-              );
-            })}
+                <View style={styles.upcomingContent}>
+                  <Text style={styles.upcomingTitle}>{item.title}</Text>
+                  <Text style={styles.upcomingSubtitle}>{item.type} • {(() => { const [y, m, d] = item.date.split('-'); return `${d}-${m}-${y}`; })()}</Text>
+                </View>
+                <TouchableOpacity onPress={() => openEditEventModal(item, events.findIndex(e => e.id === item.id))} style={{ marginRight: 8 }}>
+                  <Ionicons name="create-outline" size={20} color="#2196F3" />
+                </TouchableOpacity>
+                <TouchableOpacity onPress={() => deleteEvent(item.id)}>
+                  <Ionicons name="trash" size={20} color="#F44336" />
+                </TouchableOpacity>
+              </View>
+            ))}
           </View>
           {/* Event Modal */}
           <Modal
