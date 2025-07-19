@@ -367,10 +367,10 @@ const AdminDashboard = ({ navigation }) => {
                   />
                 ) : (
                   <TouchableOpacity style={styles.input} onPress={() => setShowEventDatePicker(true)}>
-                    <Text style={{ color: eventInput.date ? '#333' : '#aaa' }}>
-                      {eventInput.date ? (() => { const [y, m, d] = eventInput.date.split('-'); return `${d}-${m}-${y}`; })() : 'Select Date'}
-                    </Text>
-                  </TouchableOpacity>
+                  <Text style={{ color: eventInput.date ? '#333' : '#aaa' }}>
+                    {eventInput.date ? (() => { const [y, m, d] = eventInput.date.split('-'); return `${d}-${m}-${y}`; })() : 'Select Date'}
+                  </Text>
+                </TouchableOpacity>
                 )}
                 {showEventDatePicker && Platform.OS !== 'web' && (
                   <DateTimePicker
@@ -477,21 +477,21 @@ const AdminDashboard = ({ navigation }) => {
             {announcements.slice().sort((a, b) => new Date(a.date) - new Date(b.date)).map((item, idx) => {
               const originalIdx = announcements.findIndex(a => a.message === item.message && a.date === item.date);
               return (
-                <View key={idx} style={styles.announcementItem}>
-                  <View style={[styles.announcementIcon, { backgroundColor: item.color }]}> 
-                    <Ionicons name={item.icon} size={20} color="#fff" />
-                  </View>
-                  <View style={styles.announcementContent}>
-                    <Text style={styles.announcementText}>{item.message}</Text>
-                    <Text style={styles.announcementDate}>{(() => { const [y, m, d] = item.date.split('-'); return `${d}-${m}-${y}`; })()}</Text>
-                  </View>
-                  <TouchableOpacity onPress={() => openEditAnnouncementModal(item, idx)} style={{ marginRight: 8 }}>
-                    <Ionicons name="create-outline" size={20} color="#2196F3" />
-                  </TouchableOpacity>
-                  <TouchableOpacity onPress={() => deleteAnnouncement(originalIdx)}>
-                    <Ionicons name="trash" size={20} color="#F44336" />
-                  </TouchableOpacity>
+              <View key={idx} style={styles.announcementItem}>
+                <View style={[styles.announcementIcon, { backgroundColor: item.color }]}> 
+                  <Ionicons name={item.icon} size={20} color="#fff" />
                 </View>
+                <View style={styles.announcementContent}>
+                  <Text style={styles.announcementText}>{item.message}</Text>
+                  <Text style={styles.announcementDate}>{(() => { const [y, m, d] = item.date.split('-'); return `${d}-${m}-${y}`; })()}</Text>
+                </View>
+                <TouchableOpacity onPress={() => openEditAnnouncementModal(item, idx)} style={{ marginRight: 8 }}>
+                  <Ionicons name="create-outline" size={20} color="#2196F3" />
+                </TouchableOpacity>
+                  <TouchableOpacity onPress={() => deleteAnnouncement(originalIdx)}>
+                  <Ionicons name="trash" size={20} color="#F44336" />
+                </TouchableOpacity>
+              </View>
               );
             })}
           </View>
@@ -522,10 +522,10 @@ const AdminDashboard = ({ navigation }) => {
                   />
                 ) : (
                   <TouchableOpacity style={styles.input} onPress={() => setShowAnnouncementDatePicker(true)}>
-                    <Text style={{ color: announcementInput.date ? '#333' : '#aaa' }}>
-                      {announcementInput.date ? (() => { const [y, m, d] = announcementInput.date.split('-'); return `${d}-${m}-${y}`; })() : 'Select Date'}
-                    </Text>
-                  </TouchableOpacity>
+                  <Text style={{ color: announcementInput.date ? '#333' : '#aaa' }}>
+                    {announcementInput.date ? (() => { const [y, m, d] = announcementInput.date.split('-'); return `${d}-${m}-${y}`; })() : 'Select Date'}
+                  </Text>
+                </TouchableOpacity>
                 )}
                 {showAnnouncementDatePicker && (
                   <DateTimePicker
