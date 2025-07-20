@@ -3,6 +3,7 @@ import { View, Text, StyleSheet, TextInput, TouchableOpacity, Image, ScrollView,
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import { useNavigation } from '@react-navigation/native';
+import { useAuth } from '../../utils/AuthContext';
 
 const DUMMY_USER = {
   name: 'John Doe',
@@ -24,6 +25,7 @@ const ProfileScreen = () => {
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const navigation = useNavigation();
+  const { signOut } = useAuth();
 
   const handleSave = () => {
     setUser({ ...user, ...form });
@@ -100,11 +102,9 @@ const ProfileScreen = () => {
     }
   };
 
-  const handleLogout = () => {
-    setUser({ ...DUMMY_USER }); // Optionally reset profile
-    Alert.alert('See you soon! 👋', 'You have been logged out.', [
-      { text: 'OK', onPress: () => navigation.navigate('Login') }
-    ]);
+  const handleLogout = async () => {
+    await signOut();
+    Alert.alert('See you soon! 👋', 'You have been logged out.');
   };
 
   return (

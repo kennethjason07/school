@@ -118,6 +118,10 @@ const ManageTeachers = ({ navigation }) => {
           <Ionicons name="eye" size={16} color="#2196F3" />
           <Text style={styles.actionText}>View</Text>
         </TouchableOpacity>
+        <TouchableOpacity style={styles.actionButton} onPress={() => navigation.navigate('AssignTaskToTeacher', { teacher: item })}>
+          <Ionicons name="clipboard" size={16} color="#388e3c" />
+          <Text style={styles.actionText}>Assign Task</Text>
+        </TouchableOpacity>
         <TouchableOpacity style={styles.actionButton} onPress={() => openEditModal(item)}>
           <Ionicons name="create" size={16} color="#FF9800" />
           <Text style={styles.actionText}>Edit</Text>
