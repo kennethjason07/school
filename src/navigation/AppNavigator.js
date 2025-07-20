@@ -26,6 +26,7 @@ import StudentDetails from '../screens/admin/StudentDetails';
 import StudentList from '../screens/admin/StudentList';
 import TeacherDetails from '../screens/admin/TeacherDetails';
 import FeeClassDetails from '../screens/admin/FeeClassDetails';
+import AssignTaskToTeacher from '../screens/admin/AssignTaskToTeacher';
 
 // Teacher Screens
 import TeacherDashboard from '../screens/teacher/TeacherDashboard';
@@ -34,6 +35,8 @@ import MarksEntry from '../screens/teacher/MarksEntry';
 import UploadHomework from '../screens/teacher/UploadHomework';
 import ViewStudentInfo from '../screens/teacher/ViewStudentInfo';
 import MarksEntryStudentsScreen from '../screens/teacher/MarksEntryStudentsScreen';
+import StudentAttendanceScreen from '../screens/teacher/StudentAttendanceScreen';
+import StudentMarksScreen from '../screens/teacher/StudentMarksScreen';
 
 // Parent Screens
 import ParentDashboard from '../screens/parent/ParentDashboard';
@@ -230,12 +233,15 @@ export default function AppNavigator() {
                 <Stack.Screen name="ExamsMarks" component={ExamsMarks} />
                 <Stack.Screen name="NotificationManagement" component={NotificationManagement} />
                 <Stack.Screen name="TeacherDetails" component={TeacherDetails} />
+                <Stack.Screen name="AssignTaskToTeacher" component={AssignTaskToTeacher} />
               </>
             )}
             {userType === 'teacher' && (
               <>
                 <Stack.Screen name="TeacherTabs" component={TeacherTabNavigator} />
                 <Stack.Screen name="MarksEntryStudentsScreen" component={MarksEntryStudentsScreen} />
+                <Stack.Screen name="StudentAttendanceScreen" component={StudentAttendanceScreen} />
+                <Stack.Screen name="StudentMarksScreen" component={StudentMarksScreen} />
               </>
             )}
             {userType === 'parent' && (
