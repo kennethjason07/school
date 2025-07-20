@@ -1,415 +1,409 @@
 import React, { useState } from 'react';
-import {
-  View,
-  Text,
-  StyleSheet,
-  ScrollView,
-  TouchableOpacity,
-  TextInput,
-  Alert,
-  Image,
-} from 'react-native';
+import { View, Text, StyleSheet, TextInput, TouchableOpacity, Image, ScrollView, Alert, ActionSheetIOS, Platform } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
-import Header from '../../components/Header';
+import { useNavigation } from '@react-navigation/native';
 
-const ProfileScreen = ({ navigation }) => {
-  const [isEditing, setIsEditing] = useState(false);
-  const [profileImage, setProfileImage] = useState(null);
-  
-  // Mock user data - in real app this would come from context/state
-  const [userData, setUserData] = useState({
-    name: 'John Doe',
-    email: 'john.doe@school.com',
-    phone: '+91 98765 43210',
-    role: 'Admin',
-    department: 'Administration',
-    address: '123 School Street, City, State 12345',
-    emergencyContact: '+91 98765 43211',
-    bloodGroup: 'O+',
-    dateOfBirth: '15-03-1985',
+const DUMMY_USER = {
+  name: 'John Doe',
+  email: 'john.doe@email.com',
+  photo: 'https://randomuser.me/api/portraits/men/32.jpg',
+  contact: '+1 234 567 8901',
+  linkedAccounts: ['Parent', 'Student'],
+};
+
+const ProfileScreen = () => {
+  const [user, setUser] = useState(DUMMY_USER);
+  const [editing, setEditing] = useState(false);
+  const [form, setForm] = useState({
+    name: user.name,
+    email: user.email,
+    contact: user.contact,
   });
+  const [showPassword, setShowPassword] = useState(false);
+  const [password, setPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const navigation = useNavigation();
 
-  const [editedData, setEditedData] = useState({ ...userData });
+  const handleSave = () => {
+    setUser({ ...user, ...form });
+    setEditing(false);
+    Alert.alert('Profile updated!');
+  };
 
-  const pickImage = async () => {
+  const handleChangePassword = () => {
+    if (!password || password !== confirmPassword) {
+      Alert.alert('Passwords do not match!');
+      return;
+    }
+    setPassword('');
+    setConfirmPassword('');
+    setShowPassword(false);
+    Alert.alert('Password changed!');
+  };
+
+  const handlePickPhoto = async () => {
+    if (Platform.OS === 'ios') {
+      ActionSheetIOS.showActionSheetWithOptions(
+        {
+          options: ['Cancel', 'Take Photo', 'Choose from Gallery'],
+          cancelButtonIndex: 0,
+        },
+        async (buttonIndex) => {
+          if (buttonIndex === 1) {
+            await handleTakePhoto();
+          } else if (buttonIndex === 2) {
+            await handleChooseFromGallery();
+          }
+        }
+      );
+    } else {
+      // For Android, use a simple prompt
+      Alert.alert('Profile Photo', 'Select an option', [
+        { text: 'Take Photo', onPress: handleTakePhoto },
+        { text: 'Choose from Gallery', onPress: handleChooseFromGallery },
+        { text: 'Cancel', style: 'cancel' },
+      ]);
+    }
+  };
+
+  const handleChooseFromGallery = async () => {
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    
     if (status !== 'granted') {
       Alert.alert('Permission needed', 'Please grant permission to access your photo library');
       return;
     }
-
     const result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ImagePicker.MediaTypeOptions.Images,
       allowsEditing: true,
       aspect: [1, 1],
       quality: 0.8,
     });
-
-    if (!result.canceled) {
-      setProfileImage(result.assets[0].uri);
+    if (!result.canceled && result.assets && result.assets.length > 0) {
+      setUser(u => ({ ...u, photo: result.assets[0].uri }));
     }
   };
 
-  const handleSave = () => {
-    setUserData(editedData);
-    setIsEditing(false);
-    Alert.alert('Success', 'Profile updated successfully!');
+  const handleTakePhoto = async () => {
+    const { status } = await ImagePicker.requestCameraPermissionsAsync();
+    if (status !== 'granted') {
+      Alert.alert('Permission needed', 'Please grant permission to use your camera');
+      return;
+    }
+    const result = await ImagePicker.launchCameraAsync({
+      allowsEditing: true,
+      aspect: [1, 1],
+      quality: 0.8,
+    });
+    if (!result.canceled && result.assets && result.assets.length > 0) {
+      setUser(u => ({ ...u, photo: result.assets[0].uri }));
+    }
   };
 
-  const handleCancel = () => {
-    setEditedData({ ...userData });
-    setIsEditing(false);
+  const handleLogout = () => {
+    setUser({ ...DUMMY_USER }); // Optionally reset profile
+    Alert.alert('See you soon! 👋', 'You have been logged out.', [
+      { text: 'OK', onPress: () => navigation.navigate('Login') }
+    ]);
   };
-
-  const updateField = (field, value) => {
-    setEditedData(prev => ({ ...prev, [field]: value }));
-  };
-
-  const renderField = (label, field, value, keyboardType = 'default', editable = true) => (
-    <View style={styles.fieldContainer}>
-      <Text style={styles.fieldLabel}>{label}</Text>
-      {isEditing && editable ? (
-        <TextInput
-          style={styles.input}
-          value={value}
-          onChangeText={(text) => updateField(field, text)}
-          keyboardType={keyboardType}
-          placeholder={`Enter ${label.toLowerCase()}`}
-        />
-      ) : (
-        <Text style={styles.fieldValue}>{value}</Text>
-      )}
-    </View>
-  );
 
   return (
-    <View style={styles.container}>
-      <Header title="Profile" showBack={true} />
-      
-      <ScrollView style={styles.scrollView} showsVerticalScrollIndicator={false}>
-        {/* Profile Header */}
-        <View style={styles.profileHeader}>
-          <TouchableOpacity style={styles.imageContainer} onPress={isEditing ? pickImage : null}>
-            {profileImage ? (
-              <Image source={{ uri: profileImage }} style={styles.profileImage} />
-            ) : (
-              <View style={styles.profileImagePlaceholder}>
-                <Ionicons name="person" size={60} color="#fff" />
-              </View>
-            )}
-            {isEditing && (
-              <View style={styles.editImageOverlay}>
-                <Ionicons name="camera" size={20} color="#fff" />
-              </View>
-            )}
-          </TouchableOpacity>
-          
-          <View style={styles.profileInfo}>
-            <Text style={styles.profileName}>{userData.name}</Text>
-            <Text style={styles.profileRole}>{userData.role}</Text>
-            <Text style={styles.profileDepartment}>{userData.department}</Text>
-          </View>
-        </View>
-
-        {/* Edit Button */}
-        <View style={styles.editSection}>
-          {!isEditing ? (
-            <TouchableOpacity style={styles.editButton} onPress={() => setIsEditing(true)}>
-              <Ionicons name="create" size={20} color="#fff" />
-              <Text style={styles.editButtonText}>Edit Profile</Text>
+    <ScrollView style={styles.container} contentContainerStyle={styles.scrollContent}>
+      <View style={styles.profileSection}>
+        <View style={styles.photoRow}>
+          <Image source={{ uri: user.photo }} style={styles.profilePhoto} />
+          {editing && (
+            <TouchableOpacity style={styles.editPhotoBtn} onPress={handlePickPhoto}>
+              <Ionicons name="camera" size={20} color="#1976d2" />
             </TouchableOpacity>
-          ) : (
-            <View style={styles.editActions}>
-              <TouchableOpacity style={styles.saveButton} onPress={handleSave}>
-                <Ionicons name="checkmark" size={20} color="#fff" />
-                <Text style={styles.saveButtonText}>Save</Text>
-              </TouchableOpacity>
-              <TouchableOpacity style={styles.cancelButton} onPress={handleCancel}>
-                <Ionicons name="close" size={20} color="#666" />
-                <Text style={styles.cancelButtonText}>Cancel</Text>
-              </TouchableOpacity>
-            </View>
           )}
         </View>
-
-        {/* Profile Details */}
-        <View style={styles.detailsSection}>
-          <Text style={styles.sectionTitle}>Personal Information</Text>
-          
-          {renderField('Full Name', 'name', editedData.name)}
-          {renderField('Email', 'email', editedData.email, 'email-address')}
-          {renderField('Phone', 'phone', editedData.phone, 'phone-pad')}
-          {renderField('Address', 'address', editedData.address)}
-          {renderField('Date of Birth', 'dateOfBirth', editedData.dateOfBirth)}
-          {renderField('Blood Group', 'bloodGroup', editedData.bloodGroup)}
-          
-          <Text style={styles.sectionTitle}>Emergency Contact</Text>
-          {renderField('Emergency Contact', 'emergencyContact', editedData.emergencyContact, 'phone-pad')}
+        <Text style={styles.profileName}>{user.name}</Text>
+        <Text style={styles.profileEmail}>{user.email}</Text>
+      </View>
+      <View style={styles.section}>
+        <Text style={styles.sectionTitle}>Profile Info</Text>
+        <View style={styles.inputGroup}>
+          <Ionicons name="person" size={18} color="#888" style={styles.inputIcon} />
+          <TextInput
+            style={styles.input}
+            value={editing ? form.name : user.name}
+            onChangeText={text => setForm(f => ({ ...f, name: text }))}
+            editable={editing}
+            placeholder="Name"
+          />
         </View>
-
-        {/* Account Settings */}
-        <View style={styles.detailsSection}>
-          <Text style={styles.sectionTitle}>Account Settings</Text>
-          
-          <TouchableOpacity style={styles.settingItem}>
-            <View style={styles.settingIcon}>
-              <Ionicons name="lock-closed" size={24} color="#2196F3" />
-            </View>
-            <View style={styles.settingContent}>
-              <Text style={styles.settingTitle}>Change Password</Text>
-              <Text style={styles.settingSubtitle}>Update your account password</Text>
-            </View>
-            <Ionicons name="chevron-forward" size={20} color="#666" />
-          </TouchableOpacity>
-
-          <TouchableOpacity style={styles.settingItem}>
-            <View style={styles.settingIcon}>
-              <Ionicons name="notifications" size={24} color="#FF9800" />
-            </View>
-            <View style={styles.settingContent}>
-              <Text style={styles.settingTitle}>Notification Settings</Text>
-              <Text style={styles.settingSubtitle}>Manage your notification preferences</Text>
-            </View>
-            <Ionicons name="chevron-forward" size={20} color="#666" />
-          </TouchableOpacity>
-
-          <TouchableOpacity style={styles.settingItem}>
-            <View style={styles.settingIcon}>
-              <Ionicons name="shield-checkmark" size={24} color="#4CAF50" />
-            </View>
-            <View style={styles.settingContent}>
-              <Text style={styles.settingTitle}>Privacy Settings</Text>
-              <Text style={styles.settingSubtitle}>Control your privacy and data</Text>
-            </View>
-            <Ionicons name="chevron-forward" size={20} color="#666" />
-          </TouchableOpacity>
+        <View style={styles.inputGroup}>
+          <Ionicons name="mail" size={18} color="#888" style={styles.inputIcon} />
+          <TextInput
+            style={styles.input}
+            value={editing ? form.email : user.email}
+            onChangeText={text => setForm(f => ({ ...f, email: text }))}
+            editable={editing}
+            placeholder="Email"
+            keyboardType="email-address"
+          />
         </View>
-
-        {/* Logout Section */}
-        <View style={styles.detailsSection}>
-          <TouchableOpacity 
-            style={styles.logoutButton}
-            onPress={() => {
-              Alert.alert(
-                'Logout',
-                'Are you sure you want to logout?',
-                [
-                  { text: 'Cancel', style: 'cancel' },
-                  { text: 'Logout', style: 'destructive', onPress: () => navigation.navigate('Login') }
-                ]
-              );
-            }}
-          >
-            <Ionicons name="log-out" size={20} color="#f44336" />
-            <Text style={styles.logoutButtonText}>Logout</Text>
-          </TouchableOpacity>
+        <View style={styles.inputGroup}>
+          <Ionicons name="call" size={18} color="#888" style={styles.inputIcon} />
+          <TextInput
+            style={styles.input}
+            value={editing ? form.contact : user.contact}
+            onChangeText={text => setForm(f => ({ ...f, contact: text }))}
+            editable={editing}
+            placeholder="Contact"
+            keyboardType="phone-pad"
+          />
         </View>
-      </ScrollView>
-    </View>
+        <TouchableOpacity
+          style={[styles.editBtn, editing ? styles.saveBtn : styles.editProfileBtn]}
+          onPress={editing ? handleSave : () => setEditing(true)}
+          activeOpacity={0.85}
+        >
+          <Ionicons name={editing ? 'checkmark' : 'pencil'} size={18} color="#fff" style={{ marginRight: 6 }} />
+          <Text style={styles.editBtnText}>{editing ? 'Save' : 'Edit Profile'}</Text>
+        </TouchableOpacity>
+      </View>
+      <View style={styles.section}>
+        <Text style={styles.sectionTitle}>Security</Text>
+        {showPassword ? (
+          <>
+            <View style={styles.inputGroup}>
+              <Ionicons name="lock-closed" size={18} color="#888" style={styles.inputIcon} />
+              <TextInput
+                style={styles.input}
+                value={password}
+                onChangeText={setPassword}
+                placeholder="New Password"
+                secureTextEntry
+              />
+            </View>
+            <View style={styles.inputGroup}>
+              <Ionicons name="lock-closed" size={18} color="#888" style={styles.inputIcon} />
+              <TextInput
+                style={styles.input}
+                value={confirmPassword}
+                onChangeText={setConfirmPassword}
+                placeholder="Confirm Password"
+                secureTextEntry
+              />
+            </View>
+            <View style={styles.securityBtnRow}>
+              <TouchableOpacity style={[styles.editBtn, styles.saveBtn]} onPress={handleChangePassword}>
+                <Ionicons name="checkmark" size={18} color="#fff" style={{ marginRight: 6 }} />
+                <Text style={styles.editBtnText}>Change Password</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={[styles.editBtn, styles.cancelBtn]} onPress={() => setShowPassword(false)}>
+                <Ionicons name="close" size={18} color="#fff" style={{ marginRight: 6 }} />
+                <Text style={styles.editBtnText}>Cancel</Text>
+              </TouchableOpacity>
+            </View>
+          </>
+        ) : (
+          <TouchableOpacity style={[styles.editBtn, styles.editProfileBtn]} onPress={() => setShowPassword(true)}>
+            <Ionicons name="lock-closed" size={18} color="#fff" style={{ marginRight: 6 }} />
+            <Text style={styles.editBtnText}>Change Password</Text>
+          </TouchableOpacity>
+        )}
+      </View>
+      <View style={styles.section}>
+        <Text style={styles.sectionTitle}>Linked Accounts</Text>
+        <View style={styles.linkedRow}>
+          {user.linkedAccounts.map(acc => (
+            <View key={acc} style={styles.linkedBadge}>
+              <Ionicons name={acc === 'Parent' ? 'people' : acc === 'Student' ? 'school' : 'person'} size={16} color="#1976d2" style={{ marginRight: 4 }} />
+              <Text style={styles.linkedText}>{acc}</Text>
+            </View>
+          ))}
+        </View>
+      </View>
+      <View style={styles.logoutSection}>
+        <TouchableOpacity
+          style={styles.logoutBtn}
+          onPress={handleLogout}
+          activeOpacity={0.85}
+        >
+          <Ionicons name="log-out" size={20} color="#fff" style={{ marginRight: 8 }} />
+          <Text style={styles.logoutBtnText}>Logout</Text>
+        </TouchableOpacity>
+      </View>
+    </ScrollView>
   );
 };
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#f5f5f5',
+    backgroundColor: '#f5f7fa',
+    padding: 0,
   },
-  scrollView: {
-    flex: 1,
+  scrollContent: {
+    paddingBottom: 40,
+    paddingTop: 0,
   },
-  profileHeader: {
+  profileSection: {
+    alignItems: 'center',
+    paddingVertical: 32,
     backgroundColor: '#fff',
-    padding: 20,
-    alignItems: 'center',
-    marginBottom: 8,
+    borderBottomLeftRadius: 24,
+    borderBottomRightRadius: 24,
+    marginBottom: 18,
+    elevation: 2,
+    shadowColor: '#1976d2',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.08,
+    shadowRadius: 4,
   },
-  imageContainer: {
+  photoRow: {
+    alignItems: 'center',
+    justifyContent: 'center',
     position: 'relative',
-    marginBottom: 16,
   },
-  profileImage: {
-    width: 120,
-    height: 120,
-    borderRadius: 60,
-  },
-  profileImagePlaceholder: {
-    width: 120,
-    height: 120,
-    borderRadius: 60,
-    backgroundColor: '#2196F3',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  editImageOverlay: {
-    position: 'absolute',
-    bottom: 0,
-    right: 0,
-    backgroundColor: '#2196F3',
-    borderRadius: 20,
-    width: 40,
-    height: 40,
-    alignItems: 'center',
-    justifyContent: 'center',
+  profilePhoto: {
+    width: 100,
+    height: 100,
+    borderRadius: 50,
+    marginBottom: 10,
     borderWidth: 3,
-    borderColor: '#fff',
+    borderColor: '#1976d2',
   },
-  profileInfo: {
-    alignItems: 'center',
+  editPhotoBtn: {
+    position: 'absolute',
+    right: 0,
+    bottom: 10,
+    backgroundColor: '#e3eaf2',
+    borderRadius: 16,
+    padding: 6,
+    elevation: 2,
   },
   profileName: {
-    fontSize: 24,
+    fontSize: 22,
     fontWeight: 'bold',
-    color: '#333',
-    marginBottom: 4,
+    color: '#1976d2',
+    marginTop: 6,
   },
-  profileRole: {
-    fontSize: 16,
-    color: '#2196F3',
-    fontWeight: '600',
+  profileEmail: {
+    color: '#888',
+    fontSize: 15,
+    marginTop: 2,
     marginBottom: 2,
   },
-  profileDepartment: {
-    fontSize: 14,
-    color: '#666',
-  },
-  editSection: {
+  section: {
     backgroundColor: '#fff',
-    padding: 20,
-    marginBottom: 8,
-  },
-  editButton: {
-    backgroundColor: '#2196F3',
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: 12,
-    borderRadius: 8,
-  },
-  editButtonText: {
-    color: '#fff',
-    fontSize: 16,
-    fontWeight: '600',
-    marginLeft: 8,
-  },
-  editActions: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-  },
-  saveButton: {
-    backgroundColor: '#4CAF50',
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: 12,
-    paddingHorizontal: 24,
-    borderRadius: 8,
-    flex: 1,
-    marginRight: 8,
-  },
-  saveButtonText: {
-    color: '#fff',
-    fontSize: 16,
-    fontWeight: '600',
-    marginLeft: 8,
-  },
-  cancelButton: {
-    backgroundColor: '#f5f5f5',
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: 12,
-    paddingHorizontal: 24,
-    borderRadius: 8,
-    flex: 1,
-    marginLeft: 8,
-  },
-  cancelButtonText: {
-    color: '#666',
-    fontSize: 16,
-    fontWeight: '600',
-    marginLeft: 8,
-  },
-  detailsSection: {
-    backgroundColor: '#fff',
-    padding: 20,
-    marginBottom: 8,
+    borderRadius: 16,
+    padding: 18,
+    marginBottom: 18,
+    marginHorizontal: 12,
+    elevation: 2,
+    shadowColor: '#1976d2',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.08,
+    shadowRadius: 4,
   },
   sectionTitle: {
-    fontSize: 18,
+    fontSize: 17,
     fontWeight: 'bold',
-    color: '#333',
-    marginBottom: 16,
+    color: '#1976d2',
+    marginBottom: 10,
   },
-  fieldContainer: {
-    marginBottom: 16,
+  inputGroup: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#f5f7fa',
+    borderRadius: 10,
+    marginBottom: 12,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
   },
-  fieldLabel: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#666',
-    marginBottom: 6,
-  },
-  fieldValue: {
-    fontSize: 16,
-    color: '#333',
-    paddingVertical: 8,
+  inputIcon: {
+    marginRight: 8,
   },
   input: {
-    borderWidth: 1,
-    borderColor: '#e0e0e0',
-    borderRadius: 8,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    fontSize: 16,
-    color: '#333',
-    backgroundColor: '#f9f9f9',
+    flex: 1,
+    fontSize: 15,
+    color: '#222',
+    backgroundColor: 'transparent',
+    borderWidth: 0,
+    paddingVertical: 6,
   },
-  settingItem: {
+  editBtn: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: '#f0f0f0',
+    alignSelf: 'flex-end',
+    marginTop: 6,
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderRadius: 8,
+    elevation: 1,
   },
-  settingIcon: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: '#f0f0f0',
+  editProfileBtn: {
+    backgroundColor: '#1976d2',
+  },
+  saveBtn: {
+    backgroundColor: '#4CAF50',
+  },
+  cancelBtn: {
+    backgroundColor: '#888',
+    marginLeft: 8,
+  },
+  editBtnText: {
+    color: '#fff',
+    fontWeight: 'bold',
+    fontSize: 15,
+  },
+  securityBtnRow: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
     alignItems: 'center',
-    justifyContent: 'center',
-    marginRight: 12,
+    marginTop: 4,
   },
-  settingContent: {
+  linkedRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    marginTop: 6,
+  },
+  linkedBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#e3eaf2',
+    borderRadius: 14,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    marginRight: 10,
+    marginBottom: 8,
+  },
+  linkedText: {
+    color: '#1976d2',
+    fontWeight: 'bold',
+    fontSize: 14,
+  },
+  logoutSection: {
+    marginTop: 18,
+    marginBottom: 32,
+    alignItems: 'center',
+    justifyContent: 'flex-end',
     flex: 1,
   },
-  settingTitle: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#333',
-    marginBottom: 2,
-  },
-  settingSubtitle: {
-    fontSize: 14,
-    color: '#666',
-  },
-  logoutButton: {
+  logoutBtn: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: 16,
-    backgroundColor: '#fff5f5',
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: '#ffebee',
+    backgroundColor: '#f44336',
+    borderRadius: 24,
+    paddingHorizontal: 32,
+    paddingVertical: 14,
+    marginTop: 10,
+    elevation: 2,
+    shadowColor: '#f44336',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.12,
+    shadowRadius: 4,
   },
-  logoutButtonText: {
-    color: '#f44336',
-    fontSize: 16,
-    fontWeight: '600',
-    marginLeft: 8,
+  logoutBtnText: {
+    color: '#fff',
+    fontWeight: 'bold',
+    fontSize: 17,
+    letterSpacing: 0.2,
   },
 });
 

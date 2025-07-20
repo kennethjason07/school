@@ -3,7 +3,7 @@ import { View, Text, TouchableOpacity, StyleSheet, Image } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
 
-const Header = ({ title, showBack = false, showProfile = true, onProfilePress }) => {
+const Header = ({ title, showBack = false, showProfile = true, showNotifications = false, onProfilePress, onNotificationsPress, unreadCount = 0 }) => {
   const navigation = useNavigation();
 
   return (
@@ -17,6 +17,25 @@ const Header = ({ title, showBack = false, showProfile = true, onProfilePress })
         <Text style={styles.title}>{title}</Text>
       </View>
       <View style={styles.rightSection}>
+        {showNotifications && (
+          <TouchableOpacity 
+            onPress={onNotificationsPress || (() => navigation.navigate('Notifications'))} 
+            style={styles.notificationButton}
+          >
+            <Ionicons 
+              name="notifications" 
+              size={24} 
+              color={unreadCount > 0 ? "#2196F3" : "#333"} 
+            />
+            {unreadCount > 0 && (
+              <View style={styles.notificationBadge}>
+                <Text style={styles.notificationBadgeText}>
+                  {unreadCount > 99 ? '99+' : unreadCount}
+                </Text>
+              </View>
+            )}
+          </TouchableOpacity>
+        )}
         {showProfile && (
           <TouchableOpacity 
             onPress={onProfilePress || (() => navigation.navigate('Profile'))} 
@@ -65,6 +84,28 @@ const styles = StyleSheet.create({
   },
   profileButton: {
     padding: 4,
+  },
+  notificationButton: {
+    position: 'relative',
+    marginRight: 12,
+    padding: 4,
+  },
+  notificationBadge: {
+    position: 'absolute',
+    top: -5,
+    right: -5,
+    backgroundColor: 'red',
+    borderRadius: 10,
+    minWidth: 20,
+    height: 20,
+    justifyContent: 'center',
+    alignItems: 'center',
+    zIndex: 1,
+  },
+  notificationBadgeText: {
+    color: 'white',
+    fontSize: 12,
+    fontWeight: 'bold',
   },
 });
 

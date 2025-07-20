@@ -239,7 +239,10 @@ export default function AppNavigator() {
               </>
             )}
             {userType === 'parent' && (
+              <>
               <Stack.Screen name="ParentTabs" component={ParentTabNavigator} />
+                <Stack.Screen name="Notifications" component={Notifications} />
+              </>
             )}
             {userType === 'student' && (
               <Stack.Screen name="StudentTabs" component={StudentTabNavigator} />

@@ -13,7 +13,13 @@ import Header from '../../components/Header';
 import StatCard from '../../components/StatCard';
 import CrossPlatformPieChart from '../../components/CrossPlatformPieChart';
 
+// Import notifications data to calculate real unread count
+import { DUMMY_NOTIFICATIONS } from './Notifications';
+
 const ParentDashboard = ({ navigation }) => {
+  // Calculate real unread count from notifications data
+  const unreadCount = DUMMY_NOTIFICATIONS.filter(notification => !notification.isRead).length;
+
   // Mock data
   const upcomingExams = [
     { subject: 'Mathematics', date: 'Dec 15, 2024', time: '9:00 AM', class: 'Class 5A' },
@@ -307,7 +313,12 @@ const ParentDashboard = ({ navigation }) => {
 
   return (
     <View style={styles.container}>
-      <Header title="Parent Dashboard" />
+      <Header 
+        title="Parent Dashboard" 
+        showBack={false} 
+        showNotifications={true}
+        unreadCount={unreadCount}
+      />
       
       <ScrollView 
         style={styles.scrollView} 
