@@ -19,7 +19,7 @@ const AnalyticsReports = ({ navigation }) => {
 
   return (
     <View style={styles.container}>
-      <Header title="Analytics & Reports" />
+      <Header title="Analytics & Reports" showBack={true} />
       
       <ScrollView style={styles.scrollView} showsVerticalScrollIndicator={false}>
         <View style={styles.statsContainer}>

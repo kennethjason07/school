@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput, Alert } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import Header from '../../components/Header';
 
 // Mock data: all students
 const MOCK_STUDENTS = [
@@ -40,12 +41,7 @@ export default function MarksEntryStudentsScreen({ navigation, route }) {
 
   return (
     <View style={styles.container}>
-      <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 12, marginBottom: 8 }}>
-        <TouchableOpacity onPress={() => navigation.goBack()} style={{ marginRight: 10 }}>
-          <Ionicons name="arrow-back" size={24} color="#1976d2" />
-        </TouchableOpacity>
-        <Text style={styles.title}>Marks Entry: {subject}</Text>
-      </View>
+      <Header title={`Marks Entry: ${subject}`} showBack={true} />
       <ScrollView contentContainerStyle={{ padding: 16 }}>
         {/* Marks Entry Table */}
         <View style={styles.tableBox}>
@@ -87,7 +83,6 @@ export default function MarksEntryStudentsScreen({ navigation, route }) {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#f5f5f5' },
-  title: { fontSize: 20, fontWeight: 'bold', color: '#1976d2', marginBottom: 8 },
   tableBox: { backgroundColor: '#fff', borderRadius: 10, marginTop: 10, marginBottom: 18, elevation: 2 },
   tableHeader: { flexDirection: 'row', borderBottomWidth: 1, borderColor: '#e0e0e0', backgroundColor: '#e3f2fd', borderTopLeftRadius: 10, borderTopRightRadius: 10 },
   tableRow: { flexDirection: 'row', borderBottomWidth: 1, borderColor: '#f0f0f0', alignItems: 'center' },

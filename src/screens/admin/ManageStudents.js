@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { View, Text, FlatList, StyleSheet, TouchableOpacity, Modal, TextInput } from 'react-native';
+import { View, Text, FlatList, StyleSheet, TouchableOpacity, Modal, TextInput, ScrollView } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import Header from '../../components/Header';
 import StatCard from '../../components/StatCard';
@@ -166,7 +166,7 @@ const ManageStudents = () => {
           <Text style={styles.topBadgeText}>Top Student</Text>
         </View>
       )}
-      <TouchableOpacity activeOpacity={0.8} onPress={() => handleViewProfile(item)} style={{ flex: 1 }}>
+      <TouchableOpacity activeOpacity={0.8} onPress={() => navigation.navigate('StudentDetails', { student: item })} style={{ flex: 1 }}>
         <View style={styles.teacherInfo}>
           <View style={styles.teacherAvatar}>
             <Ionicons name="person" size={24} color="#2196F3" />
@@ -192,11 +192,8 @@ const ManageStudents = () => {
       </View>
       </TouchableOpacity>
       <View style={styles.studentActions}>
-        <TouchableOpacity style={styles.actionButton} onPress={() => navigation.navigate('StudentDetails', { student: item })}>
-          <Text style={styles.actionText}>Details</Text>
-        </TouchableOpacity>
         <TouchableOpacity style={styles.viewScoreBtn} onPress={() => handleViewScore(item)}>
-          <Ionicons name="trophy-outline" size={18} color="#fff" style={{ marginRight: 4 }} />
+          <Ionicons name="trophy-outline" size={18} color="#FF9800" style={{ marginRight: 4 }} />
           <Text style={styles.viewScoreBtnText}>View Score</Text>
         </TouchableOpacity>
         <TouchableOpacity style={styles.actionButton} onPress={() => handleEdit(item)}>
@@ -213,15 +210,24 @@ const ManageStudents = () => {
 
   return (
     <View style={styles.container}>
-      <Header title="Manage Students" />
+      <Header title="Manage Students" showBack={true} />
+      <View style={styles.header}>
+        <View style={styles.headerInfo}>
+          <Text style={styles.headerTitle}>Total Students: {students.length}</Text>
+          <Text style={styles.headerSubtitle}>All enrolled students</Text>
+        </View>
+        <TouchableOpacity style={styles.addButton} onPress={handleAddStudent}>
+          <Ionicons name="add" size={24} color="#fff" />
+        </TouchableOpacity>
+      </View>
       <View style={styles.filterRow}>
         <View style={[styles.filterCol, styles.filterColMargin]}>
-          <Text style={styles.filterLabelBlue}>Class</Text>
-          <View style={styles.filterBoxBlue}>
+          <Text style={styles.filterLabel}>Class</Text>
+          <View style={styles.filterBox}>
             <Picker
               selectedValue={selectedClass}
               onValueChange={setSelectedClass}
-              style={styles.pickerBlue}
+              style={styles.picker}
             >
               {classOptions.map(opt => (
                 <Picker.Item key={opt} label={opt === 'All' ? 'All Classes' : `Class ${opt}`} value={opt} />
@@ -230,12 +236,12 @@ const ManageStudents = () => {
           </View>
         </View>
         <View style={styles.filterCol}>
-          <Text style={styles.filterLabelGreen}>Section</Text>
-          <View style={styles.filterBoxGreen}>
+          <Text style={styles.filterLabel}>Section</Text>
+          <View style={styles.filterBox}>
             <Picker
               selectedValue={selectedSection}
               onValueChange={setSelectedSection}
-              style={styles.pickerGreen}
+              style={styles.picker}
             >
               {sectionOptions.map(opt => (
                 <Picker.Item key={opt} label={opt === 'All' ? 'All Sections' : opt} value={opt} />
@@ -259,9 +265,6 @@ const ManageStudents = () => {
         renderItem={({ item, index }) => renderStudent({ item, index })}
         contentContainerStyle={{ paddingBottom: 80, paddingHorizontal: 8 }}
       />
-      <TouchableOpacity style={styles.fab} onPress={handleAddStudent}>
-        <Ionicons name="add" size={32} color="#fff" />
-      </TouchableOpacity>
       <Modal
         visible={modalVisible}
         animationType="slide"
@@ -271,65 +274,77 @@ const ManageStudents = () => {
         <View style={styles.modalOverlay}>
           <View style={styles.modalContent}>
             <Text style={styles.modalTitle}>Add New Student</Text>
-            <Text style={styles.inputLabel}>Roll Number</Text>
-            <TextInput
-              style={styles.input}
-              placeholder="Roll Number"
-              value={form.roll}
-              onChangeText={(text) => handleFormChange('roll', text)}
-              keyboardType="number-pad"
-            />
-            <Text style={styles.inputLabel}>Name</Text>
-            <TextInput
-              style={styles.input}
-              placeholder="Name"
-              value={form.name}
-              onChangeText={(text) => handleFormChange('name', text)}
-            />
-            <Text style={styles.inputLabel}>Class</Text>
-            <TextInput
-              style={styles.input}
-              placeholder="Class"
-              value={form.class}
-              onChangeText={(text) => handleFormChange('class', text)}
-            />
-            <Text style={styles.inputLabel}>Section</Text>
-            <TextInput
-              style={styles.input}
-              placeholder="Section"
-              value={form.section}
-              onChangeText={(text) => handleFormChange('section', text)}
-            />
-            <Text style={styles.inputLabel}>Parent Name</Text>
-            <TextInput
-              style={styles.input}
-              placeholder="Parent Name"
-              value={form.parent}
-              onChangeText={(text) => handleFormChange('parent', text)}
-            />
-            <Text style={styles.inputLabel}>Contact</Text>
-            <TextInput
-              style={styles.input}
-              placeholder="Contact"
-              value={form.contact}
-              onChangeText={(text) => handleFormChange('contact', text)}
-              keyboardType="phone-pad"
-            />
-            <Text style={styles.inputLabel}>Marks</Text>
-            <TextInput
-              style={styles.input}
-              placeholder="Marks"
-              value={form.marks}
-              onChangeText={(text) => handleFormChange('marks', text)}
-              keyboardType="number-pad"
-            />
-            <Text style={styles.inputLabel}>Fees (Paid/Unpaid)</Text>
-            <TextInput
-              style={styles.input}
-              placeholder="Fees (Paid/Unpaid)"
-              value={form.fees}
-              onChangeText={(text) => handleFormChange('fees', text)}
-            />
+            <ScrollView>
+              <Text style={styles.inputLabel}>Roll Number</Text>
+              <TextInput
+                style={styles.input}
+                placeholder="Roll Number"
+                value={form.roll}
+                onChangeText={(text) => handleFormChange('roll', text)}
+                keyboardType="number-pad"
+              />
+              <Text style={styles.inputLabel}>Name</Text>
+              <TextInput
+                style={styles.input}
+                placeholder="Name"
+                value={form.name}
+                onChangeText={(text) => handleFormChange('name', text)}
+              />
+              <Text style={styles.inputLabel}>Class</Text>
+              <View style={styles.pickerContainer}>
+                <Picker
+                  selectedValue={form.class}
+                  style={styles.picker}
+                  onValueChange={(itemValue) => handleFormChange('class', itemValue)}
+                >
+                  {classOptions.filter(opt => opt !== 'All').map(opt => (
+                    <Picker.Item key={opt} label={`Class ${opt}`} value={opt} />
+                  ))}
+                </Picker>
+              </View>
+              <Text style={styles.inputLabel}>Section</Text>
+              <View style={styles.pickerContainer}>
+                <Picker
+                  selectedValue={form.section}
+                  style={styles.picker}
+                  onValueChange={(itemValue) => handleFormChange('section', itemValue)}
+                >
+                  {sectionOptions.filter(opt => opt !== 'All').map(opt => (
+                    <Picker.Item key={opt} label={opt} value={opt} />
+                  ))}
+                </Picker>
+              </View>
+              <Text style={styles.inputLabel}>Parent Name</Text>
+              <TextInput
+                style={styles.input}
+                placeholder="Parent Name"
+                value={form.parent}
+                onChangeText={(text) => handleFormChange('parent', text)}
+              />
+              <Text style={styles.inputLabel}>Contact</Text>
+              <TextInput
+                style={styles.input}
+                placeholder="Contact"
+                value={form.contact}
+                onChangeText={(text) => handleFormChange('contact', text)}
+                keyboardType="phone-pad"
+              />
+              <Text style={styles.inputLabel}>Marks</Text>
+              <TextInput
+                style={styles.input}
+                placeholder="Marks"
+                value={form.marks}
+                onChangeText={(text) => handleFormChange('marks', text)}
+                keyboardType="number-pad"
+              />
+              <Text style={styles.inputLabel}>Fees (Paid/Unpaid)</Text>
+              <TextInput
+                style={styles.input}
+                placeholder="Fees (e.g., Paid)"
+                value={form.fees}
+                onChangeText={(text) => handleFormChange('fees', text)}
+              />
+            </ScrollView>
             <View style={styles.modalActions}>
               <TouchableOpacity style={styles.modalButton} onPress={handleSubmit}>
                 <Text style={styles.modalButtonText}>Add</Text>
@@ -380,65 +395,77 @@ const ManageStudents = () => {
         <View style={styles.modalOverlay}>
           <View style={styles.modalContent}>
             <Text style={styles.modalTitle}>Edit Student</Text>
-            <Text style={styles.inputLabel}>Roll Number</Text>
-            <TextInput
-              style={styles.input}
-              placeholder="Roll Number"
-              value={editForm.roll}
-              onChangeText={(text) => handleEditFormChange('roll', text)}
-              keyboardType="number-pad"
-            />
-            <Text style={styles.inputLabel}>Name</Text>
-            <TextInput
-              style={styles.input}
-              placeholder="Name"
-              value={editForm.name}
-              onChangeText={(text) => handleEditFormChange('name', text)}
-            />
-            <Text style={styles.inputLabel}>Class</Text>
-            <TextInput
-              style={styles.input}
-              placeholder="Class"
-              value={editForm.class}
-              onChangeText={(text) => handleEditFormChange('class', text)}
-            />
-            <Text style={styles.inputLabel}>Section</Text>
-            <TextInput
-              style={styles.input}
-              placeholder="Section"
-              value={editForm.section}
-              onChangeText={(text) => handleEditFormChange('section', text)}
-            />
-            <Text style={styles.inputLabel}>Parent Name</Text>
-            <TextInput
-              style={styles.input}
-              placeholder="Parent Name"
-              value={editForm.parent}
-              onChangeText={(text) => handleEditFormChange('parent', text)}
-            />
-            <Text style={styles.inputLabel}>Contact</Text>
-            <TextInput
-              style={styles.input}
-              placeholder="Contact"
-              value={editForm.contact}
-              onChangeText={(text) => handleEditFormChange('contact', text)}
-              keyboardType="phone-pad"
-            />
-            <Text style={styles.inputLabel}>Marks</Text>
-            <TextInput
-              style={styles.input}
-              placeholder="Marks"
-              value={editForm.marks}
-              onChangeText={(text) => handleEditFormChange('marks', text)}
-              keyboardType="number-pad"
-            />
-            <Text style={styles.inputLabel}>Fees (Paid/Unpaid)</Text>
-            <TextInput
-              style={styles.input}
-              placeholder="Fees (Paid/Unpaid)"
-              value={editForm.fees}
-              onChangeText={(text) => handleEditFormChange('fees', text)}
-            />
+            <ScrollView>
+              <Text style={styles.inputLabel}>Roll Number</Text>
+              <TextInput
+                style={styles.input}
+                placeholder="Roll Number"
+                value={editForm.roll}
+                onChangeText={(text) => handleEditFormChange('roll', text)}
+                keyboardType="number-pad"
+              />
+              <Text style={styles.inputLabel}>Name</Text>
+              <TextInput
+                style={styles.input}
+                placeholder="Name"
+                value={editForm.name}
+                onChangeText={(text) => handleEditFormChange('name', text)}
+              />
+              <Text style={styles.inputLabel}>Class</Text>
+              <View style={styles.pickerContainer}>
+                <Picker
+                  selectedValue={editForm.class}
+                  style={styles.picker}
+                  onValueChange={(itemValue) => handleEditFormChange('class', itemValue)}
+                >
+                  {classOptions.filter(opt => opt !== 'All').map(opt => (
+                    <Picker.Item key={opt} label={`Class ${opt}`} value={opt} />
+                  ))}
+                </Picker>
+              </View>
+              <Text style={styles.inputLabel}>Section</Text>
+              <View style={styles.pickerContainer}>
+                <Picker
+                  selectedValue={editForm.section}
+                  style={styles.picker}
+                  onValueChange={(itemValue) => handleEditFormChange('section', itemValue)}
+                >
+                  {sectionOptions.filter(opt => opt !== 'All').map(opt => (
+                    <Picker.Item key={opt} label={opt} value={opt} />
+                  ))}
+                </Picker>
+              </View>
+              <Text style={styles.inputLabel}>Parent Name</Text>
+              <TextInput
+                style={styles.input}
+                placeholder="Parent Name"
+                value={editForm.parent}
+                onChangeText={(text) => handleEditFormChange('parent', text)}
+              />
+              <Text style={styles.inputLabel}>Contact</Text>
+              <TextInput
+                style={styles.input}
+                placeholder="Contact"
+                value={editForm.contact}
+                onChangeText={(text) => handleEditFormChange('contact', text)}
+                keyboardType="phone-pad"
+              />
+              <Text style={styles.inputLabel}>Marks</Text>
+              <TextInput
+                style={styles.input}
+                placeholder="Marks"
+                value={editForm.marks}
+                onChangeText={(text) => handleEditFormChange('marks', text)}
+                keyboardType="number-pad"
+              />
+              <Text style={styles.inputLabel}>Fees (Paid/Unpaid)</Text>
+              <TextInput
+                style={styles.input}
+                placeholder="Fees (e.g., Paid)"
+                value={editForm.fees}
+                onChangeText={(text) => handleEditFormChange('fees', text)}
+              />
+            </ScrollView>
             <View style={styles.modalActions}>
               <TouchableOpacity style={styles.modalButton} onPress={handleEditSave}>
                 <Text style={styles.modalButtonText}>Save</Text>
@@ -481,14 +508,28 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#f5f5f5',
-    padding: 16,
   },
   header: {
-    fontSize: 24,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    padding: 20,
+    backgroundColor: '#fff',
+    borderBottomWidth: 1,
+    borderBottomColor: '#e0e0e0',
+  },
+  headerInfo: {
+    flex: 1,
+  },
+  headerTitle: {
+    fontSize: 18,
     fontWeight: 'bold',
-    marginBottom: 16,
     color: '#333',
-    alignSelf: 'center',
+    marginBottom: 4,
+  },
+  headerSubtitle: {
+    fontSize: 14,
+    color: '#666',
   },
   card: {
     backgroundColor: '#fff',
@@ -523,12 +564,12 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
   },
   addButton: {
-    backgroundColor: '#1976d2',
-    paddingVertical: 10,
-    paddingHorizontal: 20,
-    borderRadius: 6,
-    alignSelf: 'center',
-    marginBottom: 16,
+    backgroundColor: '#2196F3',
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   addButtonText: {
     color: '#fff',
@@ -561,6 +602,14 @@ const styles = StyleSheet.create({
     padding: 10,
     marginBottom: 12,
     fontSize: 16,
+  },
+  pickerContainer: {
+    borderWidth: 1,
+    borderColor: '#ccc',
+    borderRadius: 6,
+    marginBottom: 12,
+    justifyContent: 'center',
+    height: 50,
   },
   modalActions: {
     flexDirection: 'row',
@@ -637,6 +686,9 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'flex-end',
     marginTop: 10,
+    borderTopWidth: 1,
+    borderTopColor: '#f0f0f0',
+    paddingTop: 12,
   },
   actionButton: {
     flexDirection: 'row',
@@ -805,7 +857,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     marginHorizontal: 16,
     marginBottom: 12,
-    marginTop: 4,
+    marginTop: 12,
     height: 44,
   },
   searchBar: {
@@ -898,72 +950,29 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   filterColMargin: {
-    marginRight: 6,
+    marginRight: 10,
   },
-  filterLabelBlue: {
+  filterLabel: {
     fontWeight: 'bold',
-    color: '#1976d2',
-    marginBottom: 2,
-    marginLeft: 4,
-    fontSize: 15,
+    color: '#555',
+    marginBottom: 4,
+    marginLeft: 2,
+    fontSize: 14,
   },
-  filterLabelGreen: {
-    fontWeight: 'bold',
-    color: '#388e3c',
-    marginBottom: 2,
-    marginLeft: 4,
-    fontSize: 15,
-  },
-  filterBoxBlue: {
-    backgroundColor: '#e3f2fd',
+  filterBox: {
+    backgroundColor: '#fff',
     borderRadius: 8,
-    borderWidth: 2.5,
-    borderColor: '#2196F3',
-    height: 54,
+    borderWidth: 1,
+    borderColor: '#ccc',
+    height: 50,
     justifyContent: 'center',
-    shadowColor: '#2196F3',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.08,
-    shadowRadius: 2,
-    elevation: 2,
-    minHeight: 48,
-    paddingVertical: 4,
   },
-  filterBoxGreen: {
-    backgroundColor: '#e8f5e9',
-    borderRadius: 8,
-    borderWidth: 2.5,
-    borderColor: '#4CAF50',
-    height: 54,
-    justifyContent: 'center',
-    shadowColor: '#4CAF50',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.08,
-    shadowRadius: 2,
-    elevation: 2,
-    minHeight: 48,
-    paddingVertical: 4,
-  },
-  pickerBlue: {
+  picker: {
     width: '100%',
-    height: 54,
-    color: '#1976d2',
-    fontWeight: 'bold',
-    textAlignVertical: 'center',
-    fontSize: 18,
-  },
-  pickerGreen: {
-    width: '100%',
-    height: 54,
-    color: '#388e3c',
-    fontWeight: 'bold',
-    textAlignVertical: 'center',
-    fontSize: 18,
+    height: 50,
+    color: '#333',
   },
   topStudentCard: {
-    backgroundColor: '#fffde7',
-    borderColor: '#FFD600',
-    borderWidth: 2.5,
     position: 'relative',
   },
   topBadge: {

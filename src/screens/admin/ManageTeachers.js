@@ -136,7 +136,7 @@ const ManageTeachers = ({ navigation }) => {
 
   return (
     <View style={styles.container}>
-      <Header title="Manage Teachers" />
+      <Header title="Manage Teachers" showBack={true} />
       <View style={styles.header}>
         <View style={styles.headerInfo}>
           <Text style={styles.headerTitle}>Total Teachers: {filteredTeachers.length}</Text>
