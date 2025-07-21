@@ -2025,9 +2025,9 @@ const styles = StyleSheet.create({
   },
   modalContent: {
     backgroundColor: '#fff',
-    borderRadius: 16,
+    borderRadius: 8, // Reduced from 16 to 8 for a tighter look
     width: '90%',
-    maxHeight: '80%',
+    maxHeight: '98%', // Increased from 90% to 98% to use almost all vertical space
   },
   modalHeader: {
     flexDirection: 'row',
@@ -2044,10 +2044,11 @@ const styles = StyleSheet.create({
   },
   modalScroll: {
     padding: 20,
-    maxHeight: '70%',
+    maxHeight: '100%', // Allow scroll area to use all available space
+    paddingBottom: 0, // Reduced bottom padding
   },
   modalScrollContent: {
-    paddingBottom: 20,
+    paddingBottom: 0, // Reduced or removed excess bottom padding
   },
   modalSubtitle: {
     fontSize: 14,
@@ -2155,7 +2156,7 @@ const styles = StyleSheet.create({
   },
   modalFooter: {
     flexDirection: 'row',
-    padding: 20,
+    padding: 8, // Reduced from 20 to 8 for a smaller footer
     borderTopWidth: 1,
     borderTopColor: '#e0e0e0',
     gap: 12,

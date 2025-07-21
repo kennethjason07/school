@@ -1,6 +1,7 @@
 import React from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import Header from '../../components/Header';
 
 // Mock data: classes and their subjects
 const MOCK_CLASSES = [
@@ -11,6 +12,7 @@ const MOCK_CLASSES = [
 export default function MarksEntry({ navigation }) {
   return (
     <View style={styles.container}>
+      <Header title="Marks Entry" showBack={true} />
       <ScrollView contentContainerStyle={{ padding: 16 }}>
         <Text style={styles.title}>Select Class & Subject</Text>
         {MOCK_CLASSES.map(cls => (

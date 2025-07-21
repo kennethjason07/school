@@ -4,6 +4,7 @@ import { Picker } from '@react-native-picker/picker';
 import Header from '../../components/Header';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { format } from 'date-fns';
+import Ionicons from 'react-native-vector-icons/Ionicons';
 
 const mockTeachers = [
   { id: 't1', name: 'Alice Smith' },
@@ -211,8 +212,12 @@ const SubjectsTimetable = () => {
                   <Text style={styles.subjectName}>{item.name} ({item.code})</Text>
                   <Text style={styles.subjectTeacher}>Teacher: {mockTeachers.find(t => t.id === item.teacherId)?.name || '-'}</Text>
                 </View>
-                <TouchableOpacity onPress={() => openEditSubject(item)} style={styles.actionBtn}><Text>Edit</Text></TouchableOpacity>
-                <TouchableOpacity onPress={() => handleDeleteSubject(item.id)} style={styles.actionBtn}><Text>Delete</Text></TouchableOpacity>
+                <TouchableOpacity onPress={() => openEditSubject(item)} style={styles.actionBtn}>
+                  <Ionicons name="pencil" size={20} color="#1976d2" />
+                </TouchableOpacity>
+                <TouchableOpacity onPress={() => handleDeleteSubject(item.id)} style={styles.actionBtn}>
+                  <Ionicons name="trash" size={20} color="#d32f2f" />
+                </TouchableOpacity>
               </View>
             )}
           />
@@ -267,7 +272,7 @@ const SubjectsTimetable = () => {
             </TouchableOpacity>
           </View>
           <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 12 }}>
-            <Text style={{ marginRight: 8 }}>Select Class:</Text>
+            <Text style={{ marginRight: 8, fontWeight: 'bold', fontSize: 16 }}>Select Class:</Text>
             <View style={{
               flex: 1,
               backgroundColor: '#fff',
@@ -329,10 +334,10 @@ const SubjectsTimetable = () => {
                         </View>
                         <View style={{ flexDirection: 'row' }}>
                           <TouchableOpacity style={styles.actionBtn} onPress={() => openEditPeriod(dayName, period)}>
-                            <Text>Edit</Text>
+                            <Ionicons name="pencil" size={20} color="#1976d2" />
                           </TouchableOpacity>
                           <TouchableOpacity style={styles.deletePeriodBtn} onPress={() => handleDeletePeriod(dayName, period.id)}>
-                            <Text style={styles.deletePeriodIcon}>🗑️</Text>
+                            <Ionicons name="trash" size={20} color="#d32f2f" />
                           </TouchableOpacity>
                         </View>
                       </View>
@@ -423,6 +428,8 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#f5f5f5',
+    paddingTop: 28, // Increased for mobile header spacing
+    paddingBottom: 8, // Keep lower padding
   },
   tabBar: {
     flexDirection: 'row',
