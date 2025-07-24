@@ -4,6 +4,7 @@ import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import { useNavigation } from '@react-navigation/native';
 import { useAuth } from '../../utils/AuthContext';
+import Header from '../../components/Header';
 
 const DUMMY_USER = {
   name: 'John Doe',
@@ -108,126 +109,127 @@ const ProfileScreen = () => {
   };
 
   return (
-    <ScrollView style={styles.container} contentContainerStyle={styles.scrollContent}>
-      <View style={styles.profileSection}>
-        <View style={styles.photoRow}>
-          <Image source={{ uri: user.photo }} style={styles.profilePhoto} />
-          {editing && (
-            <TouchableOpacity style={styles.editPhotoBtn} onPress={handlePickPhoto}>
-              <Ionicons name="camera" size={20} color="#1976d2" />
+    <View style={{ flex: 1, backgroundColor: '#f5f7fa' }}>
+      <Header title="Profile" showBack={true} />
+      <ScrollView style={styles.container} contentContainerStyle={styles.scrollContent}>
+        <View style={styles.section}>
+          <View style={styles.photoRow}>
+            <Image source={{ uri: user.photo }} style={styles.profilePhoto} />
+            {editing && (
+              <TouchableOpacity style={styles.editPhotoBtn} onPress={handlePickPhoto}>
+                <Ionicons name="camera" size={20} color="#1976d2" />
+              </TouchableOpacity>
+            )}
+          </View>
+          <Text style={styles.profileName}>{user.name}</Text>
+          <Text style={styles.profileEmail}>{user.email}</Text>
+          <Text style={styles.sectionTitle}>Profile Info</Text>
+          <View style={styles.inputGroup}>
+            <Ionicons name="person" size={18} color="#888" style={styles.inputIcon} />
+            <TextInput
+              style={styles.input}
+              value={editing ? form.name : user.name}
+              onChangeText={text => setForm(f => ({ ...f, name: text }))}
+              editable={editing}
+              placeholder="Name"
+            />
+          </View>
+          <View style={styles.inputGroup}>
+            <Ionicons name="mail" size={18} color="#888" style={styles.inputIcon} />
+            <TextInput
+              style={styles.input}
+              value={editing ? form.email : user.email}
+              onChangeText={text => setForm(f => ({ ...f, email: text }))}
+              editable={editing}
+              placeholder="Email"
+              keyboardType="email-address"
+            />
+          </View>
+          <View style={styles.inputGroup}>
+            <Ionicons name="call" size={18} color="#888" style={styles.inputIcon} />
+            <TextInput
+              style={styles.input}
+              value={editing ? form.contact : user.contact}
+              onChangeText={text => setForm(f => ({ ...f, contact: text }))}
+              editable={editing}
+              placeholder="Contact"
+              keyboardType="phone-pad"
+            />
+          </View>
+          <TouchableOpacity
+            style={[styles.editBtn, editing ? styles.saveBtn : styles.editProfileBtn]}
+            onPress={editing ? handleSave : () => setEditing(true)}
+            activeOpacity={0.85}
+          >
+            <Ionicons name={editing ? 'checkmark' : 'pencil'} size={18} color="#fff" style={{ marginRight: 6 }} />
+            <Text style={styles.editBtnText}>{editing ? 'Save' : 'Edit Profile'}</Text>
+          </TouchableOpacity>
+        </View>
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>Security</Text>
+          {showPassword ? (
+            <>
+              <View style={styles.inputGroup}>
+                <Ionicons name="lock-closed" size={18} color="#888" style={styles.inputIcon} />
+                <TextInput
+                  style={styles.input}
+                  value={password}
+                  onChangeText={setPassword}
+                  placeholder="New Password"
+                  secureTextEntry
+                />
+              </View>
+              <View style={styles.inputGroup}>
+                <Ionicons name="lock-closed" size={18} color="#888" style={styles.inputIcon} />
+                <TextInput
+                  style={styles.input}
+                  value={confirmPassword}
+                  onChangeText={setConfirmPassword}
+                  placeholder="Confirm Password"
+                  secureTextEntry
+                />
+              </View>
+              <View style={styles.securityBtnRow}>
+                <TouchableOpacity style={[styles.editBtn, styles.saveBtn]} onPress={handleChangePassword}>
+                  <Ionicons name="checkmark" size={18} color="#fff" style={{ marginRight: 6 }} />
+                  <Text style={styles.editBtnText}>Change Password</Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={[styles.editBtn, styles.cancelBtn]} onPress={() => setShowPassword(false)}>
+                  <Ionicons name="close" size={18} color="#fff" style={{ marginRight: 6 }} />
+                  <Text style={styles.editBtnText}>Cancel</Text>
+                </TouchableOpacity>
+              </View>
+            </>
+          ) : (
+            <TouchableOpacity style={[styles.editBtn, styles.editProfileBtn]} onPress={() => setShowPassword(true)}>
+              <Ionicons name="lock-closed" size={18} color="#fff" style={{ marginRight: 6 }} />
+              <Text style={styles.editBtnText}>Change Password</Text>
             </TouchableOpacity>
           )}
         </View>
-        <Text style={styles.profileName}>{user.name}</Text>
-        <Text style={styles.profileEmail}>{user.email}</Text>
-      </View>
-      <View style={styles.section}>
-        <Text style={styles.sectionTitle}>Profile Info</Text>
-        <View style={styles.inputGroup}>
-          <Ionicons name="person" size={18} color="#888" style={styles.inputIcon} />
-          <TextInput
-            style={styles.input}
-            value={editing ? form.name : user.name}
-            onChangeText={text => setForm(f => ({ ...f, name: text }))}
-            editable={editing}
-            placeholder="Name"
-          />
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>Linked Accounts</Text>
+          <View style={styles.linkedRow}>
+            {user.linkedAccounts.map(acc => (
+              <View key={acc} style={styles.linkedBadge}>
+                <Ionicons name={acc === 'Parent' ? 'people' : acc === 'Student' ? 'school' : 'person'} size={16} color="#1976d2" style={{ marginRight: 4 }} />
+                <Text style={styles.linkedText}>{acc}</Text>
+              </View>
+            ))}
+          </View>
         </View>
-        <View style={styles.inputGroup}>
-          <Ionicons name="mail" size={18} color="#888" style={styles.inputIcon} />
-          <TextInput
-            style={styles.input}
-            value={editing ? form.email : user.email}
-            onChangeText={text => setForm(f => ({ ...f, email: text }))}
-            editable={editing}
-            placeholder="Email"
-            keyboardType="email-address"
-          />
-        </View>
-        <View style={styles.inputGroup}>
-          <Ionicons name="call" size={18} color="#888" style={styles.inputIcon} />
-          <TextInput
-            style={styles.input}
-            value={editing ? form.contact : user.contact}
-            onChangeText={text => setForm(f => ({ ...f, contact: text }))}
-            editable={editing}
-            placeholder="Contact"
-            keyboardType="phone-pad"
-          />
-        </View>
-        <TouchableOpacity
-          style={[styles.editBtn, editing ? styles.saveBtn : styles.editProfileBtn]}
-          onPress={editing ? handleSave : () => setEditing(true)}
-          activeOpacity={0.85}
-        >
-          <Ionicons name={editing ? 'checkmark' : 'pencil'} size={18} color="#fff" style={{ marginRight: 6 }} />
-          <Text style={styles.editBtnText}>{editing ? 'Save' : 'Edit Profile'}</Text>
-        </TouchableOpacity>
-      </View>
-      <View style={styles.section}>
-        <Text style={styles.sectionTitle}>Security</Text>
-        {showPassword ? (
-          <>
-            <View style={styles.inputGroup}>
-              <Ionicons name="lock-closed" size={18} color="#888" style={styles.inputIcon} />
-              <TextInput
-                style={styles.input}
-                value={password}
-                onChangeText={setPassword}
-                placeholder="New Password"
-                secureTextEntry
-              />
-            </View>
-            <View style={styles.inputGroup}>
-              <Ionicons name="lock-closed" size={18} color="#888" style={styles.inputIcon} />
-              <TextInput
-                style={styles.input}
-                value={confirmPassword}
-                onChangeText={setConfirmPassword}
-                placeholder="Confirm Password"
-                secureTextEntry
-              />
-            </View>
-            <View style={styles.securityBtnRow}>
-              <TouchableOpacity style={[styles.editBtn, styles.saveBtn]} onPress={handleChangePassword}>
-                <Ionicons name="checkmark" size={18} color="#fff" style={{ marginRight: 6 }} />
-                <Text style={styles.editBtnText}>Change Password</Text>
-              </TouchableOpacity>
-              <TouchableOpacity style={[styles.editBtn, styles.cancelBtn]} onPress={() => setShowPassword(false)}>
-                <Ionicons name="close" size={18} color="#fff" style={{ marginRight: 6 }} />
-                <Text style={styles.editBtnText}>Cancel</Text>
-              </TouchableOpacity>
-            </View>
-          </>
-        ) : (
-          <TouchableOpacity style={[styles.editBtn, styles.editProfileBtn]} onPress={() => setShowPassword(true)}>
-            <Ionicons name="lock-closed" size={18} color="#fff" style={{ marginRight: 6 }} />
-            <Text style={styles.editBtnText}>Change Password</Text>
+        <View style={styles.logoutSection}>
+          <TouchableOpacity
+            style={styles.logoutBtn}
+            onPress={handleLogout}
+            activeOpacity={0.85}
+          >
+            <Ionicons name="log-out" size={20} color="#fff" style={{ marginRight: 8 }} />
+            <Text style={styles.logoutBtnText}>Logout</Text>
           </TouchableOpacity>
-        )}
-      </View>
-      <View style={styles.section}>
-        <Text style={styles.sectionTitle}>Linked Accounts</Text>
-        <View style={styles.linkedRow}>
-          {user.linkedAccounts.map(acc => (
-            <View key={acc} style={styles.linkedBadge}>
-              <Ionicons name={acc === 'Parent' ? 'people' : acc === 'Student' ? 'school' : 'person'} size={16} color="#1976d2" style={{ marginRight: 4 }} />
-              <Text style={styles.linkedText}>{acc}</Text>
-            </View>
-          ))}
         </View>
-      </View>
-      <View style={styles.logoutSection}>
-        <TouchableOpacity
-          style={styles.logoutBtn}
-          onPress={handleLogout}
-          activeOpacity={0.85}
-        >
-          <Ionicons name="log-out" size={20} color="#fff" style={{ marginRight: 8 }} />
-          <Text style={styles.logoutBtnText}>Logout</Text>
-        </TouchableOpacity>
-      </View>
-    </ScrollView>
+      </ScrollView>
+    </View>
   );
 };
 
@@ -239,25 +241,13 @@ const styles = StyleSheet.create({
   },
   scrollContent: {
     paddingBottom: 40,
-    paddingTop: 0,
-  },
-  profileSection: {
-    alignItems: 'center',
-    paddingVertical: 32,
-    backgroundColor: '#fff',
-    borderBottomLeftRadius: 24,
-    borderBottomRightRadius: 24,
-    marginBottom: 18,
-    elevation: 2,
-    shadowColor: '#1976d2',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.08,
-    shadowRadius: 4,
+    paddingTop: 24,
   },
   photoRow: {
     alignItems: 'center',
     justifyContent: 'center',
     position: 'relative',
+    marginBottom: 16,
   },
   profilePhoto: {
     width: 100,
@@ -269,7 +259,7 @@ const styles = StyleSheet.create({
   },
   editPhotoBtn: {
     position: 'absolute',
-    right: 0,
+    right: '25%',
     bottom: 10,
     backgroundColor: '#e3eaf2',
     borderRadius: 16,
@@ -280,13 +270,13 @@ const styles = StyleSheet.create({
     fontSize: 22,
     fontWeight: 'bold',
     color: '#1976d2',
-    marginTop: 6,
+    textAlign: 'center',
   },
   profileEmail: {
     color: '#888',
     fontSize: 15,
-    marginTop: 2,
-    marginBottom: 2,
+    textAlign: 'center',
+    marginBottom: 24,
   },
   section: {
     backgroundColor: '#fff',

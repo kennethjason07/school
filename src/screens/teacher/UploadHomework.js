@@ -939,41 +939,47 @@ const UploadHomework = () => {
         </Text>
       </View>
                 <View style={styles.homeworkActions}>
-                  <TouchableOpacity 
-                    style={styles.actionButton}
-                    onPress={() => handleViewHomework(homework)}
-                  >
-                    <Ionicons name="eye" size={16} color="#1976d2" />
-                    <Text style={styles.actionText}>View</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity 
-                    style={styles.actionButton}
-                    onPress={() => handleEditHomework(homework)}
-                  >
-                    <Ionicons name="pencil" size={16} color="#FF9800" />
-                    <Text style={styles.actionText}>Edit</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity 
-                    style={styles.actionButton}
-                    onPress={() => handleDownloadFiles(homework)}
-                  >
-                    <Ionicons name="download" size={16} color="#4CAF50" />
-                    <Text style={styles.actionText}>Download</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity 
-                    style={styles.actionButton}
-                    onPress={() => handleDeleteHomework(homework.id)}
-                  >
-                    <Ionicons name="trash" size={16} color="#F44336" />
-                    <Text style={styles.actionText}>Delete</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity 
-                    style={styles.actionButton}
-                    onPress={() => handleSubmissionTracking(homework)}
-                  >
-                    <Ionicons name="analytics" size={16} color="#9C27B0" />
-                    <Text style={styles.actionText}>Track</Text>
-                  </TouchableOpacity>
+                  <View style={styles.actionRow}>
+                    <TouchableOpacity 
+                      style={[styles.actionButton, styles.downloadButton]}
+                      onPress={() => handleDownloadFiles(homework)}
+                    >
+                      <Ionicons name="download" size={18} color="#fff" />
+                      <Text style={[styles.actionText, {color: '#fff'}]}>Download All</Text>
+                    </TouchableOpacity>
+                  </View>
+                  <View style={styles.actionRow}>
+                    <TouchableOpacity 
+                      style={[styles.actionButton, {flex: 1, justifyContent: 'center', backgroundColor: '#e3f2fd'}]}
+                      onPress={() => handleViewHomework(homework)}
+                    >
+                      <Ionicons name="eye" size={16} color="#1976d2" />
+                      <Text style={[styles.actionText, {color: '#1976d2'}]}>View</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity 
+                      style={[styles.actionButton, {flex: 1, justifyContent: 'center', backgroundColor: '#fff8e1'}]}
+                      onPress={() => handleEditHomework(homework)}
+                    >
+                      <Ionicons name="pencil" size={16} color="#FF9800" />
+                      <Text style={[styles.actionText, {color: '#FF9800'}]}>Edit</Text>
+                    </TouchableOpacity>
+                  </View>
+                  <View style={styles.actionRow}>
+                    <TouchableOpacity 
+                      style={[styles.actionButton, {flex: 1, justifyContent: 'center', backgroundColor: '#ffebee'}]}
+                      onPress={() => handleDeleteHomework(homework.id)}
+                    >
+                      <Ionicons name="trash" size={16} color="#F44336" />
+                      <Text style={[styles.actionText, {color: '#F44336'}]}>Delete</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity 
+                      style={[styles.actionButton, {flex: 1, justifyContent: 'center', backgroundColor: '#f3e5f5'}]}
+                      onPress={() => handleSubmissionTracking(homework)}
+                    >
+                      <Ionicons name="analytics" size={16} color="#9C27B0" />
+                      <Text style={[styles.actionText, {color: '#9C27B0'}]}>Track</Text>
+                    </TouchableOpacity>
+                  </View>
                 </View>
               </View>
             ))}
@@ -1996,26 +2002,35 @@ const styles = StyleSheet.create({
     marginBottom: 2,
   },
   homeworkActions: {
+    flexDirection: 'column',
+    marginTop: 12,
+    borderTopWidth: 1,
+    borderTopColor: '#f0f0f0',
+    paddingTop: 12,
+    gap: 8,
+  },
+  actionRow: {
     flexDirection: 'row',
-    flexWrap: 'wrap', // allow wrapping
-    alignItems: 'center',
-    marginTop: 8,
-    gap: 4,
+    flexWrap: 'wrap',
+    gap: 8,
   },
   actionButton: {
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: '#f5f5f5',
-    borderRadius: 6,
-    paddingVertical: 4, // reduced
-    paddingHorizontal: 8, // reduced
-    marginRight: 6,
-    marginBottom: 6, // add margin for wrapping
+    borderRadius: 8,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+  },
+  downloadButton: {
+    flex: 1,
+    backgroundColor: '#4CAF50',
+    justifyContent: 'center',
   },
   actionText: {
-    fontSize: 12, // reduced
-    marginLeft: 4,
-    color: '#1976d2',
+    fontSize: 13,
+    marginLeft: 6,
+    fontWeight: '600',
   },
   modalOverlay: {
     flex: 1,

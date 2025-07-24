@@ -10,11 +10,11 @@ const StudentDetails = ({ route }) => {
 
   return (
     <View style={styles.container}>
-      <Header title="Student Details" showBack={true} />
+      <Header title={student.name} showBack={true} />
       <View style={styles.card}>
         <Text style={styles.name}>{student.name}</Text>
         <Text style={styles.detail}>Class: {student.class}</Text>
-        <Text style={styles.detail}>Roll No: {student.rollNo}</Text>
+        <Text style={styles.detail}>Roll No: {student.roll}</Text>
         <Text style={styles.detail}>Attendance: {student.attendance}</Text>
         <Text style={styles.detail}>Fee Status: {feeStatus}</Text>
         <Text style={styles.detail}>Phone: {phoneNumber}</Text>

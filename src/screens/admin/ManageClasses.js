@@ -274,7 +274,7 @@ const ManageClasses = ({ navigation }) => {
 
   return (
     <View style={styles.container}>
-      <Header title="Manage Classes" />
+      <Header title="Manage Classes" showBack={true} />
       
       <View style={styles.header}>
         <View style={styles.headerInfo}>

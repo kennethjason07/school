@@ -3,6 +3,7 @@ import { View, Text, FlatList, StyleSheet, TouchableOpacity, Alert, Modal, TextI
 import { Ionicons } from '@expo/vector-icons';
 import Header from '../../components/Header';
 import DateTimePicker from '@react-native-community/datetimepicker';
+import * as Print from 'expo-print';
 
 const DUMMY_EXAMS = [
   {
@@ -211,6 +212,245 @@ const ExamsMarks = () => {
     return { total, average, grade };
   };
 
+  // Download handler for report card
+  const handleDownloadReportCard = async () => {
+    if (!reportCardStudent || !selectedExam) {
+      Alert.alert('Error', 'No student or exam selected.');
+      return;
+    }
+
+    const stats = getReportCardStats(reportCardStudent.id);
+    const marks = marksForm[reportCardStudent.id] || {};
+
+    if (Platform.OS === 'web') {
+      try {
+        const jsPDF = require('jspdf').default;
+        require('jspdf-autotable');
+        const doc = new jsPDF();
+
+        doc.setFontSize(22);
+        doc.text('Report Card', 105, 20, { align: 'center' });
+
+        doc.setFontSize(12);
+        doc.text(`Student: ${reportCardStudent.name} (#${reportCardStudent.roll})`, 14, 40);
+        doc.text(`Class: ${selectedMarksClass}`, 14, 46);
+        doc.text(`Exam: ${selectedExam.name} (${selectedExam.date})`, 14, 52);
+
+        const tableColumn = ["Subject", "Marks"];
+        const tableRows = selectedExam.subjects.map(subject => [
+          subject,
+          marks[subject] || '-',
+        ]);
+
+        doc.autoTable(tableColumn, tableRows, { startY: 60 });
+        const finalY = doc.lastAutoTable.finalY || 70;
+
+        doc.setFontSize(12);
+        doc.text(`Total Marks: ${stats.total}`, 14, finalY + 10);
+        doc.text(`Average: ${stats.average.toFixed(2)}`, 14, finalY + 16);
+        doc.text(`Grade: ${stats.grade}`, 14, finalY + 22);
+
+        doc.save(`ReportCard_${reportCardStudent.name}_${selectedExam.name}.pdf`);
+      } catch (error) {
+        console.error("Failed to generate PDF:", error);
+        Alert.alert('Error', 'Could not generate PDF.');
+      }
+      return;
+    }
+
+    const subjectsHtml = selectedExam.subjects.map(subject => `
+      <tr>
+        <td style="padding: 8px; border: 1px solid #ddd;">${subject}</td>
+        <td style="padding: 8px; border: 1px solid #ddd; text-align: center;">${marks[subject] || '-'}</td>
+      </tr>
+    `).join('');
+
+    const htmlContent = `
+      <html>
+        <head>
+          <style>
+            body { font-family: sans-serif; }
+            .container { padding: 20px; border: 1px solid #ccc; border-radius: 10px; margin: 20px; }
+            h1 { text-align: center; color: #1976d2; }
+            .details { margin-bottom: 20px; }
+            .details p { margin: 5px 0; }
+            table { width: 100%; border-collapse: collapse; }
+            th, td { padding: 12px; border: 1px solid #ddd; text-align: left; }
+            th { background-color: #f2f2f2; }
+            .summary { margin-top: 20px; text-align: right; }
+          </style>
+        </head>
+        <body>
+          <div class="container">
+            <h1>Report Card</h1>
+            <div class="details">
+              <p><strong>Student:</strong> ${reportCardStudent.name} (#${reportCardStudent.roll})</p>
+              <p><strong>Class:</strong> ${selectedMarksClass}</p>
+              <p><strong>Exam:</strong> ${selectedExam.name} (${selectedExam.date})</p>
+            </div>
+            <table>
+              <thead>
+                <tr>
+                  <th>Subject</th>
+                  <th style="text-align: center;">Marks</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${subjectsHtml}
+              </tbody>
+            </table>
+            <div class="summary">
+              <p><strong>Total Marks:</strong> ${stats.total}</p>
+              <p><strong>Average:</strong> ${stats.average.toFixed(2)}</p>
+              <p><strong>Grade:</strong> ${stats.grade}</p>
+            </div>
+          </div>
+        </body>
+      </html>
+    `;
+
+    try {
+      await Print.printAsync({ html: htmlContent });
+    } catch (error) {
+      console.error("Failed to generate report card:", error);
+      Alert.alert('Error', 'Could not generate report card.');
+    }
+  };
+
+  // Download handler for all report cards
+  const handleDownloadAllReportCards = async () => {
+    if (!selectedExam || !selectedMarksClass) {
+      Alert.alert('Error', 'No class or exam selected.');
+      return;
+    }
+
+    const students = getStudentsForExam(selectedExam, selectedMarksClass);
+
+    if (Platform.OS === 'web') {
+      try {
+        const jsPDF = require('jspdf').default;
+        require('jspdf-autotable');
+        const doc = new jsPDF('landscape');
+
+        doc.setFontSize(22);
+        doc.text('Class Mark Sheet', 148, 20, { align: 'center' });
+
+        doc.setFontSize(12);
+        doc.text(`Class: ${selectedMarksClass}`, 14, 30);
+        doc.text(`Exam: ${selectedExam.name} (${selectedExam.date})`, 14, 36);
+
+        const tableColumn = ["Name", "Roll", ...selectedExam.subjects, "Total", "Average", "Grade"];
+        const tableRows = students.map(student => {
+          const marks = marksForm[student.id] || {};
+          const values = selectedExam.subjects.map(sub => parseFloat(marks[sub] || 0));
+          const total = values.reduce((a, b) => a + b, 0);
+          const average = values.length ? total / values.length : 0;
+          let grade = '-';
+          if (average >= 90) grade = 'A+';
+          else if (average >= 80) grade = 'A';
+          else if (average >= 70) grade = 'B';
+          else if (average >= 60) grade = 'C';
+          else if (average > 0) grade = 'D';
+
+          return [
+            student.name,
+            student.roll,
+            ...selectedExam.subjects.map(subject => marks[subject] || '-'),
+            total,
+            average.toFixed(2),
+            grade
+          ];
+        });
+
+        doc.autoTable(tableColumn, tableRows, { startY: 45 });
+
+        doc.save(`MarkSheet_${selectedMarksClass}_${selectedExam.name}.pdf`);
+      } catch (error) {
+        console.error("Failed to generate PDF:", error);
+        Alert.alert('Error', 'Could not generate PDF.');
+      }
+      return;
+    }
+
+    const studentRows = students.map(student => {
+      const marks = marksForm[student.id] || {};
+      const values = selectedExam.subjects.map(sub => parseFloat(marks[sub] || 0));
+      const total = values.reduce((a, b) => a + b, 0);
+      const average = values.length ? total / values.length : 0;
+      let grade = '-';
+      if (average >= 90) grade = 'A+';
+      else if (average >= 80) grade = 'A';
+      else if (average >= 70) grade = 'B';
+      else if (average >= 60) grade = 'C';
+      else if (average > 0) grade = 'D';
+
+      const marksCells = selectedExam.subjects.map(subject => 
+        `<td style="text-align: center;">${marks[subject] || '-'}</td>`
+      ).join('');
+
+      return `
+        <tr>
+          <td>${student.name}</td>
+          <td style="text-align: center;">${student.roll}</td>
+          ${marksCells}
+          <td style="text-align: center;">${total}</td>
+          <td style="text-align: center;">${average.toFixed(2)}</td>
+          <td style="text-align: center;">${grade}</td>
+        </tr>
+      `;
+    }).join('');
+
+    const subjectHeaders = selectedExam.subjects.map(subject => `<th>${subject}</th>`).join('');
+
+    const htmlContent = `
+      <html>
+        <head>
+          <style>
+            body { font-family: sans-serif; }
+            .container { padding: 20px; }
+            h1 { text-align: center; color: #1976d2; }
+            .details { margin-bottom: 20px; text-align: center; }
+            .details p { margin: 2px 0; font-size: 14px; }
+            table { width: 100%; border-collapse: collapse; }
+            th, td { padding: 8px; border: 1px solid #ddd; text-align: left; font-size: 12px; }
+            th { background-color: #f2f2f2; }
+          </style>
+        </head>
+        <body>
+          <div class="container">
+            <h1>Class Mark Sheet</h1>
+            <div class="details">
+              <p><strong>Class:</strong> ${selectedMarksClass}</p>
+              <p><strong>Exam:</strong> ${selectedExam.name} (${selectedExam.date})</p>
+            </div>
+            <table>
+              <thead>
+                <tr>
+                  <th>Name</th>
+                  <th style="text-align: center;">Roll</th>
+                  ${subjectHeaders}
+                  <th style="text-align: center;">Total</th>
+                  <th style="text-align: center;">Average</th>
+                  <th style="text-align: center;">Grade</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${studentRows}
+              </tbody>
+            </table>
+          </div>
+        </body>
+      </html>
+    `;
+
+    try {
+      await Print.printAsync({ html: htmlContent });
+    } catch (error) {
+      console.error("Failed to generate class report:", error);
+      Alert.alert('Error', 'Could not generate class report.');
+    }
+  };
+
   // Delete subject from selected exam
   const handleDeleteSubject = (subject) => {
     Alert.alert(
@@ -321,15 +561,6 @@ const ExamsMarks = () => {
       </View>
     </View>
   );
-
-  // Print handler for report card
-  const handlePrintReportCard = () => {
-    if (Platform.OS === 'web') {
-      window.print();
-    } else {
-      Alert.alert('Print not supported', 'Printing is only supported on web in this demo.');
-    }
-  };
 
   // Date picker handler
   const handleDateChange = (event, selectedDate) => {
@@ -484,31 +715,28 @@ const ExamsMarks = () => {
           <View style={styles.modalContent}>
             <Text style={styles.modalTitle}>Marks for {selectedExam?.name}</Text>
             {/* View All Report Cards Button */}
-            <TouchableOpacity onPress={() => setAllReportCardsModalVisible(true)} style={{ alignSelf: 'flex-end', backgroundColor: '#1976d2', borderRadius: 8, paddingVertical: 7, paddingHorizontal: 16, marginBottom: 8 }}>
-              <Ionicons name="list" size={18} color="#fff" />
-              <Text style={{ color: '#fff', fontWeight: 'bold', fontSize: 14, marginLeft: 6 }}>View All Report Cards</Text>
+            <TouchableOpacity onPress={() => setAllReportCardsModalVisible(true)} style={styles.fullWidthButton}>
+              <Ionicons name="reader-outline" size={18} color="#1976d2" />
+              <Text style={styles.fullWidthButtonText}>View All Class Report Cards</Text>
             </TouchableOpacity>
             {/* Class Tabs - improved UI */}
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 16, flexDirection: 'row', paddingVertical: 4, backgroundColor: '#f8fafd', borderRadius: 10, shadowColor: '#2196F3', shadowOpacity: 0.08, shadowRadius: 2, elevation: 2, borderWidth: 1, borderColor: '#e3f2fd' }}>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.classTabsContainer}>
               {allClasses.map(cls => (
                 <TouchableOpacity
                   key={cls}
-                  style={[
-                    { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 18, paddingVertical: 8, borderRadius: 22, marginRight: 10, backgroundColor: selectedMarksClass === cls ? '#1976d2' : '#e3f2fd', borderWidth: selectedMarksClass === cls ? 2 : 1, borderColor: selectedMarksClass === cls ? '#1976d2' : '#b3e5fc', shadowColor: selectedMarksClass === cls ? '#1976d2' : undefined, shadowOpacity: selectedMarksClass === cls ? 0.12 : 0, elevation: selectedMarksClass === cls ? 2 : 0 },
-                  ]}
+                  style={[styles.classTab, selectedMarksClass === cls && styles.classTabActive]}
                   onPress={() => setSelectedMarksClass(cls)}
                 >
-                  <Ionicons name="school" size={18} color={selectedMarksClass === cls ? '#fff' : '#1976d2'} style={{ marginRight: 6 }} />
-                  <Text style={{ fontWeight: 'bold', fontSize: 16, color: selectedMarksClass === cls ? '#fff' : '#1976d2' }}>Class {cls}</Text>
+                  <Ionicons name="school-outline" size={18} color={selectedMarksClass === cls ? '#fff' : '#1976d2'} style={{ marginRight: 6 }} />
+                  <Text style={[styles.classTabText, selectedMarksClass === cls && styles.classTabTextActive]}>Class {cls}</Text>
                   <TouchableOpacity onPress={() => handleDeleteClass(cls)} style={{ marginLeft: 8, padding: 2 }}>
-                    <Ionicons name="trash" size={16} color="#f44336" />
+                    <Ionicons name="close-circle" size={16} color={selectedMarksClass === cls ? '#fff' : '#f44336'} />
                   </TouchableOpacity>
                 </TouchableOpacity>
               ))}
               {/* Add Class Button - styled like a tab */}
-              <TouchableOpacity onPress={() => setShowAddClassInput(true)} style={{ backgroundColor: '#4CAF50', borderRadius: 22, paddingHorizontal: 14, paddingVertical: 8, flexDirection: 'row', alignItems: 'center', borderWidth: 0, marginRight: 2 }}>
+              <TouchableOpacity onPress={() => setShowAddClassInput(true)} style={styles.addClassTab}>
                 <Ionicons name="add" size={20} color="#fff" />
-                <Text style={{ color: '#fff', fontWeight: 'bold', fontSize: 15, marginLeft: 2 }}>Add</Text>
               </TouchableOpacity>
             </ScrollView>
             {/* Add Class Input */}
@@ -632,9 +860,9 @@ const ExamsMarks = () => {
                         <Ionicons name="trash" size={16} color="#f44336" />
                       </TouchableOpacity>
                       {/* View Report Card Button */}
-                      <TouchableOpacity onPress={() => { setReportCardStudent(student); setReportCardModalVisible(true); }} style={{ marginLeft: 8, backgroundColor: '#1976d2', borderRadius: 8, paddingVertical: 6, paddingHorizontal: 10 }}>
-                        <Ionicons name="document-text" size={18} color="#fff" />
-                        <Text style={{ color: '#fff', fontWeight: 'bold', fontSize: 13, marginLeft: 4 }}>Report</Text>
+                      <TouchableOpacity onPress={() => { setReportCardStudent(student); setReportCardModalVisible(true); }} style={styles.reportButton}>
+                        <Ionicons name="reader-outline" size={18} color="#1976d2" />
+                        <Text style={styles.reportButtonText}>Report</Text>
                       </TouchableOpacity>
                     </View>
                   ))}
@@ -691,9 +919,9 @@ const ExamsMarks = () => {
               </>
             )}
             <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: 18 }}>
-              <TouchableOpacity style={[styles.modalButton, { flex: 1, marginRight: 8 }]} onPress={handlePrintReportCard}>
-                <Ionicons name="print" size={18} color="#fff" />
-                <Text style={styles.modalButtonText}>Print</Text>
+              <TouchableOpacity style={[styles.modalButton, { flex: 1, marginRight: 8, backgroundColor: '#4CAF50' }]} onPress={handleDownloadReportCard}>
+                <Ionicons name="download-outline" size={18} color="#fff" />
+                <Text style={styles.modalButtonText}>Download</Text>
               </TouchableOpacity>
               <TouchableOpacity style={[styles.modalButton, { backgroundColor: '#aaa', flex: 1 }]} onPress={() => setReportCardModalVisible(false)}>
                 <Text style={styles.modalButtonText}>Close</Text>
@@ -757,9 +985,9 @@ const ExamsMarks = () => {
               </View>
             </ScrollView>
             <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: 18 }}>
-              <TouchableOpacity style={[styles.modalButton, { flex: 1, marginRight: 8 }]} onPress={handlePrintReportCard}>
-                <Ionicons name="print" size={18} color="#fff" />
-                <Text style={styles.modalButtonText}>Print</Text>
+              <TouchableOpacity style={[styles.modalButton, { flex: 1, marginRight: 8, backgroundColor: '#4CAF50' }]} onPress={handleDownloadAllReportCards}>
+                <Ionicons name="download-outline" size={18} color="#fff" />
+                <Text style={styles.modalButtonText}>Download</Text>
               </TouchableOpacity>
               <TouchableOpacity style={[styles.modalButton, { backgroundColor: '#aaa', flex: 1 }]} onPress={() => setAllReportCardsModalVisible(false)}>
                 <Text style={styles.modalButtonText}>Close</Text>
@@ -867,6 +1095,21 @@ const styles = StyleSheet.create({
     marginLeft: 2,
     fontSize: 14,
   },
+  fullWidthButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#e3f2fd',
+    borderRadius: 8,
+    paddingVertical: 12,
+    marginBottom: 16,
+  },
+  fullWidthButtonText: {
+    color: '#1976d2',
+    fontWeight: 'bold',
+    fontSize: 15,
+    marginLeft: 8,
+  },
   modalActions: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -920,15 +1163,24 @@ const styles = StyleSheet.create({
     marginLeft: 10,
     backgroundColor: '#f5f5f5',
   },
+  classTabsContainer: {
+    marginBottom: 16,
+    paddingVertical: 4,
+  },
   classTab: {
+    flexDirection: 'row',
+    alignItems: 'center',
     paddingVertical: 8,
-    paddingHorizontal: 18,
+    paddingHorizontal: 16,
     borderRadius: 20,
     backgroundColor: '#e3f2fd',
     marginRight: 10,
+    borderWidth: 1,
+    borderColor: '#b3e5fc',
   },
   classTabActive: {
     backgroundColor: '#1976d2',
+    borderColor: '#1976d2',
   },
   classTabText: {
     color: '#1976d2',
@@ -939,14 +1191,11 @@ const styles = StyleSheet.create({
     color: '#fff',
   },
   addClassTab: {
-    paddingVertical: 8,
     paddingHorizontal: 12,
     borderRadius: 20,
-    backgroundColor: '#e8f5e9',
+    backgroundColor: '#4CAF50',
     justifyContent: 'center',
     alignItems: 'center',
-    marginRight: 10,
-    marginLeft: 2,
   },
   addClassInputRow: {
     flexDirection: 'row',
@@ -974,6 +1223,22 @@ const styles = StyleSheet.create({
     backgroundColor: '#f44336',
     borderRadius: 6,
     padding: 6,
+  },
+  reportButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#e3f2fd',
+    borderRadius: 8,
+    paddingVertical: 10,
+    paddingHorizontal: 14,
+    marginLeft: 8,
+  },
+  reportButtonText: {
+    color: '#1976d2',
+    fontWeight: 'bold',
+    fontSize: 14,
+    marginLeft: 6,
   },
 });
 

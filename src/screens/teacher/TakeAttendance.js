@@ -32,7 +32,6 @@ const TakeAttendance = () => {
   const [selectedDate, setSelectedDate] = useState(`${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`);
   const [attendanceRecords, setAttendanceRecords] = useState({});
   const [attendanceMark, setAttendanceMark] = useState({});
-  const [editMode, setEditMode] = useState({});
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [viewModalVisible, setViewModalVisible] = useState(false);
   const [viewClass, setViewClass] = useState(CLASSES[0]);
@@ -46,7 +45,6 @@ const TakeAttendance = () => {
     } else {
       setAttendanceMark({});
     }
-    setEditMode({});
   }, [selectedDate, selectedClass]);
 
   const studentsForClass = STUDENTS.filter(s => s.class === selectedClass);
@@ -57,7 +55,6 @@ const TakeAttendance = () => {
       ...attendanceRecords,
       [key]: { ...attendanceMark },
     });
-    setEditMode({});
     if (Platform.OS === 'web') {
       window.alert('Attendance saved successfully!');
     } else {
@@ -161,24 +158,20 @@ const TakeAttendance = () => {
         </View>
         <View style={{ backgroundColor: '#fff', borderRadius: 12, overflow: 'hidden', marginTop: 12, elevation: 2 }}>
           <View style={{ flexDirection: 'row', backgroundColor: '#f8f8f8', paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: '#e0e0e0' }}>
-            <Text style={{ flex: 1, fontWeight: 'bold', textAlign: 'center' }}>Roll No</Text>
+            <Text style={{ flex: 1.5, fontWeight: 'bold', textAlign: 'center' }}>Roll No</Text>
             <Text style={{ flex: 3, fontWeight: 'bold', textAlign: 'center' }}>Student Name</Text>
-            <Text style={{ flex: 1, fontWeight: 'bold', textAlign: 'center' }}>Present</Text>
-            <Text style={{ flex: 1, fontWeight: 'bold', textAlign: 'center' }}>Absent</Text>
-            <Text style={{ flex: 1, fontWeight: 'bold', textAlign: 'center' }}>Edit</Text>
+            <Text style={{ flex: 2, fontWeight: 'bold', textAlign: 'center' }}>Present</Text>
+            <Text style={{ flex: 2, fontWeight: 'bold', textAlign: 'center' }}>Absent</Text>
           </View>
           {studentsForClass.map(s => (
-            <View key={s.id} style={{ flexDirection: 'row', alignItems: 'center', borderBottomWidth: 1, borderBottomColor: '#f5f5f5', paddingVertical: 10, backgroundColor: editMode[s.id] ? '#e3f2fd' : '#fff', borderColor: editMode[s.id] ? '#2196F3' : 'transparent', borderWidth: editMode[s.id] ? 1 : 0 }}>
-              <Text style={{ flex: 1, textAlign: 'center' }}>{s.rollNo}</Text>
+            <View key={s.id} style={{ flexDirection: 'row', alignItems: 'center', borderBottomWidth: 1, borderBottomColor: '#f5f5f5', paddingVertical: 10 }}>
+              <Text style={{ flex: 1.5, textAlign: 'center' }}>{s.rollNo}</Text>
               <Text style={{ flex: 3, textAlign: 'center' }}>{s.name}</Text>
-              <TouchableOpacity style={{ flex: 1, alignItems: 'center' }} onPress={() => setAttendanceMark({ ...attendanceMark, [s.id]: 'Present' })} disabled={!editMode[s.id] && !!attendanceMark[s.id]}>
+              <TouchableOpacity style={{ flex: 2, alignItems: 'center' }} onPress={() => setAttendanceMark({ ...attendanceMark, [s.id]: 'Present' })}>
                 <Ionicons name="checkmark-circle" size={28} color={attendanceMark[s.id] === 'Present' ? '#4CAF50' : '#e0e0e0'} />
               </TouchableOpacity>
-              <TouchableOpacity style={{ flex: 1, alignItems: 'center' }} onPress={() => setAttendanceMark({ ...attendanceMark, [s.id]: 'Absent' })} disabled={!editMode[s.id] && !!attendanceMark[s.id]}>
+              <TouchableOpacity style={{ flex: 2, alignItems: 'center' }} onPress={() => setAttendanceMark({ ...attendanceMark, [s.id]: 'Absent' })}>
                 <Ionicons name="close-circle" size={28} color={attendanceMark[s.id] === 'Absent' ? '#F44336' : '#e0e0e0'} />
-              </TouchableOpacity>
-              <TouchableOpacity style={{ flex: 1, alignItems: 'center' }} onPress={() => setEditMode({ ...editMode, [s.id]: true })}>
-                <Ionicons name="pencil" size={28} color={editMode[s.id] ? '#2196F3' : '#666'} />
               </TouchableOpacity>
             </View>
           ))}
