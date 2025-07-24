@@ -265,6 +265,8 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#f5f5f5',
+    paddingTop: 28, // Increased for mobile header spacing
+    paddingBottom: 8, // Keep lower padding
   },
   tabBar: {
     flexDirection: 'row',

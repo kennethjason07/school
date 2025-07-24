@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { View, Text, StyleSheet, FlatList, TouchableOpacity, Modal, ScrollView } from 'react-native';
+import Header from '../../components/Header';
 
 const mockMonthlyAttendance = [
   { month: 'January', percent: 95 },
@@ -44,10 +45,8 @@ const StudentAttendanceScreen = ({ navigation, route }) => {
 
   return (
     <View style={styles.container}>
-      <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn}>
-        <Text style={styles.backText}>{'< Back'}</Text>
-      </TouchableOpacity>
-      <Text style={styles.title}>{student.name}'s Attendance</Text>
+      <Header title={`${student.name}'s Attendance`} showBack={true} />
+      <View style={{ height: 16 }} />
       <FlatList
         data={mockMonthlyAttendance}
         keyExtractor={item => item.month}

@@ -49,9 +49,9 @@ const StudentDashboard = ({ navigation }) => {
           <View style={{ flex: 1 }}>
             <Text style={styles.deadlineTitle}>{item.title}</Text>
             <Text style={styles.deadlineDate}>{item.date}</Text>
-          </View>
-        </View>
-      );
+      </View>
+    </View>
+  );
     }
     if (item.type === 'notification') {
       return (
@@ -60,9 +60,9 @@ const StudentDashboard = ({ navigation }) => {
           <View style={{ flex: 1 }}>
             <Text style={styles.notificationMsg}>{item.message}</Text>
             <Text style={styles.notificationDate}>{item.date}</Text>
-          </View>
-        </View>
-      );
+      </View>
+    </View>
+  );
     }
     return null;
   };
@@ -79,7 +79,7 @@ const StudentDashboard = ({ navigation }) => {
           <Text style={styles.profileName}>{studentProfile.name}</Text>
           <Text style={styles.profileDetails}>Class {studentProfile.class} • Roll No: {studentProfile.roll}</Text>
         </View>
-      </View>
+          </View>
       {/* Summary Cards */}
       <View style={styles.summaryRow}>
         {mockSummary.map(card => (
@@ -89,13 +89,13 @@ const StudentDashboard = ({ navigation }) => {
             <Text style={styles.summaryLabel}>{card.label}</Text>
           </View>
         ))}
-      </View>
+              </View>
     </>
   );
 
   return (
     <View style={styles.container}>
-      <FlatList
+          <FlatList
         data={combinedData}
         renderItem={renderItem}
         keyExtractor={(item, index) => item.id ? item.id : item.title + index}

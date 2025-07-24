@@ -346,7 +346,7 @@ const ExamsMarks = () => {
 
   return (
     <View style={styles.container}>
-      <Header title="Exams & Marks" />
+      <Header title="Exams & Marks" showBack={true} />
       <FlatList
         data={exams}
         keyExtractor={(item) => item.id}
@@ -776,6 +776,8 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#f5f5f5',
+    paddingTop: 28, // Increased for mobile header spacing
+    paddingBottom: 8, // Keep lower padding
   },
   examCard: {
     backgroundColor: '#fff',

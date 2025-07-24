@@ -1,5 +1,6 @@
 import React from 'react';
 import { View, Text, StyleSheet, SectionList, TouchableOpacity } from 'react-native';
+import Header from '../../components/Header';
 
 const mockExamMarks = [
   {
@@ -70,10 +71,8 @@ const StudentMarksScreen = ({ navigation, route }) => {
   };
   return (
     <View style={styles.container}>
-      <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn}>
-        <Text style={styles.backText}>{'< Back'}</Text>
-      </TouchableOpacity>
-      <Text style={styles.title}>{student.name}'s Marks</Text>
+      <Header title={`${student.name}'s Marks`} showBack={true} />
+      <View style={{ height: 16 }} />
       <SectionList
         sections={mockExamMarks}
         keyExtractor={(item, index) => item.subject + index}

@@ -239,8 +239,8 @@ const TeacherDashboard = () => {
           <View style={styles.sectionTitleAccent} />
           <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
             <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-              <Ionicons name="time" size={22} color="#1976d2" style={{ marginLeft: 4, marginRight: 8 }} />
-            <Text style={styles.sectionTitle}>Pending Tasks</Text>
+              <Ionicons name="time" size={22} color="#1976d2" style={{ marginRight: 8 }} />
+              <Text style={[styles.sectionTitle, { marginTop: 0, marginBottom: 0, paddingLeft: 0 }]}>Pending Tasks</Text>
             </View>
             <TouchableOpacity
               onPress={() => setAddTaskModalVisible(true)}
@@ -462,9 +462,9 @@ const TeacherDashboard = () => {
         {/* Recent Notifications and Messages */}
         <View style={styles.section}>
           <View style={styles.sectionTitleAccent} />
-          <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-            <Ionicons name="notifications" size={22} color="#1976d2" style={{ marginLeft: 4, marginRight: 8 }} />
-            <Text style={styles.sectionTitle}>Recent Notifications & Messages</Text>
+          <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 10, paddingLeft: 18 }}>
+            <Ionicons name="notifications" size={22} color="#1976d2" style={{ marginRight: 8 }} />
+            <Text style={[styles.sectionTitle, { marginTop: 0, marginBottom: 0, paddingLeft: 0 }]}>Recent Notifications & Messages</Text>
           </View>
           <View style={{ marginHorizontal: 12, marginBottom: 18 }}>
             {RECENT_NOTIFICATIONS.map(note => (
