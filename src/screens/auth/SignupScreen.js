@@ -10,44 +10,132 @@ import {
   Platform,
   ActivityIndicator,
   ScrollView,
+  RefreshControl,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useAuth } from '../../utils/AuthContext';
+import { supabase } from '../../utils/supabase';
+import * as Animatable from 'react-native-animatable';
 
 const SignupScreen = ({ navigation }) => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
   const [role, setRole] = useState('student');
   const [linkedId, setLinkedId] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  const [emailError, setEmailError] = useState('');
+  const [passwordError, setPasswordError] = useState('');
+  const [confirmPasswordError, setConfirmPasswordError] = useState('');
   const { signUp } = useAuth();
 
   const roles = [
-    { key: 'admin', label: 'Admin', icon: 'school', color: '#2196F3' },
+    { key: 'admin', label: 'Admin', icon: 'school', color: '#1976d2' },
     { key: 'teacher', label: 'Teacher', icon: 'person', color: '#4CAF50' },
     { key: 'parent', label: 'Parent', icon: 'people', color: '#FF9800' },
     { key: 'student', label: 'Student', icon: 'person-circle', color: '#9C27B0' },
   ];
 
-  const handleSignUp = async () => {
-    if (!email || !password || !role) {
-      Alert.alert('Error', 'Please fill in all required fields');
-      return;
+  // Validate email
+  const validateEmail = (email) => {
+    const emailRegex = /^[\w-\.]+@([\w-]+\.)+[\w-]{2,4}$/;
+    if (!email) {
+      setEmailError('Email is required');
+      return false;
     }
+    if (!emailRegex.test(email)) {
+      setEmailError('Please enter a valid email address');
+      return false;
+    }
+    setEmailError('');
+    return true;
+  };
+
+  // Validate password
+  const validatePassword = (password) => {
+    if (!password) {
+      setPasswordError('Password is required');
+      return false;
+    }
+    if (password.length < 6) {
+      setPasswordError('Password must be at least 6 characters');
+      return false;
+    }
+    setPasswordError('');
+    return true;
+  };
+
+  // Validate confirm password
+  const validateConfirmPassword = (password, confirmPassword) => {
+    if (!confirmPassword) {
+      setConfirmPasswordError('Please confirm your password');
+      return false;
+    }
+    if (password !== confirmPassword) {
+      setConfirmPasswordError('Passwords do not match');
+      return false;
+    }
+    setConfirmPasswordError('');
+    return true;
+  };
+
+  // Check if role exists in Supabase
+  const validateRole = async (role) => {
+    try {
+      const { data, error } = await supabase
+        .from('roles')
+        .select('role_name')
+        .eq('role_name', role)
+        .single();
+
+      if (error) throw error;
+      return true;
+    } catch (error) {
+      console.error('Role validation error:', error);
+      Alert.alert('Error', 'Invalid role selected');
+      return false;
+    }
+  };
+
+  const handleSignUp = async () => {
+    // Validate all inputs
+    let isValid = true;
+    isValid = validateEmail(email) && isValid;
+    isValid = validatePassword(password) && isValid;
+    isValid = validateConfirmPassword(password, confirmPassword) && isValid;
+    isValid = await validateRole(role) && isValid;
+
+    if (!isValid) return;
+
     setIsLoading(true);
-    const userData = {
-      role,
-      linked_id: linkedId || null,
-    };
-    const { data, error } = await signUp(email, password, userData);
-    setIsLoading(false);
-    if (error) {
-      Alert.alert('Signup Failed', error.message || 'Could not create account');
-    } else {
+    
+    try {
+      const userData = {
+        role,
+        linked_id: linkedId || null,
+      };
+
+      const { data, error } = await signUp(email, password, userData);
+      
+      if (error) {
+        Alert.alert('Signup Failed', error.message || 'Could not create account');
+        return;
+      }
+
       Alert.alert('Success', 'Account created successfully!', [
-        { text: 'OK', onPress: () => navigation.navigate('Login') },
+        { 
+          text: 'OK', 
+          onPress: () => {
+            navigation.navigate('Login');
+          }
+        },
       ]);
+    } catch (error) {
+      console.error('Signup error:', error);
+      Alert.alert('Error', 'An unexpected error occurred. Please try again.');
+    } finally {
+      setIsLoading(false);
     }
   };
 
@@ -57,14 +145,23 @@ const SignupScreen = ({ navigation }) => {
       behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
     >
       <LinearGradient colors={['#667eea', '#764ba2']} style={styles.gradient}>
-        <ScrollView contentContainerStyle={styles.scrollContent}>
-          <View style={styles.logoContainer}>
+        <ScrollView 
+          contentContainerStyle={styles.scrollContent}
+          refreshControl={
+            <RefreshControl refreshing={isLoading} onRefresh={() => {}} />
+          }
+        >
+          <Animatable.View 
+            style={styles.logoContainer}
+            animation="fadeInDown"
+            duration={1000}
+          >
             <Ionicons name="person-add" size={80} color="#fff" />
             <Text style={styles.appTitle}>Sign Up</Text>
             <Text style={styles.appSubtitle}>Create a new account</Text>
-          </View>
+          </Animatable.View>
 
-          <View style={styles.formContainer}>
+          <Animatable.View style={styles.formContainer} animation="fadeInUp" duration={800}>
             {/* Role Selection */}
             <View style={styles.roleContainer}>
               <Text style={styles.roleLabel}>Select Role</Text>
@@ -74,19 +171,19 @@ const SignupScreen = ({ navigation }) => {
                     key={r.key}
                     style={[
                       styles.roleButton,
-                      role === r.key && { backgroundColor: r.color },
+                      role === r.key && { backgroundColor: r.color }
                     ]}
                     onPress={() => setRole(r.key)}
                   >
                     <Ionicons
                       name={r.icon}
-                      size={20}
+                      size={24}
                       color={role === r.key ? '#fff' : '#666'}
                     />
                     <Text
                       style={[
                         styles.roleButtonText,
-                        role === r.key && { color: '#fff' },
+                        role === r.key && { color: '#fff' }
                       ]}
                     >
                       {r.label}
@@ -98,66 +195,103 @@ const SignupScreen = ({ navigation }) => {
 
             {/* Email Input */}
             <View style={styles.inputContainer}>
-              <Ionicons name="mail" size={20} color="#666" style={styles.inputIcon} />
+              <Ionicons name="mail" size={24} color="#666" />
               <TextInput
                 style={styles.input}
                 placeholder="Email"
+                placeholderTextColor="#666"
                 value={email}
-                onChangeText={setEmail}
+                onChangeText={(text) => {
+                  setEmail(text);
+                  validateEmail(text);
+                }}
                 keyboardType="email-address"
                 autoCapitalize="none"
-                editable={!isLoading}
+                autoCorrect={false}
               />
+              {emailError && (
+                <Text style={styles.errorText}>{emailError}</Text>
+              )}
             </View>
 
             {/* Password Input */}
             <View style={styles.inputContainer}>
-              <Ionicons name="lock-closed" size={20} color="#666" style={styles.inputIcon} />
+              <Ionicons name="lock-closed" size={24} color="#666" />
               <TextInput
                 style={styles.input}
                 placeholder="Password"
+                placeholderTextColor="#666"
                 value={password}
-                onChangeText={setPassword}
-                secureTextEntry
-                autoCapitalize="none"
-                editable={!isLoading}
+                onChangeText={(text) => {
+                  setPassword(text);
+                  validatePassword(text);
+                }}
+                secureTextEntry={true}
               />
+              {passwordError && (
+                <Text style={styles.errorText}>{passwordError}</Text>
+              )}
             </View>
 
-            {/* Linked ID Input (optional) */}
+            {/* Confirm Password Input */}
             <View style={styles.inputContainer}>
-              <Ionicons name="link" size={20} color="#666" style={styles.inputIcon} />
+              <Ionicons name="lock-closed" size={24} color="#666" />
               <TextInput
                 style={styles.input}
-                placeholder="Linked ID (optional)"
+                placeholder="Confirm Password"
+                placeholderTextColor="#666"
+                value={confirmPassword}
+                onChangeText={(text) => {
+                  setConfirmPassword(text);
+                  validateConfirmPassword(password, text);
+                }}
+                secureTextEntry={true}
+              />
+              {confirmPasswordError && (
+                <Text style={styles.errorText}>{confirmPasswordError}</Text>
+              )}
+            </View>
+
+            {/* Linked ID Input */}
+            <View style={styles.inputContainer}>
+              <Ionicons name="id-card" size={24} color="#666" />
+              <TextInput
+                style={styles.input}
+                placeholder="Linked ID (Optional)"
+                placeholderTextColor="#666"
                 value={linkedId}
                 onChangeText={setLinkedId}
-                editable={!isLoading}
               />
             </View>
 
-            {/* Signup Button */}
-            <TouchableOpacity
-              style={[styles.signupButton, isLoading && styles.signupButtonDisabled]}
+            {/* Sign Up Button */}
+            <TouchableOpacity 
+              style={[
+                styles.loginButton,
+                isLoading && styles.loginButtonDisabled
+              ]} 
               onPress={handleSignUp}
               disabled={isLoading}
             >
               {isLoading ? (
-                <ActivityIndicator color="#fff" size="small" />
+                <ActivityIndicator color="#fff" />
               ) : (
-                <Text style={styles.signupButtonText}>Sign Up</Text>
+                <>
+                  <Ionicons name="person-add" size={24} color="#fff" />
+                  <Text style={styles.loginButtonText}>Sign Up</Text>
+                </>
               )}
             </TouchableOpacity>
 
-            {/* Go to Login */}
+            {/* Back to Login */}
             <TouchableOpacity
-              style={styles.loginLink}
+              style={styles.signupLink}
               onPress={() => navigation.navigate('Login')}
               disabled={isLoading}
             >
-              <Text style={styles.loginLinkText}>Already have an account? Login</Text>
+              <Text style={styles.signupLinkText}>Already have an account? Login</Text>
             </TouchableOpacity>
-          </View>
+          </Animatable.View>
         </ScrollView>
       </LinearGradient>
     </KeyboardAvoidingView>
@@ -184,98 +318,103 @@ const styles = StyleSheet.create({
     fontSize: 28,
     fontWeight: 'bold',
     color: '#fff',
-    marginTop: 16,
+    marginTop: 10,
   },
   appSubtitle: {
     fontSize: 16,
-    color: '#fff',
-    opacity: 0.8,
-    marginTop: 8,
+    color: 'rgba(255, 255, 255, 0.8)',
+    marginTop: 5,
   },
   formContainer: {
-    backgroundColor: '#fff',
+    backgroundColor: 'rgba(255, 255, 255, 0.95)',
     borderRadius: 20,
-    padding: 24,
-    elevation: 5,
+    padding: 20,
+    elevation: 10,
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
+    shadowOffset: {
+      width: 0,
+      height: 10,
+    },
     shadowOpacity: 0.25,
-    shadowRadius: 3.84,
+    shadowRadius: 14,
   },
   roleContainer: {
-    marginBottom: 24,
+    marginBottom: 20,
   },
   roleLabel: {
     fontSize: 16,
     fontWeight: '600',
     color: '#333',
-    marginBottom: 12,
+    marginBottom: 10,
   },
   roleButtons: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
+    flexWrap: 'wrap',
+    gap: 10,
   },
   roleButton: {
-    flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: 12,
-    paddingHorizontal: 8,
-    marginHorizontal: 4,
-    borderRadius: 8,
+    padding: 12,
+    borderRadius: 10,
     backgroundColor: '#f5f5f5',
     borderWidth: 1,
-    borderColor: '#e0e0e0',
+    borderColor: '#ddd',
+    flex: 1,
+    maxWidth: '48%',
   },
   roleButtonText: {
-    fontSize: 12,
-    fontWeight: '500',
+    fontSize: 14,
+    marginLeft: 8,
     color: '#666',
-    marginLeft: 4,
   },
   inputContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#f8f9fa',
-    borderRadius: 12,
-    marginBottom: 16,
-    paddingHorizontal: 16,
+    backgroundColor: '#f5f5f5',
+    borderRadius: 10,
+    paddingHorizontal: 15,
+    paddingVertical: 12,
+    marginBottom: 15,
     borderWidth: 1,
-    borderColor: '#e9ecef',
-  },
-  inputIcon: {
-    marginRight: 12,
+    borderColor: '#ddd',
   },
   input: {
     flex: 1,
-    paddingVertical: 16,
     fontSize: 16,
     color: '#333',
   },
-  signupButton: {
-    backgroundColor: '#667eea',
-    borderRadius: 12,
-    paddingVertical: 16,
+  errorText: {
+    color: '#dc3545',
+    fontSize: 12,
+    marginTop: 5,
+  },
+  loginButton: {
+    flexDirection: 'row',
     alignItems: 'center',
-    marginTop: 8,
+    justifyContent: 'center',
+    backgroundColor: '#1976d2',
+    borderRadius: 10,
+    padding: 15,
+    marginTop: 20,
   },
-  signupButtonText: {
-    color: '#fff',
-    fontSize: 18,
-    fontWeight: 'bold',
+  loginButtonDisabled: {
+    opacity: 0.7,
   },
-  signupButtonDisabled: {
-    backgroundColor: '#ccc',
-  },
-  loginLink: {
-    alignItems: 'center',
-    marginTop: 16,
-  },
-  loginLinkText: {
-    color: '#667eea',
+  loginButtonText: {
     fontSize: 16,
+    fontWeight: '600',
+    color: '#fff',
+    marginLeft: 10,
+  },
+  signupLink: {
+    alignItems: 'center',
+    marginTop: 20,
+  },
+  signupLinkText: {
+    color: '#1976d2',
+    fontSize: 14,
   },
 });
 
-export default SignupScreen; 
+export default SignupScreen;

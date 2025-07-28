@@ -1,63 +1,140 @@
-import React, { useState } from 'react';
-import { View, Text, StyleSheet, FlatList, TouchableOpacity, TextInput, KeyboardAvoidingView, Platform, ScrollView, Image } from 'react-native';
+import React, { useState, useEffect } from 'react';
+import { View, Text, StyleSheet, FlatList, TouchableOpacity, TextInput, KeyboardAvoidingView, Platform, ScrollView, Image, ActivityIndicator, Alert } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import Header from '../../components/Header';
-import { useRef, useEffect } from 'react';
+import { useRef } from 'react';
 import * as ImagePicker from 'expo-image-picker';
 import { useFocusEffect } from '@react-navigation/native';
-
-// Mock teachers assigned to the child
-const mockTeachers = [
-  { id: 't1', name: 'Mrs. Sarah Johnson', subject: 'Mathematics' },
-  { id: 't2', name: 'Mr. David Wilson', subject: 'English' },
-  { id: 't3', name: 'Ms. Emily Brown', subject: 'Science' },
-];
-
-// Mock chat history per teacher
-const mockChats = {
-  t1: [
-    { id: 'm1', sender: 'parent', text: 'Hello Mrs. Johnson!', timestamp: '09:00 AM' },
-    { id: 'm2', sender: 'teacher', text: 'Hello! How can I help you?', timestamp: '09:01 AM' },
-  ],
-  t2: [
-    { id: 'm1', sender: 'teacher', text: 'PTM is on Friday.', timestamp: '08:00 AM' },
-    { id: 'm2', sender: 'parent', text: 'Thank you!', timestamp: '08:01 AM' },
-  ],
-  t3: [],
-};
+import { useAuth } from '../../contexts/AuthContext';
+import { dbHelpers } from '../../utils/supabase';
 
 const ChatWithTeacher = () => {
   const [selectedTeacher, setSelectedTeacher] = useState(null);
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState('');
+  const [teachers, setTeachers] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
   const flatListRef = useRef(null);
+  const { user } = useAuth();
+
+  // Fetch teachers and chat data
+  const fetchTeachersAndChats = async () => {
+    try {
+      setLoading(true);
+      setError(null);
+
+      // Get parent data
+      const parentData = await dbHelpers.read('parents', { user_id: user.id });
+      if (!parentData || parentData.length === 0) {
+        throw new Error('Parent data not found');
+      }
+      const parent = parentData[0];
+
+      // Get student data
+      const studentData = await dbHelpers.getStudentById(parent.student_id);
+      if (!studentData) {
+        throw new Error('Student data not found');
+      }
+
+      // Get teachers for the student's class
+      const classTeachers = await dbHelpers.getTeacherSubjects(studentData.class_id);
+      
+      // Get chat messages for the parent
+      const chatMessages = await dbHelpers.read('chat_messages', { 
+        parent_id: parent.id 
+      });
+
+      // Organize messages by teacher
+      const messagesByTeacher = {};
+      chatMessages.forEach(msg => {
+        if (!messagesByTeacher[msg.teacher_id]) {
+          messagesByTeacher[msg.teacher_id] = [];
+        }
+        messagesByTeacher[msg.teacher_id].push({
+          id: msg.id,
+          sender: msg.sender_type,
+          text: msg.message,
+          timestamp: new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+          type: msg.message_type || 'text',
+          uri: msg.attachment_url,
+          fileName: msg.file_name,
+          created_at: msg.created_at
+        });
+      });
+
+      // Sort messages by timestamp
+      Object.keys(messagesByTeacher).forEach(teacherId => {
+        messagesByTeacher[teacherId].sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
+      });
+
+      // Combine teacher data with their messages
+      const teachersWithChats = classTeachers.map(teacher => ({
+        id: teacher.teacher_id,
+        name: teacher.teacher_name,
+        subject: teacher.subject_name,
+        messages: messagesByTeacher[teacher.teacher_id] || []
+      }));
+
+      setTeachers(teachersWithChats);
+    } catch (err) {
+      console.error('Error fetching teachers and chats:', err);
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
 
   // Reset teacher selection and messages on screen focus
   useFocusEffect(
     React.useCallback(() => {
       setSelectedTeacher(null);
       setMessages([]);
+      fetchTeachersAndChats();
     }, [])
   );
 
   // Select a teacher and load chat
   const handleSelectTeacher = (teacher) => {
     setSelectedTeacher(teacher);
-    setMessages(mockChats[teacher.id] || []);
+    setMessages(teacher.messages || []);
   };
 
   // Send a message
-  const handleSend = () => {
-    if (!input.trim()) return;
-    const newMsg = {
-      id: 'm' + (messages.length + 1),
-      sender: 'parent',
-      text: input,
-      timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-      type: 'text',
-    };
-    setMessages([...messages, newMsg]);
-    setInput('');
+  const handleSend = async () => {
+    if (!input.trim() || !selectedTeacher) return;
+    
+    try {
+      const newMsg = {
+        id: Date.now().toString(),
+        sender: 'parent',
+        text: input,
+        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+        type: 'text',
+        created_at: new Date().toISOString()
+      };
+
+      // Add message to local state immediately for better UX
+      setMessages(prev => [...prev, newMsg]);
+      setInput('');
+
+      // Save message to database
+      const parentData = await dbHelpers.read('parents', { user_id: user.id });
+      const parent = parentData[0];
+
+      await dbHelpers.create('chat_messages', {
+        parent_id: parent.id,
+        teacher_id: selectedTeacher.id,
+        message: input,
+        sender_type: 'parent',
+        message_type: 'text',
+        created_at: new Date().toISOString()
+      });
+
+    } catch (err) {
+      console.error('Error sending message:', err);
+      Alert.alert('Error', 'Failed to send message. Please try again.');
+    }
   };
 
   // Attachment handler
@@ -76,15 +153,19 @@ const ChatWithTeacher = () => {
       if (!result.canceled && result.assets && result.assets.length > 0) {
         const asset = result.assets[0];
         const isImage = asset.type && asset.type.startsWith('image');
+        
+        // For now, we'll just show the file in the chat
+        // In a real app, you'd upload the file to storage and get a URL
         const newMsg = {
-          id: 'm' + (messages.length + 1),
+          id: Date.now().toString(),
           sender: 'parent',
           timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
           type: isImage ? 'image' : 'file',
           uri: asset.uri,
           fileName: asset.fileName || asset.uri.split('/').pop(),
+          created_at: new Date().toISOString()
         };
-        setMessages([...messages, newMsg]);
+        setMessages(prev => [...prev, newMsg]);
       }
     } catch (e) {
       alert('Failed to pick file: ' + e.message);
@@ -99,11 +180,11 @@ const ChatWithTeacher = () => {
 
   // Sort teachers by most recent chat (latest message timestamp)
   const getSortedTeachers = () => {
-    return [...mockTeachers].sort((a, b) => {
-      const aMsgs = mockChats[a.id] || [];
-      const bMsgs = mockChats[b.id] || [];
-      const aTime = aMsgs.length ? new Date('1970/01/01 ' + aMsgs[aMsgs.length - 1].timestamp) : new Date(0);
-      const bTime = bMsgs.length ? new Date('1970/01/01 ' + bMsgs[bMsgs.length - 1].timestamp) : new Date(0);
+    return [...teachers].sort((a, b) => {
+      const aMsgs = a.messages || [];
+      const bMsgs = b.messages || [];
+      const aTime = aMsgs.length ? new Date(aMsgs[aMsgs.length - 1].created_at) : new Date(0);
+      const bTime = bMsgs.length ? new Date(bMsgs[bMsgs.length - 1].created_at) : new Date(0);
       return bTime - aTime;
     });
   };
@@ -115,27 +196,59 @@ const ChatWithTeacher = () => {
     }
   }, [messages]);
 
+  if (loading) {
+    return (
+      <View style={styles.container}>
+        <Header title="Chat With Teacher" showBack={true} />
+        <View style={styles.loadingContainer}>
+          <ActivityIndicator size="large" color="#1976d2" />
+          <Text style={styles.loadingText}>Loading teachers...</Text>
+        </View>
+      </View>
+    );
+  }
+
+  if (error) {
+    return (
+      <View style={styles.container}>
+        <Header title="Chat With Teacher" showBack={true} />
+        <View style={styles.errorContainer}>
+          <Text style={styles.errorText}>Error: {error}</Text>
+          <TouchableOpacity style={styles.retryButton} onPress={fetchTeachersAndChats}>
+            <Text style={styles.retryButtonText}>Retry</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+    );
+  }
+
   return (
     <View style={styles.container}>
       <Header title="Chat With Teacher" showBack={true} />
       {!selectedTeacher ? (
         <View style={styles.teacherListContainer}>
           <Text style={styles.sectionTitle}>Your Child's Teachers</Text>
-          <FlatList
-            data={getSortedTeachers()}
-            keyExtractor={item => item.id}
-            renderItem={({ item }) => (
-              <TouchableOpacity style={styles.teacherCard} onPress={() => handleSelectTeacher(item)}>
-                <Ionicons name="person-circle" size={36} color="#1976d2" style={{ marginRight: 12 }} />
-                <View>
-                  <Text style={styles.teacherName}>{item.name}</Text>
-                  <Text style={styles.teacherSubject}>{item.subject}</Text>
-                </View>
-                <Ionicons name="chatbubbles" size={22} color="#9c27b0" style={{ marginLeft: 'auto' }} />
-              </TouchableOpacity>
-            )}
-            contentContainerStyle={{ padding: 16 }}
-          />
+          {teachers.length === 0 ? (
+            <View style={styles.emptyContainer}>
+              <Text style={styles.emptyText}>No teachers found for your child's class.</Text>
+            </View>
+          ) : (
+            <FlatList
+              data={getSortedTeachers()}
+              keyExtractor={item => item.id}
+              renderItem={({ item }) => (
+                <TouchableOpacity style={styles.teacherCard} onPress={() => handleSelectTeacher(item)}>
+                  <Ionicons name="person-circle" size={36} color="#1976d2" style={{ marginRight: 12 }} />
+                  <View>
+                    <Text style={styles.teacherName}>{item.name}</Text>
+                    <Text style={styles.teacherSubject}>{item.subject}</Text>
+                  </View>
+                  <Ionicons name="chatbubbles" size={22} color="#9c27b0" style={{ marginLeft: 'auto' }} />
+                </TouchableOpacity>
+              )}
+              contentContainerStyle={{ padding: 16 }}
+            />
+          )}
         </View>
       ) : (
         <KeyboardAvoidingView
@@ -238,6 +351,50 @@ const styles = StyleSheet.create({
     color: '#1976d2',
     textDecorationLine: 'underline',
     maxWidth: 120,
+  },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  loadingText: {
+    marginTop: 10,
+    fontSize: 16,
+    color: '#666',
+  },
+  errorContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+  },
+  errorText: {
+    fontSize: 16,
+    color: '#d32f2f',
+    textAlign: 'center',
+    marginBottom: 20,
+  },
+  retryButton: {
+    backgroundColor: '#1976d2',
+    paddingHorizontal: 20,
+    paddingVertical: 10,
+    borderRadius: 8,
+  },
+  retryButtonText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: 'bold',
+  },
+  emptyContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+  },
+  emptyText: {
+    fontSize: 16,
+    color: '#666',
+    textAlign: 'center',
   },
 });
 

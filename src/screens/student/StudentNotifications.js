@@ -1,50 +1,9 @@
-import React, { useState } from 'react';
-import { View, Text, StyleSheet, FlatList, TouchableOpacity, TextInput } from 'react-native';
+import React, { useEffect, useState } from 'react';
+import { View, Text, StyleSheet, FlatList, TouchableOpacity, TextInput, ActivityIndicator, Alert } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
-
-const DUMMY_NOTIFICATIONS = [
-  {
-    id: 'n1',
-    title: 'Assignment Due Tomorrow',
-    message: 'Your Mathematics assignment is due tomorrow. Please upload your work before 8pm.',
-    date: '2024-07-08',
-    read: false,
-    important: true,
-  },
-  {
-    id: 'n2',
-    title: 'New Grade Posted',
-    message: 'Your Science assignment has been graded. Check your feedback in the assignments section.',
-    date: '2024-07-07',
-    read: false,
-    important: false,
-  },
-  {
-    id: 'n3',
-    title: 'School Event',
-    message: 'Annual Sports Day is scheduled for 15th July. Register with your class teacher.',
-    date: '2024-07-06',
-    read: true,
-    important: false,
-  },
-  {
-    id: 'n4',
-    title: 'Fee Reminder',
-    message: 'Your school fee for this term is due. Please pay by 10th July to avoid late fees.',
-    date: '2024-07-05',
-    read: true,
-    important: true,
-  },
-  {
-    id: 'n5',
-    title: 'New Homework Uploaded',
-    message: 'English homework for Chapter 4 has been uploaded. Check the assignments section.',
-    date: '2024-07-04',
-    read: false,
-    important: false,
-  },
-];
+import { useAuth } from '../../utils/AuthContext';
+import { supabase, TABLES } from '../../utils/supabase';
 
 const FILTERS = [
   { key: 'all', label: 'All' },
@@ -54,10 +13,45 @@ const FILTERS = [
 ];
 
 const StudentNotifications = () => {
-  const [notifications, setNotifications] = useState(DUMMY_NOTIFICATIONS);
+  const { user } = useAuth();
+  const [notifications, setNotifications] = useState([]);
   const [filter, setFilter] = useState('all');
   const [search, setSearch] = useState('');
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
   const navigation = useNavigation();
+
+  // Fetch notifications from Supabase
+  const fetchNotifications = async () => {
+    try {
+      setLoading(true);
+      setError(null);
+      const { data, error: notifError } = await supabase
+        .from(TABLES.NOTIFICATIONS)
+        .select('*')
+        .eq('user_id', user.id)
+        .order('created_at', { ascending: false });
+      if (notifError) throw notifError;
+      setNotifications(data || []);
+    } catch (err) {
+      setError(err.message);
+      console.error('Notifications error:', err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchNotifications();
+    // Real-time subscription
+    const notifSub = supabase
+      .channel('student-notifications')
+      .on('postgres_changes', { event: '*', schema: 'public', table: TABLES.NOTIFICATIONS }, fetchNotifications)
+      .subscribe();
+    return () => {
+      notifSub.unsubscribe();
+    };
+  }, []);
 
   const filteredNotifications = notifications.filter(n => {
     if (filter === 'unread') return !n.read;
@@ -65,14 +59,24 @@ const StudentNotifications = () => {
     if (filter === 'important') return n.important;
     return true;
   }).filter(n =>
-    n.title.toLowerCase().includes(search.toLowerCase()) ||
-    n.message.toLowerCase().includes(search.toLowerCase())
+    (n.title || '').toLowerCase().includes(search.toLowerCase()) ||
+    (n.message || '').toLowerCase().includes(search.toLowerCase())
   );
 
-  const markAsRead = (id) => {
-    setNotifications(notifications =>
-      notifications.map(n => n.id === id ? { ...n, read: true } : n)
-    );
+  const markAsRead = async (id) => {
+    try {
+      const { error: updateError } = await supabase
+        .from(TABLES.NOTIFICATIONS)
+        .update({ read: true })
+        .eq('id', id);
+      if (updateError) throw updateError;
+      setNotifications(notifications =>
+        notifications.map(n => n.id === id ? { ...n, read: true } : n)
+      );
+    } catch (err) {
+      Alert.alert('Error', 'Failed to mark as read.');
+      console.error('Mark as read error:', err);
+    }
   };
 
   const renderNotification = ({ item }) => (
@@ -83,7 +87,7 @@ const StudentNotifications = () => {
         {item.important && (
           <Ionicons name="star" size={18} color="#FFD700" style={{ marginLeft: 6 }} />
         )}
-        <Text style={styles.date}>{item.date}</Text>
+        <Text style={styles.date}>{item.date ? (item.date.split('T')[0] || item.date) : ''}</Text>
       </View>
       <Text style={styles.message}>{item.message}</Text>
       <View style={styles.actionsRow}>
@@ -96,6 +100,24 @@ const StudentNotifications = () => {
       </View>
     </View>
   );
+
+  if (loading) {
+    return (
+      <View style={styles.container}>
+        <ActivityIndicator size="large" color="#1976d2" style={{ marginTop: 40 }} />
+      </View>
+    );
+  }
+  if (error) {
+    return (
+      <View style={styles.container}>
+        <Text style={{ color: '#d32f2f', fontSize: 16, marginBottom: 12, textAlign: 'center' }}>Error: {error}</Text>
+        <TouchableOpacity onPress={fetchNotifications} style={{ backgroundColor: '#1976d2', padding: 12, borderRadius: 8, alignSelf: 'center' }}>
+          <Text style={{ color: '#fff', fontWeight: 'bold' }}>Retry</Text>
+        </TouchableOpacity>
+      </View>
+    );
+  }
 
   return (
     <View style={styles.container}>

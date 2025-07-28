@@ -1,5 +1,5 @@
-import React, { useState, useCallback } from 'react';
-import { View, Text, StyleSheet, TextInput, FlatList, TouchableOpacity, Modal, ScrollView, Button, Platform, Animated, Easing, Pressable } from 'react-native';
+import React, { useState, useEffect, useCallback } from 'react';
+import { View, Text, StyleSheet, TextInput, FlatList, TouchableOpacity, Modal, ScrollView, Button, Platform, Animated, Easing, Pressable, ActivityIndicator, Alert } from 'react-native';
 import Header from '../../components/Header';
 import * as FileSystem from 'expo-file-system';
 import * as Sharing from 'expo-sharing';
@@ -7,423 +7,486 @@ import * as Print from 'expo-print';
 import DropDownPicker from 'react-native-dropdown-picker';
 import { useNavigation } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
-
-// Mock student data
-const mockStudents = [
-  {
-    id: '1',
-    name: 'Alice Johnson',
-    class: '10',
-    section: 'A',
-    photo: '',
-    attendance: 95,
-    marks: 88,
-    feeStatus: 'Paid',
-    parent: { name: 'John Johnson', contact: '1234567890' },
-    contact: 'alice@email.com',
-    homework: 'Completed',
-    attendanceHistory: [90, 92, 95, 97],
-    marksHistory: [80, 85, 88, 90],
-    notifications: ['PTM on Friday', 'Fee paid'],
-  },
-  {
-    id: '2',
-    name: 'Bob Smith',
-    class: '10',
-    section: 'B',
-    photo: '',
-    attendance: 87,
-    marks: 76,
-    feeStatus: 'Due',
-    parent: { name: 'Mary Smith', contact: '9876543210' },
-    contact: 'bob@email.com',
-    homework: 'Pending',
-    attendanceHistory: [85, 87, 89, 87],
-    marksHistory: [70, 75, 76, 78],
-    notifications: ['Homework pending', 'Fee due'],
-  },
-  {
-    id: '3',
-    name: 'Charlie Lee',
-    class: '9',
-    section: 'A',
-    photo: '',
-    attendance: 92,
-    marks: 81,
-    feeStatus: 'Paid',
-    parent: { name: 'Linda Lee', contact: '5551234567' },
-    contact: 'charlie@email.com',
-    homework: 'Completed',
-    attendanceHistory: [90, 91, 92, 92],
-    marksHistory: [78, 80, 81, 83],
-    notifications: ['Science project due', 'Library book returned'],
-  },
-  {
-    id: '4',
-    name: 'Diana Patel',
-    class: '9',
-    section: 'B',
-    photo: '',
-    attendance: 98,
-    marks: 93,
-    feeStatus: 'Paid',
-    parent: { name: 'Raj Patel', contact: '5559876543' },
-    contact: 'diana@email.com',
-    homework: 'Completed',
-    attendanceHistory: [97, 98, 98, 99],
-    marksHistory: [90, 92, 93, 94],
-    notifications: ['Math Olympiad', 'Fee paid'],
-  },
-  {
-    id: '5',
-    name: 'Ethan Brown',
-    class: '10',
-    section: 'A',
-    photo: '',
-    attendance: 80,
-    marks: 70,
-    feeStatus: 'Due',
-    parent: { name: 'Sarah Brown', contact: '5552223333' },
-    contact: 'ethan@email.com',
-    homework: 'Pending',
-    attendanceHistory: [78, 80, 81, 80],
-    marksHistory: [65, 68, 70, 72],
-    notifications: ['Fee due', 'Homework pending'],
-  },
-  {
-    id: '6',
-    name: 'Fatima Khan',
-    class: '9',
-    section: 'A',
-    photo: '',
-    attendance: 89,
-    marks: 85,
-    feeStatus: 'Paid',
-    parent: { name: 'Imran Khan', contact: '5554445555' },
-    contact: 'fatima@email.com',
-    homework: 'Completed',
-    attendanceHistory: [88, 89, 90, 89],
-    marksHistory: [82, 84, 85, 86],
-    notifications: ['Sports day', 'PTM on Friday'],
-  },
-  {
-    id: '7',
-    name: 'George Miller',
-    class: '10',
-    section: 'B',
-    photo: '',
-    attendance: 91,
-    marks: 79,
-    feeStatus: 'Paid',
-    parent: { name: 'Helen Miller', contact: '5556667777' },
-    contact: 'george@email.com',
-    homework: 'Completed',
-    attendanceHistory: [90, 91, 91, 92],
-    marksHistory: [75, 77, 79, 80],
-    notifications: ['Library book due', 'Fee paid'],
-  },
-  // Add more mock students as needed
-];
+import { useAuth } from '../../utils/AuthContext';
+import { supabase, TABLES } from '../../utils/supabase';
 
 const ViewStudentInfo = () => {
-  const [students, setStudents] = useState(mockStudents);
-  const [search, setSearch] = useState('');
-  const [showClear, setShowClear] = useState(false);
-  const [filterClass, setFilterClass] = useState(null);
-  const [filterSection, setFilterSection] = useState(null);
+  const [students, setStudents] = useState([]);
+  const [filteredStudents, setFilteredStudents] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+  const [searchQuery, setSearchQuery] = useState('');
   const [selectedStudent, setSelectedStudent] = useState(null);
   const [modalVisible, setModalVisible] = useState(false);
-  const [modalAnim] = useState(new Animated.Value(0));
+  const [selectedClass, setSelectedClass] = useState('All');
+  const [classes, setClasses] = useState([]);
+  const { user } = useAuth();
   const navigation = useNavigation();
-  // Remove showAttendance and showMarks state
 
-  // Dropdown state for react-native-dropdown-picker
-  const [classOpen, setClassOpen] = useState(false);
-  const [sectionOpen, setSectionOpen] = useState(false);
-  const [classItems, setClassItems] = useState(
-    Array.from(new Set(students.map(s => s.class))).map(cls => ({ label: cls, value: cls }))
-  );
-  const [sectionItems, setSectionItems] = useState(
-    Array.from(new Set(students.map(s => s.section))).map(sec => ({ label: sec, value: sec }))
-  );
+  // Fetch teacher's students
+  const fetchStudents = async () => {
+    try {
+      setLoading(true);
+      setError(null);
 
-  // Update section items when class changes
-  const onClassChange = useCallback((value) => {
-    setFilterClass(value);
-    setFilterSection(null);
-    const filteredSections = students.filter(s => s.class === value).map(s => s.section);
-    setSectionItems(Array.from(new Set(filteredSections)).map(sec => ({ label: sec, value: sec })));
-  }, [students]);
+      // Get teacher info
+      const { data: teacherData, error: teacherError } = await supabase
+        .from(TABLES.TEACHERS)
+        .select('*')
+        .eq('user_id', user.id)
+        .single();
 
-  // Animate modal open/close
-  const openModal = () => {
+      if (teacherError) throw new Error('Teacher not found');
+
+      // Get assigned classes and subjects
+      const { data: assignedData, error: assignedError } = await supabase
+        .from(TABLES.TEACHER_SUBJECTS)
+        .select(`
+          *,
+          classes(id, class_name),
+          sections(id, section_name)
+        `)
+        .eq('teacher_id', teacherData.id);
+
+      if (assignedError) throw assignedError;
+
+      // Get unique classes
+      const uniqueClasses = [...new Set(assignedData.map(a => a.classes.class_name))];
+      setClasses(['All', ...uniqueClasses]);
+
+      // Get students from assigned classes
+      const studentPromises = assignedData.map(assignment => 
+        supabase
+          .from(TABLES.STUDENTS)
+          .select(`
+            id,
+            full_name,
+            roll_no,
+            email,
+            phone,
+            address,
+            date_of_birth,
+            gender,
+            classes(class_name),
+            sections(section_name),
+            parents(full_name, phone, email)
+          `)
+          .eq('class_id', assignment.classes.id)
+          .eq('section_id', assignment.sections.id)
+          .order('roll_no')
+      );
+
+      const studentResults = await Promise.all(studentPromises);
+      const allStudents = [];
+
+      studentResults.forEach((result, index) => {
+        if (result.data) {
+          const classSection = `${assignedData[index].classes.class_name}-${assignedData[index].sections.section_name}`;
+          result.data.forEach(student => {
+            allStudents.push({
+              ...student,
+              classSection,
+              className: assignedData[index].classes.class_name,
+              sectionName: assignedData[index].sections.section_name
+            });
+          });
+        }
+      });
+
+      // Remove duplicates
+      const uniqueStudents = allStudents.filter((student, index, self) => 
+        index === self.findIndex(s => s.id === student.id)
+      );
+
+      setStudents(uniqueStudents);
+      setFilteredStudents(uniqueStudents);
+
+    } catch (err) {
+      setError(err.message);
+      console.error('Error fetching students:', err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Fetch student statistics
+  const fetchStudentStats = async (studentId) => {
+    try {
+      // Get attendance statistics
+      const { data: attendanceData, error: attendanceError } = await supabase
+        .from(TABLES.STUDENT_ATTENDANCE)
+        .select('*')
+        .eq('student_id', studentId);
+
+      if (attendanceError) throw attendanceError;
+
+      const totalDays = attendanceData.length;
+      const presentDays = attendanceData.filter(a => a.status === 'Present').length;
+      const attendancePercentage = totalDays > 0 ? Math.round((presentDays / totalDays) * 100) : 0;
+
+      // Get marks statistics
+      const { data: marksData, error: marksError } = await supabase
+        .from(TABLES.MARKS)
+        .select('*')
+        .eq('student_id', studentId);
+
+      if (marksError) throw marksError;
+
+      const totalMarks = marksData.length;
+      const averageMarks = totalMarks > 0 
+        ? Math.round(marksData.reduce((sum, m) => sum + (m.marks_obtained || 0), 0) / totalMarks)
+        : 0;
+
+      return {
+        attendance: attendancePercentage,
+        marks: averageMarks,
+        attendanceHistory: attendanceData.slice(-4).map(a => a.status === 'Present' ? 100 : 0),
+        marksHistory: marksData.slice(-4).map(m => m.marks_obtained || 0)
+      };
+
+    } catch (err) {
+      console.error('Error fetching student stats:', err);
+      return {
+        attendance: 0,
+        marks: 0,
+        attendanceHistory: [0, 0, 0, 0],
+        marksHistory: [0, 0, 0, 0]
+      };
+    }
+  };
+
+  useEffect(() => {
+    fetchStudents();
+  }, []);
+
+  // Filter students based on search and class
+  useEffect(() => {
+    let filtered = students;
+
+    // Filter by class
+    if (selectedClass !== 'All') {
+      filtered = filtered.filter(student => student.className === selectedClass);
+    }
+
+    // Filter by search query
+    if (searchQuery.trim()) {
+      filtered = filtered.filter(student =>
+        student.full_name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        student.roll_no.toString().includes(searchQuery) ||
+        student.email?.toLowerCase().includes(searchQuery.toLowerCase())
+      );
+    }
+
+    setFilteredStudents(filtered);
+  }, [students, searchQuery, selectedClass]);
+
+  const openModal = async (student) => {
+    setSelectedStudent(student);
     setModalVisible(true);
-    Animated.timing(modalAnim, {
-      toValue: 1,
-      duration: 250,
-      useNativeDriver: true,
-      easing: Easing.out(Easing.ease),
-    }).start();
+    
+    // Fetch student statistics
+    const stats = await fetchStudentStats(student.id);
+    setSelectedStudent({ ...student, ...stats });
   };
+
   const closeModal = () => {
-    Animated.timing(modalAnim, {
-      toValue: 0,
-      duration: 200,
-      useNativeDriver: true,
-      easing: Easing.in(Easing.ease),
-    }).start(() => setModalVisible(false));
+    setModalVisible(false);
+    setSelectedStudent(null);
   };
 
-  // Filter logic
-  const filteredStudents = students.filter(student => {
-    const matchesName = student.name.toLowerCase().includes(search.toLowerCase());
-    const matchesClass = filterClass ? student.class === filterClass : true;
-    const matchesSection = filterSection ? student.section === filterSection : true;
-    return matchesName && matchesClass && matchesSection;
-  });
-
-  // Export handlers
   const handleExportCSV = async () => {
     try {
-      // Prepare CSV header and rows
-      const header = 'Name,Class,Section,Attendance,Marks,Fee Status,Parent Name,Parent Contact,Contact,Homework\n';
-      const rows = filteredStudents.map(s =>
-        [
-          s.name,
-          s.class,
-          s.section,
-          s.attendance,
-          s.marks,
-          s.feeStatus,
-          s.parent.name,
-          s.parent.contact,
-          s.contact,
-          s.homework
-        ].map(field => `"${String(field).replace(/"/g, '""')}"`).join(',')
-      ).join('\n');
-      const csv = header + rows;
-      // Write to file
-      const fileUri = FileSystem.cacheDirectory + 'students.csv';
-      await FileSystem.writeAsStringAsync(fileUri, csv, { encoding: FileSystem.EncodingType.UTF8 });
-      // Share
+      const csvData = [
+        ['Name', 'Roll No', 'Class', 'Section', 'Email', 'Phone', 'Attendance %', 'Average Marks'],
+        ...filteredStudents.map(student => [
+          student.full_name,
+          student.roll_no,
+          student.className,
+          student.sectionName,
+          student.email || '',
+          student.phone || '',
+          student.attendance || 0,
+          student.marks || 0
+        ])
+      ].map(row => row.join(',')).join('\n');
+
+      const fileName = `students_${new Date().toISOString().split('T')[0]}.csv`;
+      const fileUri = `${FileSystem.documentDirectory}${fileName}`;
+
+      await FileSystem.writeAsStringAsync(fileUri, csvData);
+      
       if (await Sharing.isAvailableAsync()) {
-        await Sharing.shareAsync(fileUri, { mimeType: 'text/csv', dialogTitle: 'Export Students CSV' });
+        await Sharing.shareAsync(fileUri);
       } else {
-        alert('Sharing is not available on this device');
+        Alert.alert('Success', 'CSV file saved successfully!');
       }
-    } catch (e) {
-      alert('CSV export failed: ' + e.message);
+    } catch (error) {
+      Alert.alert('Error', 'Failed to export CSV');
+      console.error('CSV export error:', error);
     }
   };
 
   const handleExportPDF = async () => {
     try {
-      // Prepare HTML table
-      const tableRows = filteredStudents.map(s => `
-        <tr>
-          <td>${s.name}</td>
-          <td>${s.class}</td>
-          <td>${s.section}</td>
-          <td>${s.attendance}%</td>
-          <td>${s.marks}</td>
-          <td>${s.feeStatus}</td>
-          <td>${s.parent.name}</td>
-          <td>${s.parent.contact}</td>
-          <td>${s.contact}</td>
-          <td>${s.homework}</td>
-        </tr>
-      `).join('');
-      const html = `
+      const htmlContent = `
         <html>
-        <head>
-          <style>
-            table { width: 100%; border-collapse: collapse; }
-            th, td { border: 1px solid #888; padding: 6px; font-size: 12px; }
-            th { background: #1976d2; color: #fff; }
-          </style>
-        </head>
-        <body>
-          <h2>Student List</h2>
-          <table>
-            <tr>
-              <th>Name</th><th>Class</th><th>Section</th><th>Attendance</th><th>Marks</th><th>Fee Status</th><th>Parent Name</th><th>Parent Contact</th><th>Contact</th><th>Homework</th>
-            </tr>
-            ${tableRows}
-          </table>
-        </body>
+          <head>
+            <style>
+              body { font-family: Arial, sans-serif; margin: 20px; }
+              .header { text-align: center; margin-bottom: 30px; }
+              table { width: 100%; border-collapse: collapse; margin-top: 20px; }
+              th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
+              th { background-color: #f2f2f2; }
+              .student-card { border: 1px solid #ddd; margin: 10px 0; padding: 15px; }
+            </style>
+          </head>
+          <body>
+            <div class="header">
+              <h1>Student Information Report</h1>
+              <p>Generated on: ${new Date().toLocaleDateString()}</p>
+            </div>
+            ${filteredStudents.map(student => `
+              <div class="student-card">
+                <h3>${student.full_name}</h3>
+                <p><strong>Roll No:</strong> ${student.roll_no}</p>
+                <p><strong>Class:</strong> ${student.className} - ${student.sectionName}</p>
+                <p><strong>Email:</strong> ${student.email || 'N/A'}</p>
+                <p><strong>Phone:</strong> ${student.phone || 'N/A'}</p>
+                <p><strong>Parent:</strong> ${student.parents?.full_name || 'N/A'}</p>
+              </div>
+            `).join('')}
+          </body>
         </html>
       `;
-      // Generate PDF
-      const { uri } = await Print.printToFileAsync({ html, base64: false });
-      // Share
-      if (await Sharing.isAvailableAsync()) {
-        await Sharing.shareAsync(uri, { mimeType: 'application/pdf', dialogTitle: 'Export Students PDF' });
-      } else {
-        alert('Sharing is not available on this device');
-      }
-    } catch (e) {
-      alert('PDF export failed: ' + e.message);
+
+      await Print.printAsync({ html: htmlContent });
+    } catch (error) {
+      Alert.alert('Error', 'Failed to generate PDF');
+      console.error('PDF export error:', error);
     }
   };
 
-  // Student card with touch feedback (using Pressable)
   const renderStudent = ({ item }) => (
-    <Pressable
-      style={({ pressed }) => [
-        styles.card,
-        pressed && styles.cardPressed,
-      ]}
-      onPress={() => { setSelectedStudent(item); openModal(); }}
+    <TouchableOpacity
+      style={styles.studentCard}
+      onPress={() => openModal(item)}
     >
-      <View style={styles.avatarPlaceholder} />
-      <View style={{ flex: 1 }}>
-        <Text style={styles.studentName}>{item.name}</Text>
-        <Text style={styles.studentInfo}>Class: {item.class} | Section: {item.section}</Text>
-        <Text style={styles.studentInfo}>Attendance: {item.attendance}% | Marks: {item.marks}</Text>
-        <Text style={styles.studentInfo}>Fee: {item.feeStatus}</Text>
+      <View style={styles.studentHeader}>
+        <View style={styles.studentInfo}>
+          <Text style={styles.studentName}>{item.full_name}</Text>
+          <Text style={styles.studentDetails}>
+            Roll: {item.roll_no} | {item.classSection}
+          </Text>
+        </View>
+        <Ionicons name="chevron-forward" size={20} color="#666" />
       </View>
-    </Pressable>
+      
+      <View style={styles.studentStats}>
+        <View style={styles.statItem}>
+          <Text style={styles.statLabel}>Email</Text>
+          <Text style={styles.statValue}>{item.email || 'N/A'}</Text>
+        </View>
+        <View style={styles.statItem}>
+          <Text style={styles.statLabel}>Parent</Text>
+          <Text style={styles.statValue}>{item.parents?.full_name || 'N/A'}</Text>
+        </View>
+      </View>
+    </TouchableOpacity>
   );
+
+  if (loading) {
+    return (
+      <View style={styles.container}>
+        <Header title="View Student Info" showBack={true} />
+        <View style={styles.loadingContainer}>
+          <ActivityIndicator size="large" color="#1976d2" />
+          <Text style={styles.loadingText}>Loading students...</Text>
+        </View>
+      </View>
+    );
+  }
+
+  if (error) {
+    return (
+      <View style={styles.container}>
+        <Header title="View Student Info" showBack={true} />
+        <View style={styles.errorContainer}>
+          <Text style={styles.errorText}>Error: {error}</Text>
+          <TouchableOpacity style={styles.retryButton} onPress={fetchStudents}>
+            <Text style={styles.retryButtonText}>Retry</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+    );
+  }
 
   return (
     <View style={styles.container}>
       <Header title="View Student Info" showBack={true} />
-      <View style={styles.searchBar}>
-        <View style={{ zIndex: 3000, marginBottom: 12 }}>
-          <DropDownPicker
-            open={classOpen}
-            value={filterClass}
-            items={classItems}
-            setOpen={setClassOpen}
-            setValue={onClassChange}
-            setItems={setClassItems}
-            placeholder="Select Class"
-            style={styles.dropdown}
-            containerStyle={styles.dropdownContainer}
-            zIndex={3000}
-          />
-        </View>
-        <View style={{ zIndex: 2000, marginBottom: 12 }}>
-          <DropDownPicker
-            open={sectionOpen}
-            value={filterSection}
-            items={sectionItems}
-            setOpen={setSectionOpen}
-            setValue={setFilterSection}
-            setItems={setSectionItems}
-            placeholder="Select Section"
-            style={styles.dropdown}
-            containerStyle={styles.dropdownContainer}
-            zIndex={2000}
-            disabled={!filterClass}
-          />
-        </View>
-        <View style={styles.searchInputWrapper}>
-          <Ionicons name="search" size={20} color="#888" style={styles.searchIcon} />
+      
+      <View style={styles.content}>
+        {/* Search and Filter */}
+        <View style={styles.searchSection}>
           <TextInput
             style={styles.searchInput}
-            placeholder="Search by name"
-            value={search}
-            onChangeText={text => {
-              setSearch(text);
-              setShowClear(!!text);
-            }}
-            placeholderTextColor="#aaa"
+            placeholder="Search students..."
+            value={searchQuery}
+            onChangeText={setSearchQuery}
           />
-          {showClear && (
-            <TouchableOpacity onPress={() => { setSearch(''); setShowClear(false); }}>
-              <Ionicons name="close-circle" size={20} color="#bbb" />
-            </TouchableOpacity>
-          )}
+          
+          <View style={styles.filterContainer}>
+            <Text style={styles.filterLabel}>Class:</Text>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+              {classes.map(cls => (
+                <TouchableOpacity
+                  key={cls}
+                  style={[
+                    styles.filterButton,
+                    selectedClass === cls && styles.selectedFilterButton
+                  ]}
+                  onPress={() => setSelectedClass(cls)}
+                >
+                  <Text style={[
+                    styles.filterButtonText,
+                    selectedClass === cls && styles.selectedFilterButtonText
+                  ]}>
+                    {cls}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+          </View>
         </View>
-        <View style={styles.exportRow}>
-          <TouchableOpacity
-            style={styles.exportBtn}
-            activeOpacity={0.7}
-            onPress={handleExportCSV}
-          >
-            <Text style={styles.exportText}>CSV</Text>
+
+        {/* Export Buttons */}
+        <View style={styles.exportSection}>
+          <TouchableOpacity style={styles.exportButton} onPress={handleExportCSV}>
+            <Ionicons name="document-text" size={20} color="#fff" />
+            <Text style={styles.exportButtonText}>Export CSV</Text>
           </TouchableOpacity>
-          <TouchableOpacity
-            style={styles.exportBtn}
-            activeOpacity={0.7}
-            onPress={handleExportPDF}
-          >
-            <Text style={styles.exportText}>PDF</Text>
+          <TouchableOpacity style={styles.exportButton} onPress={handleExportPDF}>
+            <Ionicons name="print" size={20} color="#fff" />
+            <Text style={styles.exportButtonText}>Export PDF</Text>
           </TouchableOpacity>
         </View>
+
+        {/* Students List */}
+        {filteredStudents.length === 0 ? (
+          <View style={styles.noDataContainer}>
+            <Ionicons name="people-outline" size={48} color="#ccc" />
+            <Text style={styles.noDataText}>No students found</Text>
+            <Text style={styles.noDataSubtext}>
+              {searchQuery ? 'Try adjusting your search' : 'No students assigned to your classes'}
+            </Text>
+          </View>
+        ) : (
+          <FlatList
+            data={filteredStudents}
+            renderItem={renderStudent}
+            keyExtractor={item => item.id}
+            showsVerticalScrollIndicator={false}
+            contentContainerStyle={styles.listContainer}
+          />
+        )}
       </View>
-      <FlatList
-        data={filteredStudents}
-        keyExtractor={item => item.id}
-        renderItem={renderStudent}
-        contentContainerStyle={styles.list}
-        ListEmptyComponent={<Text style={styles.emptyText}>No students found.</Text>}
-      />
-      {/* Student Profile Modal with animation */}
+
+      {/* Student Detail Modal */}
       <Modal
         visible={modalVisible}
-        animationType="none"
+        animationType="slide"
         transparent={true}
         onRequestClose={closeModal}
       >
-        <Animated.View style={[styles.modalOverlay, { opacity: modalAnim }]}>
-          <Animated.View style={[styles.modalContent, { transform: [{ scale: modalAnim.interpolate({ inputRange: [0, 1], outputRange: [0.95, 1] }) }] }]}>
-            <ScrollView>
-              {selectedStudent && (
-                <>
-                  <View style={styles.profileHeader}>
-                    <View style={styles.avatarLarge} />
-                    <Text style={styles.profileName}>{selectedStudent.name}</Text>
-                    <Text style={styles.profileInfo}>Class: {selectedStudent.class} | Section: {selectedStudent.section}</Text>
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Student Details</Text>
+              <TouchableOpacity onPress={closeModal}>
+                <Ionicons name="close" size={24} color="#1976d2" />
+              </TouchableOpacity>
+            </View>
+            
+            {selectedStudent && (
+              <ScrollView style={styles.modalBody}>
+                <View style={styles.detailSection}>
+                  <Text style={styles.detailTitle}>Personal Information</Text>
+                  <View style={styles.detailRow}>
+                    <Text style={styles.detailLabel}>Name:</Text>
+                    <Text style={styles.detailValue}>{selectedStudent.full_name}</Text>
                   </View>
-                  <Text style={styles.profileLabel}>Attendance %</Text>
-                  <Text style={styles.profileValue}>{selectedStudent.attendance}%</Text>
-                  <Text style={styles.profileLabel}>Marks Summary</Text>
-                  <Text style={styles.profileValue}>{selectedStudent.marks}</Text>
-                  <Text style={styles.profileLabel}>Homework</Text>
-                  <Text style={styles.profileValue}>{selectedStudent.homework}</Text>
-                  <Text style={styles.profileLabel}>Fee Status</Text>
-                  <Text style={styles.profileValue}>{selectedStudent.feeStatus}</Text>
-                  <Text style={styles.profileLabel}>Contact Info</Text>
-                  <Text style={styles.profileValue}>{selectedStudent.contact}</Text>
-                  <Text style={styles.profileLabel}>Parent/Guardian</Text>
-                  <Text style={styles.profileValue}>{selectedStudent.parent.name} ({selectedStudent.parent.contact})</Text>
-                  <Text style={styles.profileLabel}>Recent Notifications</Text>
-                  {selectedStudent.notifications.map((note, idx) => (
-                    <Text key={idx} style={styles.profileValue}>- {note}</Text>
-                  ))}
-                  {/* Side by side action buttons */}
-                  <View style={styles.modalActionRow}>
-                    <TouchableOpacity
-                      style={[styles.actionBtn, styles.modalActionBtn]}
-                      onPress={() => {
-                        closeModal();
-                        setTimeout(() => {
-                          navigation.navigate('StudentAttendanceScreen', { student: selectedStudent });
-                        }, 300);
-                      }}
-                    >
-                      <Text style={styles.actionBtnText}>View Attendance</Text>
-                    </TouchableOpacity>
-                    <TouchableOpacity
-                      style={[styles.actionBtn, styles.modalActionBtn]}
-                      onPress={() => {
-                        closeModal();
-                        setTimeout(() => {
-                          navigation.navigate('StudentMarksScreen', { student: selectedStudent });
-                        }, 300);
-                      }}
-                    >
-                      <Text style={styles.actionBtnText}>View Marks</Text>
-                    </TouchableOpacity>
+                  <View style={styles.detailRow}>
+                    <Text style={styles.detailLabel}>Roll No:</Text>
+                    <Text style={styles.detailValue}>{selectedStudent.roll_no}</Text>
                   </View>
-                </>
-              )}
-              <Button title="Close" onPress={closeModal} />
-            </ScrollView>
-          </Animated.View>
-        </Animated.View>
+                  <View style={styles.detailRow}>
+                    <Text style={styles.detailLabel}>Class:</Text>
+                    <Text style={styles.detailValue}>{selectedStudent.classSection}</Text>
+                  </View>
+                  <View style={styles.detailRow}>
+                    <Text style={styles.detailLabel}>Email:</Text>
+                    <Text style={styles.detailValue}>{selectedStudent.email || 'N/A'}</Text>
+                  </View>
+                  <View style={styles.detailRow}>
+                    <Text style={styles.detailLabel}>Phone:</Text>
+                    <Text style={styles.detailValue}>{selectedStudent.phone || 'N/A'}</Text>
+                  </View>
+                </View>
+
+                <View style={styles.detailSection}>
+                  <Text style={styles.detailTitle}>Parent Information</Text>
+                  <View style={styles.detailRow}>
+                    <Text style={styles.detailLabel}>Name:</Text>
+                    <Text style={styles.detailValue}>{selectedStudent.parents?.full_name || 'N/A'}</Text>
+                  </View>
+                  <View style={styles.detailRow}>
+                    <Text style={styles.detailLabel}>Phone:</Text>
+                    <Text style={styles.detailValue}>{selectedStudent.parents?.phone || 'N/A'}</Text>
+                  </View>
+                  <View style={styles.detailRow}>
+                    <Text style={styles.detailLabel}>Email:</Text>
+                    <Text style={styles.detailValue}>{selectedStudent.parents?.email || 'N/A'}</Text>
+                  </View>
+                </View>
+
+                <View style={styles.detailSection}>
+                  <Text style={styles.detailTitle}>Academic Performance</Text>
+                  <View style={styles.detailRow}>
+                    <Text style={styles.detailLabel}>Attendance:</Text>
+                    <Text style={styles.detailValue}>{selectedStudent.attendance || 0}%</Text>
+                  </View>
+                  <View style={styles.detailRow}>
+                    <Text style={styles.detailLabel}>Average Marks:</Text>
+                    <Text style={styles.detailValue}>{selectedStudent.marks || 0}%</Text>
+                  </View>
+                </View>
+
+                <View style={styles.actionButtons}>
+                  <TouchableOpacity
+                    style={styles.actionButton}
+                    onPress={() => {
+                      closeModal();
+                      navigation.navigate('StudentMarksScreen', { student: selectedStudent });
+                    }}
+                  >
+                    <Ionicons name="book" size={20} color="#1976d2" />
+                    <Text style={styles.actionButtonText}>View Marks</Text>
+                  </TouchableOpacity>
+                  
+                  <TouchableOpacity
+                    style={styles.actionButton}
+                    onPress={() => {
+                      closeModal();
+                      navigation.navigate('StudentAttendanceScreen', { student: selectedStudent });
+                    }}
+                  >
+                    <Ionicons name="calendar" size={20} color="#1976d2" />
+                    <Text style={styles.actionButtonText}>View Attendance</Text>
+                  </TouchableOpacity>
+                </View>
+              </ScrollView>
+            )}
+          </View>
+        </View>
       </Modal>
     </View>
   );
@@ -434,213 +497,241 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#f5f5f5',
   },
-  searchBar: {
+  content: {
+    flex: 1,
+    padding: 16,
+  },
+  searchSection: {
+    marginBottom: 16,
+  },
+  searchInput: {
+    backgroundColor: '#fff',
+    borderRadius: 12,
+    padding: 12,
+    fontSize: 16,
+    marginBottom: 12,
+    elevation: 2,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+  },
+  filterContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    padding: 10,
+  },
+  filterLabel: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: '#333',
+    marginRight: 12,
+  },
+  filterButton: {
     backgroundColor: '#fff',
-    borderBottomWidth: 1,
-    borderColor: '#eee',
-    flexWrap: 'wrap',
-  },
-  input: {
-    backgroundColor: '#f0f0f0',
-    borderRadius: 8,
-    paddingHorizontal: 10,
-    paddingVertical: Platform.OS === 'ios' ? 10 : 6,
-    marginRight: 8,
-    marginBottom: 6,
-    minWidth: 90,
-    flexGrow: 1,
-  },
-  exportBtn: {
-    backgroundColor: '#1976d2',
-    borderRadius: 8,
-    paddingHorizontal: 12,
+    borderRadius: 20,
+    paddingHorizontal: 16,
     paddingVertical: 8,
-    marginLeft: 4,
-    marginBottom: 6,
+    marginRight: 8,
+    elevation: 1,
   },
-  exportText: {
+  selectedFilterButton: {
+    backgroundColor: '#1976d2',
+  },
+  filterButtonText: {
+    color: '#333',
+    fontWeight: '500',
+  },
+  selectedFilterButtonText: {
+    color: '#fff',
+  },
+  exportSection: {
+    flexDirection: 'row',
+    marginBottom: 16,
+  },
+  exportButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#4CAF50',
+    borderRadius: 8,
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    marginRight: 12,
+  },
+  exportButtonText: {
     color: '#fff',
     fontWeight: 'bold',
+    marginLeft: 4,
   },
-  list: {
-    padding: 10,
-  },
-  card: {
-    flexDirection: 'row',
+  studentCard: {
     backgroundColor: '#fff',
     borderRadius: 12,
     padding: 16,
     marginBottom: 12,
-    alignItems: 'center',
     elevation: 2,
     shadowColor: '#000',
-    shadowOpacity: 0.05,
-    shadowRadius: 4,
     shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
   },
-  avatarPlaceholder: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-    backgroundColor: '#bdbdbd',
-    marginRight: 16,
+  studentHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  studentInfo: {
+    flex: 1,
   },
   studentName: {
     fontSize: 18,
     fontWeight: 'bold',
     color: '#333',
   },
-  studentInfo: {
+  studentDetails: {
     fontSize: 14,
     color: '#666',
+    marginTop: 2,
   },
-  emptyText: {
-    textAlign: 'center',
-    color: '#999',
-    marginTop: 40,
-    fontSize: 16,
+  studentStats: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+  },
+  statItem: {
+    flex: 1,
+  },
+  statLabel: {
+    fontSize: 12,
+    color: '#666',
+    marginBottom: 2,
+  },
+  statValue: {
+    fontSize: 14,
+    color: '#333',
+    fontWeight: '500',
   },
   modalOverlay: {
     flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.3)',
+    backgroundColor: 'rgba(0,0,0,0.5)',
     justifyContent: 'center',
     alignItems: 'center',
   },
   modalContent: {
+    backgroundColor: '#fff',
+    borderRadius: 12,
     width: '90%',
-    maxHeight: '85%',
-    backgroundColor: '#fff',
-    borderRadius: 16,
-    padding: 20,
-    elevation: 5,
+    maxHeight: '80%',
   },
-  profileHeader: {
-    alignItems: 'center',
-    marginBottom: 16,
-  },
-  avatarLarge: {
-    width: 72,
-    height: 72,
-    borderRadius: 36,
-    backgroundColor: '#bdbdbd',
-    marginBottom: 10,
-  },
-  profileName: {
-    fontSize: 22,
-    fontWeight: 'bold',
-    color: '#222',
-  },
-  profileInfo: {
-    fontSize: 16,
-    color: '#555',
-    marginBottom: 8,
-  },
-  profileLabel: {
-    fontSize: 15,
-    fontWeight: 'bold',
-    color: '#1976d2',
-    marginTop: 10,
-  },
-  profileValue: {
-    fontSize: 15,
-    color: '#333',
-    marginBottom: 4,
-  },
-  dropdown: {
-    borderColor: '#e0e0e0',
-    borderRadius: 8,
-    minHeight: 44,
-    marginBottom: 8,
-    backgroundColor: '#fff',
-  },
-  dropdownContainer: {
-    marginBottom: 8,
-    zIndex: 3000,
-  },
-  exportRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-around',
-    marginTop: 10,
-  },
-  pickerWrapper: {
-    flex: 1,
-    minWidth: 110,
-    marginRight: 8,
-    marginBottom: 6,
-    backgroundColor: '#f0f0f0',
-    borderRadius: 8,
-    overflow: 'hidden',
-  },
-  picker: {
-    height: 44,
-    width: '100%',
-  },
-  actionBtn: {
-    backgroundColor: '#1976d2',
-    borderRadius: 8,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    marginVertical: 8,
-    alignSelf: 'flex-start',
-  },
-  actionBtnText: {
-    color: '#fff',
-    fontWeight: 'bold',
-    textAlign: 'center',
-  },
-  detailBox: {
-    backgroundColor: '#f0f0f0',
-    borderRadius: 8,
-    padding: 10,
-    marginBottom: 8,
-    marginTop: -4,
-  },
-  searchInputWrapper: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#fff',
-    borderRadius: 24,
-    paddingHorizontal: 14,
-    paddingVertical: 6,
-    marginBottom: 12,
-    borderWidth: 1,
-    borderColor: '#e0e0e0',
-    shadowColor: '#000',
-    shadowOpacity: 0.06,
-    shadowRadius: 4,
-    shadowOffset: { width: 0, height: 2 },
-    elevation: 2,
-  },
-  searchIcon: {
-    marginRight: 8,
-  },
-  searchInput: {
-    flex: 1,
-    fontSize: 16,
-    color: '#333',
-    backgroundColor: 'transparent',
-    borderWidth: 0,
-    paddingVertical: 6,
-  },
-  cardPressed: {
-    transform: [{ scale: 0.97 }],
-    opacity: 0.85,
-    backgroundColor: '#e3f2fd',
-  },
-  modalActionRow: {
+  modalHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginTop: 18,
-    marginBottom: 10,
-    gap: 12,
+    padding: 20,
+    borderBottomWidth: 1,
+    borderBottomColor: '#eee',
   },
-  modalActionBtn: {
+  modalTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#333',
+  },
+  modalBody: {
+    padding: 20,
+  },
+  detailSection: {
+    marginBottom: 24,
+  },
+  detailTitle: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: '#1976d2',
+    marginBottom: 12,
+  },
+  detailRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    paddingVertical: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: '#f0f0f0',
+  },
+  detailLabel: {
+    fontSize: 14,
+    color: '#666',
+    fontWeight: '500',
+  },
+  detailValue: {
+    fontSize: 14,
+    color: '#333',
+    fontWeight: '500',
+  },
+  actionButtons: {
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+    marginTop: 20,
+  },
+  actionButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#e3f2fd',
+    borderRadius: 8,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+  },
+  actionButtonText: {
+    color: '#1976d2',
+    fontWeight: 'bold',
+    marginLeft: 4,
+  },
+  loadingContainer: {
     flex: 1,
-    marginHorizontal: 6,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  loadingText: {
+    marginTop: 10,
+    color: '#1976d2',
+    fontSize: 16,
+  },
+  errorContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+  },
+  errorText: {
+    color: '#d32f2f',
+    fontSize: 16,
+    marginBottom: 20,
+    textAlign: 'center',
+  },
+  retryButton: {
+    backgroundColor: '#1976d2',
+    paddingHorizontal: 20,
+    paddingVertical: 10,
+    borderRadius: 8,
+  },
+  retryButtonText: {
+    color: '#fff',
+    fontWeight: 'bold',
+  },
+  noDataContainer: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 60,
+  },
+  noDataText: {
+    fontSize: 18,
+    color: '#666',
+    marginTop: 12,
+    fontWeight: 'bold',
+  },
+  noDataSubtext: {
+    fontSize: 14,
+    color: '#999',
+    marginTop: 4,
+    textAlign: 'center',
+  },
+  listContainer: {
+    paddingBottom: 20,
   },
 });
 

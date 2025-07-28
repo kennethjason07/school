@@ -1,29 +1,43 @@
-import React, { useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, FlatList, TouchableOpacity, TextInput, Alert } from 'react-native';
+import React, { useState, useEffect } from 'react';
+import { View, Text, StyleSheet, ScrollView, FlatList, TouchableOpacity, TextInput, Alert, ActivityIndicator } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import Header from '../../components/Header';
-import { LineChart, BarChart } from 'react-native-chart-kit';
+import { LineChart } from 'react-native-chart-kit';
 import { Dimensions } from 'react-native';
-import { LinearGradient } from 'expo-linear-gradient';
 import StatCard from '../../components/StatCard';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { Platform } from 'react-native';
+import { useAuth } from '../../utils/AuthContext';
+import { supabase, TABLES } from '../../utils/supabase';
 
 const screenWidth = Dimensions.get('window').width;
 
-const DUMMY_SCHEDULE = [
-  { id: '1', time: '08:00 - 09:00', subject: 'Maths', class: '5A', room: '101' },
-  { id: '2', time: '09:00 - 10:00', subject: 'Science', class: '5B', room: '102' },
-  { id: '3', time: '10:15 - 11:15', subject: 'English', class: '6A', room: '103' },
-  { id: '4', time: '11:15 - 12:15', subject: 'Social', class: '7A', room: '104' },
-];
+const TeacherDashboard = () => {
+  const [personalTasks, setPersonalTasks] = useState([]);
+  const [adminTaskList, setAdminTaskList] = useState([]);
+  const [showAddTaskBar, setShowAddTaskBar] = useState(false);
+  const [newTask, setNewTask] = useState({ task: '', type: 'attendance', due: '' });
+  const [showDatePicker, setShowDatePicker] = useState(false);
+  const [addTaskModalVisible, setAddTaskModalVisible] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+  const [teacherStats, setTeacherStats] = useState([]);
+  const [schedule, setSchedule] = useState([]);
+  const [notifications, setNotifications] = useState([]);
+  const [analytics, setAnalytics] = useState({ attendanceRate: 0, marksDistribution: [] });
+  const [assignedClasses, setAssignedClasses] = useState([]);
+  const [upcomingEvents, setUpcomingEvents] = useState([]);
+  const [classPerformance, setClassPerformance] = useState([]);
+  const [marksTrend, setMarksTrend] = useState({});
+  const [recentActivities, setRecentActivities] = useState([]);
+  const [announcements, setAnnouncements] = useState([]);
+  const { user } = useAuth();
 
 // Helper to extract class order key
 function getClassOrderKey(className) {
   if (!className) return 9999;
   if (className.startsWith('Nursery')) return 0;
   if (className.startsWith('KG')) return 1;
-  // Extract numeric part
   const match = className.match(/(\d+)/);
   if (match) return 2 + Number(match[1]);
   return 9999;
@@ -31,19 +45,16 @@ function getClassOrderKey(className) {
 
 // Group and sort schedule by class
 function groupAndSortSchedule(schedule) {
-  // Group by class
   const groups = {};
   schedule.forEach(item => {
     const classKey = item.class;
     if (!groups[classKey]) groups[classKey] = [];
     groups[classKey].push(item);
   });
-  // Sort class keys
   const sortedClassKeys = Object.keys(groups).sort((a, b) => {
     const orderA = getClassOrderKey(a);
     const orderB = getClassOrderKey(b);
     if (orderA !== orderB) return orderA - orderB;
-    // If same numeric, sort by section (A, B, ...)
     const secA = a.replace(/\d+/g, '');
     const secB = b.replace(/\d+/g, '');
     return secA.localeCompare(secB);
@@ -51,103 +62,253 @@ function groupAndSortSchedule(schedule) {
   return sortedClassKeys.map(classKey => ({ classKey, items: groups[classKey] }));
 }
 
-// Sample/mock data for new sections
-const UPCOMING_EVENTS = [
-  { id: 'e1', title: 'Maths Unit Test', date: '2024-06-10', class: '5A' },
-  { id: 'e2', title: 'Science Fair', date: '2024-06-12', class: 'All' },
-  { id: 'e3', title: 'PTA Meeting', date: '2024-06-15', class: '6A' },
-];
+  // Fetch all dashboard data
+  const fetchDashboardData = async () => {
+    try {
+      setLoading(true);
+      setError(null);
+      
+      // Get teacher info
+      const { data: teacherData, error: teacherError } = await supabase
+        .from(TABLES.TEACHERS)
+        .select('*')
+        .eq('user_id', user.id)
+        .single();
 
-const CLASS_PERFORMANCE = [
-  { class: '5A', avgMarks: 78, attendance: 92, topStudent: 'Amit Sharma' },
-  { class: '6A', avgMarks: 84, attendance: 95, topStudent: 'Priya Singh' },
-];
+      if (teacherError) throw new Error('Teacher not found');
+      const teacher = teacherData;
 
-const MARKS_TREND = {
-  '5A': {
-    labels: ['FA1', 'FA2', 'SA1', 'FA3', 'SA2'],
-    data: [72, 75, 80, 78, 85],
-  },
-  '6A': {
-    labels: ['FA1', 'FA2', 'SA1', 'FA3', 'SA2'],
-    data: [80, 82, 85, 87, 90],
-  },
-};
+      // Get assigned classes and subjects
+      const { data: assignedSubjects, error: subjectsError } = await supabase
+        .from(TABLES.TEACHER_SUBJECTS)
+        .select(`
+          *,
+          classes(class_name),
+          sections(section_name),
+          subjects(name)
+        `)
+        .eq('teacher_id', teacher.id);
 
-const RECENT_ACTIVITIES = [
-  { id: 'a1', activity: 'Uploaded homework for 5A', date: '2024-06-07' },
-  { id: 'a2', activity: 'Entered marks for 6A', date: '2024-06-06' },
-  { id: 'a3', activity: 'Marked attendance for 5A', date: '2024-06-05' },
-];
+      if (subjectsError) throw subjectsError;
 
-const ANNOUNCEMENTS = [
-  { id: 'n1', message: 'School will remain closed on 14th June for maintenance.' },
-  { id: 'n2', message: 'Annual Sports Day registrations open till 20th June.' },
-];
+      // Process assigned classes
+      const classMap = {};
+      assignedSubjects.forEach(subject => {
+        const className = subject.classes?.class_name;
+        if (className) {
+          if (!classMap[className]) classMap[className] = [];
+          classMap[className].push(subject.subjects?.name || 'Unknown Subject');
+        }
+      });
+      setAssignedClasses(classMap);
 
-// Sample/mock data for assigned classes and subjects
-const ASSIGNED_CLASSES = [
-  { class: '5A', subjects: ['Maths', 'Science'] },
-  { class: '6A', subjects: ['Maths', 'English'] },
-];
+      // Get today's schedule (timetable)
+      const today = new Date().getDay(); // 0 = Sunday, 1 = Monday, etc.
+      const { data: timetableData, error: timetableError } = await supabase
+        .from(TABLES.TIMETABLE)
+        .select(`
+          *,
+          subjects(name),
+          teachers(full_name)
+        `)
+        .eq('teacher_id', teacher.id)
+        .eq('day_of_week', today)
+        .order('start_time');
 
-  const teacherStats = [
-  { title: 'My Classes', value: '3', icon: 'school', color: '#1976d2', subtitle: 'This semester' },
-  { title: 'My Students', value: '58', icon: 'people', color: '#388e3c', subtitle: 'Across all classes' },
-  { title: 'Attendance Today', value: '94%', icon: 'checkmark-circle', color: '#ff9800', subtitle: 'Avg. today' },
-  { title: 'Pending Tasks', value: '3', icon: 'document-text', color: '#9c27b0', subtitle: 'To complete' },
-  ];
+      if (timetableError) throw timetableError;
+      setSchedule(timetableData || []);
 
-const teacherQuickActions = [
-  { title: 'Mark Attendance', icon: 'checkmark-circle', color: '#388e3c' },
-  { title: 'Enter Marks', icon: 'document-text', color: '#1976d2' },
-  { title: 'Upload Homework', icon: 'cloud-upload', color: '#ff9800' },
-  { title: 'Messages', icon: 'chatbubble-ellipses', color: '#9c27b0' },
-];
+      // Get notifications
+      const { data: notificationsData, error: notificationsError } = await supabase
+        .from(TABLES.NOTIFICATIONS)
+        .select('*')
+        .eq('sent_to_role', 'teacher')
+        .order('created_at', { ascending: false })
+        .limit(5);
 
-const initialTasks = [
-  { id: 't1', task: 'Mark attendance for 5A', type: 'attendance', due: '2024-06-10' },
-  { id: 't2', task: 'Enter marks for 6A', type: 'marks', due: '2024-06-12' },
-  { id: 't3', task: 'Upload homework for 7A', type: 'homework', due: '2024-06-15' },
-];
+      if (notificationsError) throw notificationsError;
+      setNotifications(notificationsData || []);
 
-const RECENT_NOTIFICATIONS = [
-  { id: 'n1', message: 'PTA Meeting scheduled for tomorrow.', date: '2024-06-10' },
-  { id: 'n2', message: 'School will be closed on 14th June for maintenance.', date: '2024-06-09' },
-  { id: 'n3', message: 'Annual Sports Day registrations open till 20th June.', date: '2024-06-08' },
-  ];
+      // Get announcements
+      const { data: announcementsData, error: announcementsError } = await supabase
+        .from(TABLES.NOTIFICATIONS)
+        .select('*')
+        .eq('type', 'announcement')
+        .order('created_at', { ascending: false })
+        .limit(3);
 
-const ASSIGNED_STUDENTS = [
-  { id: 's1', name: 'Amit Sharma', class: '5A', roll: '1' },
-  { id: 's2', name: 'Priya Singh', class: '5A', roll: '2' },
-  { id: 's3', name: 'Raj Patel', class: '6A', roll: '1' },
-  { id: 's4', name: 'Neha Gupta', class: '6A', roll: '2' },
-  { id: 's5', name: 'Rahul Kumar', class: '7A', roll: '1' },
-  { id: 's6', name: 'Sneha Verma', class: '7A', roll: '2' },
-];
+      if (announcementsError) throw announcementsError;
+      setAnnouncements(announcementsData || []);
 
-const ANALYTICS = {
-  attendanceRate: 92,
-  marksDistribution: [
-    { label: 'Excellent', value: 15 },
-    { label: 'Good', value: 20 },
-    { label: 'Average', value: 10 },
-    { label: 'Poor', value: 5 },
-  ],
-};
+      // Get upcoming events (using notifications as events for demo)
+      const { data: eventsData, error: eventsError } = await supabase
+        .from(TABLES.NOTIFICATIONS)
+        .select('*')
+        .eq('type', 'event')
+        .order('created_at', { ascending: false })
+        .limit(3);
 
-// Add static admin tasks
-const adminTasks = [
-  { id: 'a1', task: 'Submit marks for 5A', type: 'marks', due: '2024-06-14' },
-  { id: 'a2', task: 'Update attendance for 6A', type: 'attendance', due: '2024-06-13' },
-  ];
+      if (eventsError) throw eventsError;
+      setUpcomingEvents(eventsData || []);
 
-const TeacherDashboard = () => {
-  const [personalTasks, setPersonalTasks] = useState(initialTasks);
-  const [showAddTaskBar, setShowAddTaskBar] = useState(false);
-  const [newTask, setNewTask] = useState({ task: '', type: 'attendance', due: '' });
-  const [showDatePicker, setShowDatePicker] = useState(false);
-  const [addTaskModalVisible, setAddTaskModalVisible] = useState(false);
+      // Get tasks (using notifications as tasks for demo)
+      const { data: adminTasksData, error: adminTasksError } = await supabase
+        .from(TABLES.NOTIFICATIONS)
+        .select('*')
+        .eq('type', 'task')
+        .eq('sent_to_role', 'teacher')
+        .order('created_at', { ascending: false })
+        .limit(5);
+
+      if (adminTasksError) throw adminTasksError;
+      setAdminTaskList(adminTasksData || []);
+
+      // Get personal tasks (using notifications as personal tasks for demo)
+      const { data: personalTasksData, error: personalTasksError } = await supabase
+        .from(TABLES.NOTIFICATIONS)
+        .select('*')
+        .eq('type', 'personal_task')
+        .eq('sent_to_role', 'teacher')
+        .order('created_at', { ascending: false })
+        .limit(5);
+
+      if (personalTasksError) throw personalTasksError;
+      setPersonalTasks(personalTasksData || []);
+
+      // Calculate analytics
+      let totalAttendance = 0, totalDays = 0;
+      const marksDist = { Excellent: 0, Good: 0, Average: 0, Poor: 0 };
+      const perfArr = [];
+      const marksTrendObj = {};
+
+      for (const className of Object.keys(classMap)) {
+        // Get students for this class
+        const { data: studentsData } = await supabase
+          .from(TABLES.STUDENTS)
+          .select('id, full_name, roll_no')
+          .eq('class_name', className);
+
+        if (studentsData && studentsData.length > 0) {
+          let classAttendance = 0, classDays = 0, classMarksSum = 0, classMarksCount = 0;
+          const trendLabels = [], trendData = [];
+
+          for (const student of studentsData) {
+            // Get attendance for this student
+            const { data: attendanceData } = await supabase
+              .from(TABLES.STUDENT_ATTENDANCE)
+              .select('*')
+              .eq('student_id', student.id);
+
+            if (attendanceData) {
+              classAttendance += attendanceData.filter(a => a.status === 'Present').length;
+              classDays += attendanceData.length;
+            }
+
+            // Get marks for this student
+            const { data: marksData } = await supabase
+              .from(TABLES.MARKS)
+              .select('*')
+              .eq('student_id', student.id);
+
+            if (marksData) {
+              marksData.forEach(m => {
+                classMarksSum += m.marks_obtained || 0;
+                classMarksCount++;
+                
+                // Distribution
+                if (m.marks_obtained >= 90) marksDist.Excellent++;
+                else if (m.marks_obtained >= 75) marksDist.Good++;
+                else if (m.marks_obtained >= 50) marksDist.Average++;
+                else marksDist.Poor++;
+                
+                // Trend
+                if (!trendLabels.includes(m.exam_name)) trendLabels.push(m.exam_name);
+              });
+            }
+          }
+
+          const avgMarks = classMarksCount ? Math.round(classMarksSum / classMarksCount) : 0;
+          const attendancePct = classDays ? Math.round((classAttendance / classDays) * 100) : 0;
+          
+          perfArr.push({ 
+            class: className, 
+            avgMarks, 
+            attendance: attendancePct, 
+            topStudent: studentsData[0]?.full_name || 'N/A' 
+          });
+          
+          marksTrendObj[className] = { labels: trendLabels, data: trendData };
+          totalAttendance += classAttendance;
+          totalDays += classDays;
+        }
+      }
+
+      setAnalytics({ 
+        attendanceRate: totalDays ? Math.round((totalAttendance / totalDays) * 100) : 0, 
+        marksDistribution: Object.entries(marksDist).map(([label, value]) => ({ label, value })) 
+      });
+      setClassPerformance(perfArr);
+      setMarksTrend(marksTrendObj);
+
+      // Recent activities
+      const recentActivities = [
+        ...(notificationsData || []).slice(0, 3).map(n => ({ 
+          activity: n.message, 
+          date: n.created_at,
+          id: n.id 
+        })),
+        ...(adminTasksData || []).slice(0, 2).map(t => ({ 
+          activity: t.message, 
+          date: t.created_at,
+          id: t.id 
+        }))
+      ];
+      setRecentActivities(recentActivities);
+
+      setLoading(false);
+    } catch (err) {
+      setError(err.message);
+      setLoading(false);
+      console.error('Error fetching dashboard data:', err);
+    }
+  };
+
+  useEffect(() => {
+    fetchDashboardData();
+    
+    // Set up real-time subscriptions for dashboard updates
+    const dashboardSubscription = supabase
+      .channel('dashboard-updates')
+      .on('postgres_changes', {
+        event: '*',
+        schema: 'public',
+        table: TABLES.NOTIFICATIONS
+      }, () => {
+        // Refresh dashboard data when notifications change
+        fetchDashboardData();
+      })
+      .on('postgres_changes', {
+        event: '*',
+        schema: 'public',
+        table: TABLES.STUDENT_ATTENDANCE
+      }, () => {
+        // Refresh analytics when attendance changes
+        fetchDashboardData();
+      })
+      .on('postgres_changes', {
+        event: '*',
+        schema: 'public',
+        table: TABLES.MARKS
+      }, () => {
+        // Refresh analytics when marks change
+        fetchDashboardData();
+      })
+      .subscribe();
+
+    return () => {
+      dashboardSubscription.unsubscribe();
+    };
+  }, []);
 
   function handleCompletePersonalTask(id) {
     setPersonalTasks(tasks => tasks.filter(t => t.id !== id));
@@ -164,30 +325,40 @@ const TeacherDashboard = () => {
     setNewTask({ task: '', type: 'attendance', due: '' });
     setAddTaskModalVisible(false);
   }
-  // For demo, allow marking admin tasks as complete (local only)
-  const [adminTaskList, setAdminTaskList] = useState(adminTasks);
   function handleCompleteAdminTask(id) {
     setAdminTaskList(tasks => tasks.filter(t => t.id !== id));
   }
 
-  const renderScheduleItem = ({ item }) => (
-    <View style={styles.scheduleCard}>
-      <View style={styles.scheduleTimeBox}>
-        <Ionicons name="time" size={18} color="#1976d2" style={{ marginRight: 6 }} />
-        <Text style={styles.scheduleTime}>{item.time}</Text>
-      </View>
-      <Text style={styles.scheduleSubject}>{item.subject}</Text>
-      <Text style={styles.scheduleClass}>Class: {item.class}</Text>
-      <Text style={styles.scheduleRoom}>Room: {item.room}</Text>
-    </View>
-  );
+  const groupedSchedule = groupAndSortSchedule(schedule);
 
-  const groupedSchedule = groupAndSortSchedule(DUMMY_SCHEDULE);
-
-  // Add helper for avatar initials
   function getInitials(name) {
     return name.split(' ').map(n => n[0]).join('').toUpperCase();
     }
+
+  if (loading) {
+    return (
+      <View style={styles.container}>
+        <Header title="Teacher Dashboard" />
+        <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
+          <ActivityIndicator size="large" color="#1976d2" />
+          <Text style={{ marginTop: 10, color: '#1976d2' }}>Loading dashboard...</Text>
+        </View>
+      </View>
+    );
+  }
+  if (error) {
+    return (
+      <View style={styles.container}>
+        <Header title="Teacher Dashboard" />
+        <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
+          <Text style={{ color: '#d32f2f', fontSize: 16, marginBottom: 20 }}>Error: {error}</Text>
+          <TouchableOpacity style={{ backgroundColor: '#1976d2', paddingHorizontal: 20, paddingVertical: 10, borderRadius: 8 }} onPress={fetchDashboardData}>
+            <Text style={{ color: '#fff', fontWeight: 'bold' }}>Retry</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+    );
+  }
 
   return (
     <View style={styles.container}>
@@ -467,12 +638,12 @@ const TeacherDashboard = () => {
             <Text style={[styles.sectionTitle, { marginTop: 0, marginBottom: 0, paddingLeft: 0 }]}>Recent Notifications & Messages</Text>
           </View>
           <View style={{ marginHorizontal: 12, marginBottom: 18 }}>
-            {RECENT_NOTIFICATIONS.map(note => (
+            {notifications.map(note => (
               <View key={note.id} style={{ backgroundColor: '#fff', borderRadius: 14, padding: 14, marginBottom: 10, elevation: 2, shadowColor: '#1976d2', shadowOpacity: 0.08, shadowRadius: 4 }}>
                 <Text style={{ color: '#1976d2', fontWeight: 'bold', fontSize: 15 }}>{note.message}</Text>
                 <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 2 }}>
                   <Ionicons name="calendar" size={14} color="#888" style={{ marginRight: 4 }} />
-                  <Text style={{ color: '#888', fontSize: 13 }}>{note.date}</Text>
+                  <Text style={{ color: '#888', fontSize: 13 }}>{note.created_at}</Text>
                 </View>
               </View>
             ))}
@@ -490,15 +661,15 @@ const TeacherDashboard = () => {
               <Text style={{ fontWeight: 'bold', color: '#388e3c', fontSize: 16 }}>Attendance Rate</Text>
               <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 8 }}>
                 <Ionicons name="checkmark-circle" size={22} color="#388e3c" style={{ marginRight: 6 }} />
-                <Text style={{ color: '#1976d2', fontSize: 26, fontWeight: 'bold' }}>{ANALYTICS.attendanceRate}%</Text>
+                <Text style={{ color: '#1976d2', fontSize: 26, fontWeight: 'bold' }}>{analytics.attendanceRate}%</Text>
               </View>
               <View style={{ height: 6, backgroundColor: '#e0e0e0', borderRadius: 3, marginTop: 10 }}>
-                <View style={{ width: `${ANALYTICS.attendanceRate}%`, height: 6, backgroundColor: '#388e3c', borderRadius: 3 }} />
+                <View style={{ width: `${analytics.attendanceRate}%`, height: 6, backgroundColor: '#388e3c', borderRadius: 3 }} />
               </View>
             </View>
             <View style={{ borderRadius: 14, padding: 18, margin: 6, minWidth: 160, flex: 1, elevation: 2, shadowColor: '#ff9800', shadowOpacity: 0.08, shadowRadius: 4 }}>
               <Text style={{ fontWeight: 'bold', color: '#ff9800', fontSize: 16 }}>Marks Distribution</Text>
-              {ANALYTICS.marksDistribution.map(dist => (
+              {analytics.marksDistribution.map(dist => (
                 <View key={dist.label} style={{ flexDirection: 'row', alignItems: 'center', marginTop: 4 }}>
                   <View style={{ width: 16, height: 16, borderRadius: 8, backgroundColor: '#ff9800', marginRight: 6 }} />
                   <Text style={{ color: '#333', fontSize: 15 }}>{dist.label}: {dist.value}</Text>
@@ -512,13 +683,13 @@ const TeacherDashboard = () => {
           <View style={styles.sectionTitleAccent} />
           <Text style={styles.sectionTitle}>Assigned Classes & Subjects</Text>
           <View style={{ marginHorizontal: 12, marginBottom: 12 }}>
-            {ASSIGNED_CLASSES.map(cls => (
-              <View key={cls.class} style={{ backgroundColor: '#fff', borderRadius: 10, padding: 12, marginBottom: 8, elevation: 1 }}>
-                <Text style={{ fontWeight: 'bold', color: '#388e3c', fontSize: 15, marginBottom: 4 }}>Class {cls.class}</Text>
+            {Object.entries(assignedClasses).map(([className, subjects]) => (
+              <View key={className} style={{ backgroundColor: '#fff', borderRadius: 10, padding: 12, marginBottom: 8, elevation: 1 }}>
+                <Text style={{ fontWeight: 'bold', color: '#388e3c', fontSize: 15, marginBottom: 4 }}>Class {className}</Text>
                 <View style={{ flexDirection: 'row', flexWrap: 'wrap' }}>
-                  {cls.subjects.map(subj => (
-                    <View key={subj} style={{ backgroundColor: '#e3f2fd', borderRadius: 8, paddingHorizontal: 10, paddingVertical: 4, marginRight: 8, marginBottom: 6 }}>
-                      <Text style={{ color: '#1976d2', fontWeight: 'bold' }}>{subj}</Text>
+                  {subjects.map(subject => (
+                    <View key={subject} style={{ backgroundColor: '#e3f2fd', borderRadius: 8, paddingHorizontal: 10, paddingVertical: 4, marginRight: 8, marginBottom: 6 }}>
+                      <Text style={{ color: '#1976d2', fontWeight: 'bold' }}>{subject}</Text>
                     </View>
                   ))}
                 </View>
@@ -531,10 +702,10 @@ const TeacherDashboard = () => {
           <View style={styles.sectionTitleAccent} />
           <Text style={styles.sectionTitle}>Upcoming Events</Text>
           <View style={{ marginHorizontal: 12, marginBottom: 12 }}>
-            {UPCOMING_EVENTS.map(event => (
+            {upcomingEvents.map(event => (
               <View key={event.id} style={{ backgroundColor: '#fff', borderRadius: 10, padding: 12, marginBottom: 8, elevation: 1 }}>
-                <Text style={{ fontWeight: 'bold', color: '#1976d2', fontSize: 15 }}>{event.title}</Text>
-                <Text style={{ color: '#555', marginTop: 2 }}>Date: {event.date} {event.class !== 'All' ? `| Class: ${event.class}` : ''}</Text>
+                <Text style={{ fontWeight: 'bold', color: '#1976d2', fontSize: 15 }}>{event.message}</Text>
+                <Text style={{ color: '#555', marginTop: 2 }}>Date: {event.created_at} {event.class !== 'All' ? `| Class: ${event.class}` : ''}</Text>
               </View>
             ))}
           </View>
@@ -544,7 +715,7 @@ const TeacherDashboard = () => {
           <View style={styles.sectionTitleAccent} />
           <Text style={styles.sectionTitle}>Class Performance</Text>
           <View style={{ flexDirection: 'row', flexWrap: 'wrap', marginHorizontal: 8, marginBottom: 12 }}>
-            {CLASS_PERFORMANCE.map(perf => (
+            {classPerformance.map(perf => (
               <View key={perf.class} style={{ backgroundColor: '#e3f2fd', borderRadius: 10, padding: 14, margin: 6, minWidth: 150, flex: 1 }}>
                 <Text style={{ fontWeight: 'bold', color: '#1976d2', fontSize: 15 }}>Class {perf.class}</Text>
                 <Text style={{ color: '#388e3c', marginTop: 2 }}>Avg. Marks: {perf.avgMarks}</Text>
@@ -558,7 +729,7 @@ const TeacherDashboard = () => {
         <View style={styles.section}>
           <View style={styles.sectionTitleAccent} />
           <Text style={styles.sectionTitle}>Marks Trend per Class</Text>
-          {Object.entries(MARKS_TREND).map(([cls, trend]) => (
+          {Object.entries(marksTrend).map(([cls, trend]) => (
             <View key={cls} style={{ backgroundColor: '#fff', borderRadius: 10, padding: 10, marginHorizontal: 12, marginBottom: 14, elevation: 1 }}>
               <Text style={{ fontWeight: 'bold', color: '#1976d2', fontSize: 15, marginBottom: 4 }}>Class {cls}</Text>
               <LineChart
@@ -589,7 +760,7 @@ const TeacherDashboard = () => {
           <View style={styles.sectionTitleAccent} />
           <Text style={styles.sectionTitle}>Recent Activities</Text>
           <View style={{ marginHorizontal: 12, marginBottom: 12 }}>
-            {RECENT_ACTIVITIES.map(act => (
+            {recentActivities.map(act => (
               <View key={act.id} style={{ backgroundColor: '#fff', borderRadius: 10, padding: 12, marginBottom: 8, elevation: 1 }}>
                 <Text style={{ color: '#333', fontWeight: 'bold' }}>{act.activity}</Text>
                 <Text style={{ color: '#888', marginTop: 2, fontSize: 13 }}>{act.date}</Text>
@@ -602,7 +773,7 @@ const TeacherDashboard = () => {
           <View style={styles.sectionTitleAccent} />
           <Text style={styles.sectionTitle}>Announcements</Text>
           <View style={{ marginHorizontal: 12, marginBottom: 18 }}>
-            {ANNOUNCEMENTS.map(ann => (
+            {announcements.map(ann => (
               <View key={ann.id} style={{ backgroundColor: '#fff', borderRadius: 10, padding: 12, marginBottom: 8, elevation: 1 }}>
                 <Text style={{ color: '#1976d2', fontWeight: 'bold' }}>{ann.message}</Text>
               </View>

@@ -1,24 +1,69 @@
-import React from 'react';
-import { View, Text, StyleSheet } from 'react-native';
+import React, { useEffect, useState } from 'react';
+import { View, Text, StyleSheet, ActivityIndicator, Alert } from 'react-native';
 import Header from '../../components/Header';
+import { dbHelpers } from '../../utils/supabase';
 
 const StudentDetails = ({ route }) => {
   const { student } = route.params;
-  // Dummy data for fee and phone
-  const feeStatus = 'Paid';
-  const phoneNumber = '+91 98765 43210';
+  const [studentData, setStudentData] = useState(null);
+  const [feeStatus, setFeeStatus] = useState('');
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+
+  useEffect(() => {
+    const fetchStudentDetails = async () => {
+      setLoading(true);
+      setError(null);
+      try {
+        // Fetch student details from DB
+        const { data, error } = await dbHelpers.getStudentById(student.id);
+        if (error) throw error;
+        setStudentData(data);
+        // Fetch fee status
+        const { data: fees, error: feeError } = await dbHelpers.getStudentFees(student.id);
+        if (feeError) throw feeError;
+        // Determine fee status (simple: if any paid, show Paid, else Unpaid)
+        setFeeStatus(fees && fees.length > 0 ? 'Paid' : 'Unpaid');
+      } catch (err) {
+        setError('Failed to load student details.');
+      } finally {
+        setLoading(false);
+      }
+    };
+    fetchStudentDetails();
+  }, [student.id]);
+
+  if (loading) {
+    return (
+      <View style={styles.container}>
+        <Header title="Student Details" showBack={true} />
+        <ActivityIndicator size="large" color="#2196F3" style={{ marginTop: 40 }} />
+      </View>
+    );
+  }
+
+  if (error || !studentData) {
+    return (
+      <View style={styles.container}>
+        <Header title="Student Details" showBack={true} />
+        <Text style={{ color: 'red', margin: 24 }}>{error || 'No data found.'}</Text>
+      </View>
+    );
+  }
 
   return (
     <View style={styles.container}>
-      <Header title={student.name} showBack={true} />
+      <Header title={studentData.name} showBack={true} />
       <View style={styles.card}>
-        <Text style={styles.name}>{student.name}</Text>
-        <Text style={styles.detail}>Class: {student.class}</Text>
-        <Text style={styles.detail}>Roll No: {student.roll}</Text>
-        <Text style={styles.detail}>Attendance: {student.attendance}</Text>
+        <Text style={styles.name}>{studentData.name}</Text>
+        <Text style={styles.detail}>Class: {studentData.class_id || '-'}</Text>
+        <Text style={styles.detail}>Roll No: {studentData.roll_no || '-'}</Text>
+        <Text style={styles.detail}>DOB: {studentData.dob || '-'}</Text>
+        <Text style={styles.detail}>Attendance: -</Text>
         <Text style={styles.detail}>Fee Status: {feeStatus}</Text>
-        <Text style={styles.detail}>Phone: {phoneNumber}</Text>
-        <Text style={styles.detail}>Parent: {student.parent}</Text>
+        <Text style={styles.detail}>Phone: {studentData.phone || '-'}</Text>
+        <Text style={styles.detail}>Parent: {studentData.parent_id || '-'}</Text>
+        {/* Add more fields as needed */}
       </View>
     </View>
   );

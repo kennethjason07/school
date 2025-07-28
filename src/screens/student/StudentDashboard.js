@@ -1,43 +1,138 @@
-import React from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, FlatList } from 'react-native';
+import React, { useEffect, useState } from 'react';
+import { View, Text, StyleSheet, TouchableOpacity, FlatList, ActivityIndicator, Alert } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import Header from '../../components/Header';
-
-const mockSummary = [
-  { key: 'assignments', label: 'Assignments', value: 5, icon: 'book', color: '#1976d2' },
-  { key: 'attendance', label: 'Attendance', value: '94%', icon: 'checkmark-circle', color: '#388e3c' },
-  { key: 'marks', label: 'Marks', value: '88%', icon: 'bar-chart', color: '#ff9800' },
-  { key: 'notifications', label: 'Notifications', value: 3, icon: 'notifications', color: '#9c27b0' },
-];
-
-const mockDeadlines = [
-  { id: '1', title: 'Math Assignment Due', date: '2024-07-10' },
-  { id: '2', title: 'Science Project Submission', date: '2024-07-12' },
-  { id: '3', title: 'English Essay', date: '2024-07-15' },
-];
-
-const mockNotifications = [
-  { id: 'n1', message: 'New assignment posted in Science.', date: '2024-07-05' },
-  { id: 'n2', message: 'PTM scheduled for 12th July.', date: '2024-07-04' },
-  { id: 'n3', message: 'Your attendance for June: 94%.', date: '2024-07-01' },
-];
-
-const studentProfile = {
-  name: 'Emma Johnson',
-  class: '5A',
-  roll: '15',
-  avatarColor: '#9C27B0',
-};
-
-// Combine deadlines and notifications into a single list with section headers
-const combinedData = [
-  { type: 'section', title: 'Upcoming Deadlines & Events' },
-  ...mockDeadlines.map(item => ({ ...item, type: 'deadline' })),
-  { type: 'section', title: 'Recent Notifications' },
-  ...mockNotifications.map(item => ({ ...item, type: 'notification' })),
-];
+import { useAuth } from '../../utils/AuthContext';
+import { supabase, TABLES } from '../../utils/supabase';
 
 const StudentDashboard = ({ navigation }) => {
+  const { user } = useAuth();
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+  const [studentProfile, setStudentProfile] = useState(null);
+  const [summary, setSummary] = useState([]);
+  const [deadlines, setDeadlines] = useState([]);
+  const [notifications, setNotifications] = useState([]);
+
+  // Fetch student profile and dashboard data
+  const fetchDashboardData = async () => {
+    try {
+      setLoading(true);
+      setError(null);
+
+      // Get student profile
+      const { data: studentData, error: studentError } = await supabase
+        .from(TABLES.STUDENTS)
+        .select('*')
+        .eq('user_id', user.id)
+        .single();
+      if (studentError) throw studentError;
+      setStudentProfile({
+        name: studentData.full_name,
+        class: studentData.class_name || studentData.class_id,
+        roll: studentData.roll_no,
+        avatarColor: '#9C27B0',
+      });
+
+      // Get assignments count (active assignments)
+      const { data: assignmentsData, error: assignmentsError } = await supabase
+        .from(TABLES.HOMEWORK)
+        .select('*')
+        .contains('assigned_students', [studentData.id]);
+      if (assignmentsError) throw assignmentsError;
+      const assignmentsCount = assignmentsData.length;
+
+      // Get attendance percentage
+      const { data: attendanceData, error: attendanceError } = await supabase
+        .from(TABLES.STUDENT_ATTENDANCE)
+        .select('*')
+        .eq('student_id', studentData.id);
+      if (attendanceError) throw attendanceError;
+      const totalDays = attendanceData.length;
+      const presentDays = attendanceData.filter(a => a.status === 'Present').length;
+      const attendancePercent = totalDays > 0 ? Math.round((presentDays / totalDays) * 100) : 0;
+
+      // Get marks percentage (average of all marks)
+      const { data: marksData, error: marksError } = await supabase
+        .from(TABLES.MARKS)
+        .select('*')
+        .eq('student_id', studentData.id);
+      if (marksError) throw marksError;
+      const marksPercent = marksData.length > 0
+        ? Math.round(marksData.reduce((sum, m) => sum + (m.marks_obtained || 0), 0) / marksData.length)
+        : 0;
+
+      // Get notifications (latest 5)
+      const { data: notificationsData, error: notificationsError } = await supabase
+        .from(TABLES.NOTIFICATIONS)
+        .select('*')
+        .eq('user_id', user.id)
+        .order('created_at', { ascending: false })
+        .limit(5);
+      if (notificationsError) throw notificationsError;
+
+      // Get deadlines (upcoming homework)
+      const today = new Date().toISOString().split('T')[0];
+      const { data: deadlinesData, error: deadlinesError } = await supabase
+        .from(TABLES.HOMEWORK)
+        .select('*')
+        .contains('assigned_students', [studentData.id])
+        .gte('due_date', today)
+        .order('due_date', { ascending: true })
+        .limit(5);
+      if (deadlinesError) throw deadlinesError;
+
+      setSummary([
+        { key: 'assignments', label: 'Assignments', value: assignmentsCount, icon: 'book', color: '#1976d2' },
+        { key: 'attendance', label: 'Attendance', value: attendancePercent + '%', icon: 'checkmark-circle', color: '#388e3c' },
+        { key: 'marks', label: 'Marks', value: marksPercent + '%', icon: 'bar-chart', color: '#ff9800' },
+        { key: 'notifications', label: 'Notifications', value: notificationsData.length, icon: 'notifications', color: '#9c27b0' },
+      ]);
+      setDeadlines(deadlinesData.map(hw => ({ id: hw.id, title: hw.title, date: hw.due_date })));
+      setNotifications(notificationsData.map(n => ({ id: n.id, message: n.message, date: n.created_at.split('T')[0] })));
+    } catch (err) {
+      setError(err.message);
+      console.error('Dashboard error:', err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchDashboardData();
+    // Real-time subscriptions (optional)
+    const homeworkSub = supabase
+      .channel('student-dashboard-homework')
+      .on('postgres_changes', { event: '*', schema: 'public', table: TABLES.HOMEWORK }, fetchDashboardData)
+      .subscribe();
+    const attendanceSub = supabase
+      .channel('student-dashboard-attendance')
+      .on('postgres_changes', { event: '*', schema: 'public', table: TABLES.STUDENT_ATTENDANCE }, fetchDashboardData)
+      .subscribe();
+    const marksSub = supabase
+      .channel('student-dashboard-marks')
+      .on('postgres_changes', { event: '*', schema: 'public', table: TABLES.MARKS }, fetchDashboardData)
+      .subscribe();
+    const notificationsSub = supabase
+      .channel('student-dashboard-notifications')
+      .on('postgres_changes', { event: '*', schema: 'public', table: TABLES.NOTIFICATIONS }, fetchDashboardData)
+      .subscribe();
+    return () => {
+      homeworkSub.unsubscribe();
+      attendanceSub.unsubscribe();
+      marksSub.unsubscribe();
+      notificationsSub.unsubscribe();
+    };
+  }, []);
+
+  // Combine deadlines and notifications into a single list with section headers
+  const combinedData = [
+    { type: 'section', title: 'Upcoming Deadlines & Events' },
+    ...deadlines.map(item => ({ ...item, type: 'deadline' })),
+    { type: 'section', title: 'Recent Notifications' },
+    ...notifications.map(item => ({ ...item, type: 'notification' })),
+  ];
+
   const renderItem = ({ item }) => {
     if (item.type === 'section') {
       return <Text style={styles.sectionTitle}>{item.title}</Text>;
@@ -49,9 +144,9 @@ const StudentDashboard = ({ navigation }) => {
           <View style={{ flex: 1 }}>
             <Text style={styles.deadlineTitle}>{item.title}</Text>
             <Text style={styles.deadlineDate}>{item.date}</Text>
-      </View>
-    </View>
-  );
+          </View>
+        </View>
+      );
     }
     if (item.type === 'notification') {
       return (
@@ -60,9 +155,9 @@ const StudentDashboard = ({ navigation }) => {
           <View style={{ flex: 1 }}>
             <Text style={styles.notificationMsg}>{item.message}</Text>
             <Text style={styles.notificationDate}>{item.date}</Text>
-      </View>
-    </View>
-  );
+          </View>
+        </View>
+      );
     }
     return null;
   };
@@ -71,31 +166,58 @@ const StudentDashboard = ({ navigation }) => {
     <>
       <Header title="Student Dashboard" />
       {/* Student Profile */}
-      <View style={styles.profileSection}>
-        <View style={[styles.avatar, { backgroundColor: studentProfile.avatarColor }]}>
-          <Text style={styles.avatarText}>{studentProfile.name.split(' ').map(n => n[0]).join('').toUpperCase()}</Text>
-        </View>
-        <View style={styles.profileInfo}>
-          <Text style={styles.profileName}>{studentProfile.name}</Text>
-          <Text style={styles.profileDetails}>Class {studentProfile.class} • Roll No: {studentProfile.roll}</Text>
-        </View>
+      {studentProfile && (
+        <View style={styles.profileSection}>
+          <View style={[styles.avatar, { backgroundColor: studentProfile.avatarColor }]}>
+            <Text style={styles.avatarText}>{studentProfile.name.split(' ').map(n => n[0]).join('').toUpperCase()}</Text>
           </View>
+          <View style={styles.profileInfo}>
+            <Text style={styles.profileName}>{studentProfile.name}</Text>
+            <Text style={styles.profileDetails}>Class {studentProfile.class} • Roll No: {studentProfile.roll}</Text>
+          </View>
+        </View>
+      )}
       {/* Summary Cards */}
       <View style={styles.summaryRow}>
-        {mockSummary.map(card => (
+        {summary.map(card => (
           <View key={card.key} style={[styles.summaryCard, { backgroundColor: card.color + '11', borderColor: card.color }]}> 
             <Ionicons name={card.icon} size={28} color={card.color} style={{ marginBottom: 6 }} />
             <Text style={styles.summaryValue}>{card.value}</Text>
             <Text style={styles.summaryLabel}>{card.label}</Text>
           </View>
         ))}
-              </View>
+      </View>
     </>
   );
 
+  if (loading) {
+    return (
+      <View style={styles.container}>
+        <Header title="Student Dashboard" />
+        <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
+          <ActivityIndicator size="large" color="#1976d2" />
+        </View>
+      </View>
+    );
+  }
+
+  if (error) {
+    return (
+      <View style={styles.container}>
+        <Header title="Student Dashboard" />
+        <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
+          <Text style={{ color: '#d32f2f', fontSize: 16, marginBottom: 12 }}>Error: {error}</Text>
+          <TouchableOpacity onPress={fetchDashboardData} style={{ backgroundColor: '#1976d2', padding: 12, borderRadius: 8 }}>
+            <Text style={{ color: '#fff', fontWeight: 'bold' }}>Retry</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+    );
+  }
+
   return (
     <View style={styles.container}>
-          <FlatList
+      <FlatList
         data={combinedData}
         renderItem={renderItem}
         keyExtractor={(item, index) => item.id ? item.id : item.title + index}

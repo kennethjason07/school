@@ -1,10 +1,11 @@
-import React, { useState } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, FlatList, Modal, TextInput, Button, Alert, ScrollView } from 'react-native';
+import React, { useState, useEffect } from 'react';
+import { View, Text, StyleSheet, TouchableOpacity, FlatList, Modal, TextInput, Button, Alert, ScrollView, ActivityIndicator } from 'react-native';
 import { Picker } from '@react-native-picker/picker';
 import Header from '../../components/Header';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { format } from 'date-fns';
 import Ionicons from 'react-native-vector-icons/Ionicons';
+import { dbHelpers } from '../../utils/supabase';
 
 const mockTeachers = [
   { id: 't1', name: 'Alice Smith' },
@@ -61,21 +62,92 @@ function formatTime(t) {
 
 const SubjectsTimetable = () => {
   const [tab, setTab] = useState('subjects');
-  const [subjects, setSubjects] = useState(initialSubjects);
+  const [subjects, setSubjects] = useState([]);
+  const [teachers, setTeachers] = useState([]);
+  const [classes, setClasses] = useState([]);
   const [modalVisible, setModalVisible] = useState(false);
   const [editSubject, setEditSubject] = useState(null);
-  const [subjectForm, setSubjectForm] = useState({ name: '', code: '', teacherId: mockTeachers[0].id });
-  const [selectedClass, setSelectedClass] = useState(mockClasses[0].id);
-  const [timetables, setTimetables] = useState(initialTimetables);
+  const [subjectForm, setSubjectForm] = useState({ name: '', code: '', teacherId: '' });
+  const [selectedClass, setSelectedClass] = useState(null);
+  const [timetables, setTimetables] = useState({});
   const [periodModal, setPeriodModal] = useState({ visible: false, day: '', period: null });
   const [periodForm, setPeriodForm] = useState({ type: 'subject', subjectId: '', label: '', startTime: '', endTime: '' });
   const [showTimePicker, setShowTimePicker] = useState({ visible: false, field: '', value: new Date() });
   const [selectedDate, setSelectedDate] = useState(new Date());
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+
+  useEffect(() => {
+    const fetchData = async () => {
+      setLoading(true);
+      setError(null);
+      try {
+        // Fetch classes
+        const { data: classData, error: classError } = await dbHelpers.getClasses();
+        if (classError) throw classError;
+        setClasses(classData);
+        const defaultClassId = classData[0]?.id || null;
+        setSelectedClass(defaultClassId);
+        // Fetch teachers
+        const { data: teacherData, error: teacherError } = await dbHelpers.getTeachers();
+        if (teacherError) throw teacherError;
+        setTeachers(teacherData);
+        // Fetch subjects for the default class
+        if (defaultClassId) {
+          const { data: subjectData, error: subjectError } = await dbHelpers.read('subjects', { class_id: defaultClassId });
+          if (subjectError) throw subjectError;
+          setSubjects(subjectData);
+          // Fetch timetable for the default class (no section for now)
+          const { data: timetableData, error: timetableError } = await dbHelpers.getTimetable(defaultClassId, null);
+          if (timetableError) throw timetableError;
+          // Group timetable by day
+          const grouped = {};
+          timetableData?.forEach(period => {
+            if (!grouped[period.day_of_week]) grouped[period.day_of_week] = [];
+            grouped[period.day_of_week].push(period);
+          });
+          setTimetables({ [defaultClassId]: grouped });
+        }
+      } catch (err) {
+        setError('Failed to load timetable data.');
+      } finally {
+        setLoading(false);
+      }
+    };
+    fetchData();
+  }, []);
+
+  useEffect(() => {
+    // When selectedClass changes, fetch subjects and timetable for that class
+    const fetchClassData = async () => {
+      if (!selectedClass) return;
+      setLoading(true);
+      setError(null);
+      try {
+        const { data: subjectData, error: subjectError } = await dbHelpers.read('subjects', { class_id: selectedClass });
+        if (subjectError) throw subjectError;
+        setSubjects(subjectData);
+        const { data: timetableData, error: timetableError } = await dbHelpers.getTimetable(selectedClass, null);
+        if (timetableError) throw timetableError;
+        const grouped = {};
+        timetableData?.forEach(period => {
+          if (!grouped[period.day_of_week]) grouped[period.day_of_week] = [];
+          grouped[period.day_of_week].push(period);
+        });
+        setTimetables(prev => ({ ...prev, [selectedClass]: grouped }));
+      } catch (err) {
+        setError('Failed to load class data.');
+      } finally {
+        setLoading(false);
+      }
+    };
+    fetchClassData();
+  }, [selectedClass]);
 
   // Subject CRUD
   const openAddSubject = () => {
     setEditSubject(null);
-    setSubjectForm({ name: '', code: '', teacherId: mockTeachers[0].id });
+    setSubjectForm({ name: '', code: '', teacherId: '' });
     setModalVisible(true);
   };
   const openEditSubject = (subject) => {
@@ -83,22 +155,27 @@ const SubjectsTimetable = () => {
     setSubjectForm({ name: subject.name, code: subject.code, teacherId: subject.teacherId });
     setModalVisible(true);
   };
-  const handleSaveSubject = () => {
+  const handleSaveSubject = async () => {
     if (!subjectForm.name || !subjectForm.code) {
       Alert.alert('Error', 'Please fill all fields');
       return;
     }
     if (editSubject) {
+      await dbHelpers.update('subjects', editSubject.id, { name: subjectForm.name, code: subjectForm.code, teacher_id: subjectForm.teacherId });
       setSubjects(subjects.map(s => s.id === editSubject.id ? { ...editSubject, ...subjectForm } : s));
     } else {
-      setSubjects([...subjects, { id: 's' + (subjects.length + 1), ...subjectForm }]);
+      await dbHelpers.create('subjects', { name: subjectForm.name, code: subjectForm.code, teacher_id: subjectForm.teacherId, class_id: selectedClass });
+      setSubjects([...subjects, { id: 's' + (subjects.length + 1), ...subjectForm, class_id: selectedClass }]);
     }
     setModalVisible(false);
   };
-  const handleDeleteSubject = (id) => {
+  const handleDeleteSubject = async (id) => {
     Alert.alert('Delete Subject', 'Are you sure?', [
       { text: 'Cancel', style: 'cancel' },
-      { text: 'Delete', style: 'destructive', onPress: () => setSubjects(subjects.filter(s => s.id !== id)) },
+      { text: 'Delete', style: 'destructive', onPress: async () => {
+        await dbHelpers.delete('subjects', id);
+        setSubjects(subjects.filter(s => s.id !== id));
+      }},
     ]);
   };
 
@@ -109,7 +186,11 @@ const SubjectsTimetable = () => {
     const subj = subjects.find(s => s.id === subjectId);
     return subj ? subj.name : '-';
   };
-  const handleAssignSubject = (day, period, subjectId) => {
+  const getTeacherName = (teacherId) => {
+    const t = teachers.find(t => t.id === teacherId);
+    return t ? t.name : '-';
+  };
+  const handleAssignSubject = async (day, period, subjectId) => {
     setTimetables(prev => {
       const classTT = { ...prev[selectedClass] };
       const dayTT = classTT[day] ? [...classTT[day]] : [];
@@ -133,7 +214,7 @@ const SubjectsTimetable = () => {
     setPeriodForm({ ...period });
     setPeriodModal({ visible: true, day, period });
   };
-  const handleSavePeriod = () => {
+  const handleSavePeriod = async () => {
     const { type, subjectId, label, startTime, endTime } = periodForm;
     if (!startTime || !endTime || (type === 'subject' && !subjectId) || (type === 'break' && !label)) {
       Alert.alert('Error', 'Please fill all fields');
@@ -155,7 +236,7 @@ const SubjectsTimetable = () => {
     });
     setPeriodModal({ visible: false, day: '', period: null });
   };
-  const handleDeletePeriod = (day, id) => {
+  const handleDeletePeriod = async (day, id) => {
     setTimetables(prev => {
       const classTT = { ...prev[selectedClass] };
       const dayTT = classTT[day] ? [...classTT[day]] : [];
@@ -189,6 +270,24 @@ const SubjectsTimetable = () => {
     return days[date.getDay() === 0 ? 6 : date.getDay() - 1]; // 0=Sunday, 1=Monday...
   }
 
+  if (loading) {
+    return (
+      <View style={styles.container}>
+        <Header title="Subjects & Timetable" showBack={true} />
+        <ActivityIndicator size="large" color="#2196F3" style={{ marginTop: 40 }} />
+      </View>
+    );
+  }
+
+  if (error) {
+    return (
+      <View style={styles.container}>
+        <Header title="Subjects & Timetable" showBack={true} />
+        <Text style={{ color: 'red', margin: 24 }}>{error}</Text>
+      </View>
+    );
+  }
+
   return (
     <View style={styles.container}>
       <Header title="Subjects & Timetable" showBack={true} />
@@ -210,7 +309,7 @@ const SubjectsTimetable = () => {
               <View style={styles.subjectRow}>
                 <View style={{ flex: 1 }}>
                   <Text style={styles.subjectName}>{item.name} ({item.code})</Text>
-                  <Text style={styles.subjectTeacher}>Teacher: {mockTeachers.find(t => t.id === item.teacherId)?.name || '-'}</Text>
+                  <Text style={styles.subjectTeacher}>Teacher: {getTeacherName(item.teacher_id)}</Text>
                 </View>
                 <TouchableOpacity onPress={() => openEditSubject(item)} style={styles.actionBtn}>
                   <Ionicons name="pencil" size={20} color="#1976d2" />
@@ -243,7 +342,7 @@ const SubjectsTimetable = () => {
                   style={styles.input}
                   onValueChange={itemValue => setSubjectForm(f => ({ ...f, teacherId: itemValue }))}
                 >
-                  {mockTeachers.map(t => (
+                  {teachers.map(t => (
                     <Picker.Item key={t.id} label={t.name} value={t.id} />
                   ))}
                 </Picker>
@@ -291,7 +390,7 @@ const SubjectsTimetable = () => {
                 style={{ color: '#222', backgroundColor: '#fff', width: '100%', height: 56, minHeight: 44, fontSize: 16 }}
                 onValueChange={setSelectedClass}
               >
-                {mockClasses.map(c => (
+                {classes.map(c => (
                   <Picker.Item key={c.id} label={c.name} value={c.id} />
                 ))}
               </Picker>
@@ -316,7 +415,7 @@ const SubjectsTimetable = () => {
                   let subject, teacherName;
                   if (period.type === 'subject') {
                     subject = subjects.find(s => s.id === period.subjectId);
-                    teacherName = subject ? (mockTeachers.find(t => t.id === subject.teacherId)?.name || '-') : '-';
+                    teacherName = subject ? getTeacherName(subject.teacher_id) : '-';
                   }
                   return (
                     <View key={period.id} style={styles.periodCard}>

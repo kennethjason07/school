@@ -1,102 +1,293 @@
-import React, { useState } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, FlatList, Modal, TextInput, Button, Alert, ScrollView } from 'react-native';
+import React, { useState, useEffect } from 'react';
+import { View, Text, StyleSheet, TouchableOpacity, FlatList, Modal, TextInput, Button, Alert, ScrollView, ActivityIndicator } from 'react-native';
 import Header from '../../components/Header';
 import { Ionicons } from '@expo/vector-icons';
 import DateTimePicker from '@react-native-community/datetimepicker';
+import { supabase, TABLES } from '../../utils/supabase';
 
-const mockUsers = [
-  { id: 'u1', name: 'Alice', role: 'student' },
-  { id: 'u2', name: 'Bob', role: 'parent' },
-  { id: 'u3', name: 'Carol', role: 'teacher' },
-  { id: 'u4', name: 'Admin', role: 'admin' },
-];
-const roles = ['teacher', 'parent', 'student'];
+const roles = ['teacher', 'parent', 'student', 'admin'];
 const notificationTypes = ['general', 'urgent', 'fee reminder', 'event', 'homework', 'attendance'];
 
-const initialNotifications = [
-  { id: 'n1', type: 'fee reminder', message: 'Fee due soon!', recipients: ['parent'], date: '2024-06-10 10:00', status: 'Sent', read: false },
-  { id: 'n2', type: 'event', message: 'Sports day on Friday', recipients: ['student', 'parent'], date: '2024-06-09 09:00', status: 'Scheduled', read: false },
-  { id: 'n3', type: 'urgent', message: 'School closed tomorrow', recipients: ['all'], date: '2024-06-08 18:00', status: 'Sent', read: true },
-];
-
 const NotificationManagement = () => {
-  const [notifications, setNotifications] = useState(initialNotifications);
+  const [notifications, setNotifications] = useState([]);
   const [typeFilter, setTypeFilter] = useState('');
   const [modal, setModal] = useState({ visible: false, mode: 'view', notification: null });
-  const [createForm, setCreateForm] = useState({ type: notificationTypes[0], message: '', recipients: [], date: '', status: 'Scheduled' });
+  const [createForm, setCreateForm] = useState({ 
+    type: notificationTypes[0], 
+    title: '',
+    message: '', 
+    sent_to_role: '', 
+    sent_to_id: null,
+    status: 'Scheduled' 
+  });
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [showTimePicker, setShowTimePicker] = useState(false);
   const [search, setSearch] = useState('');
   const [date, setDate] = useState('');
   const [time, setTime] = useState('');
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+
+  // Load notifications from Supabase
+  useEffect(() => {
+    loadNotifications();
+  }, []);
+
+  const loadNotifications = async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const { data, error } = await supabase
+        .from(TABLES.NOTIFICATIONS)
+        .select('*')
+        .order('created_at', { ascending: false });
+      
+      if (error) throw error;
+      setNotifications(data || []);
+    } catch (err) {
+      console.error('Error loading notifications:', err);
+      setError('Failed to load notifications');
+      Alert.alert('Error', 'Failed to load notifications');
+    } finally {
+      setLoading(false);
+    }
+  };
 
   // Filtering logic
   const filteredNotifications = notifications.filter(n => {
     if (typeFilter && n.type !== typeFilter) return false;
-    if (search && !n.message.toLowerCase().includes(search.toLowerCase())) return false;
+    if (search && !(n.message?.toLowerCase().includes(search.toLowerCase()) || 
+                   n.title?.toLowerCase().includes(search.toLowerCase()))) 
+      return false;
     return true;
   });
 
   // Actions
   const openViewModal = (notification) => setModal({ visible: true, mode: 'view', notification });
+  
   const openEditModal = (notification) => {
-    if (notification.date) {
-      const [d, t] = notification.date.split(' ');
+    // Format the scheduled_at date and time if available
+    if (notification.scheduled_at) {
+      const dateObj = new Date(notification.scheduled_at);
+      const d = dateObj.toISOString().split('T')[0];
+      const t = dateObj.toTimeString().split(' ')[0].substring(0, 5);
       setDate(d);
-      setTime(t || '');
+      setTime(t);
+    } else {
+      setDate('');
+      setTime('');
     }
+    
+    setCreateForm({
+      type: notification.type || notificationTypes[0],
+      title: notification.title || '',
+      message: notification.message || '',
+      sent_to_role: notification.sent_to_role || '',
+      sent_to_id: notification.sent_to_id || null,
+      status: notification.delivery_status || 'Scheduled'
+    });
+    
     setModal({ visible: true, mode: 'edit', notification });
   };
+  
   const openCreateModal = () => {
     setDate('');
     setTime('');
+    setCreateForm({ 
+      type: notificationTypes[0], 
+      title: '',
+      message: '', 
+      sent_to_role: '', 
+      sent_to_id: null,
+      status: 'Scheduled' 
+    });
     setModal({ visible: true, mode: 'create', notification: null });
   };
+  
   const handleDelete = (id) => {
     Alert.alert('Delete Notification', 'Are you sure?', [
       { text: 'Cancel', style: 'cancel' },
-      { text: 'Delete', style: 'destructive', onPress: () => setNotifications(notifications.filter(n => n.id !== id)) },
+      { 
+        text: 'Delete', 
+        style: 'destructive', 
+        onPress: async () => {
+          try {
+            setLoading(true);
+            const { error } = await supabase
+              .from(TABLES.NOTIFICATIONS)
+              .delete()
+              .eq('id', id);
+            
+            if (error) throw error;
+            
+            // Update local state
+            setNotifications(notifications.filter(n => n.id !== id));
+            Alert.alert('Success', 'Notification deleted successfully');
+          } catch (err) {
+            console.error('Error deleting notification:', err);
+            Alert.alert('Error', 'Failed to delete notification');
+          } finally {
+            setLoading(false);
+          }
+        } 
+      },
     ]);
   };
-  const handleResend = (notification) => {
-    setNotifications([...notifications, { ...notification, id: 'n' + Date.now(), status: 'Sent', date: new Date().toISOString().slice(0, 16).replace('T', ' ') }]);
-    Alert.alert('Notification resent!');
+  
+  const handleResend = async (notification) => {
+    try {
+      setLoading(true);
+      
+      // Create a new notification based on the existing one
+      const newNotification = {
+        type: notification.type,
+        title: notification.title,
+        message: notification.message,
+        sent_to_role: notification.sent_to_role,
+        sent_to_id: notification.sent_to_id,
+        delivery_status: 'Sent',
+        sent_at: new Date().toISOString(),
+        created_at: new Date().toISOString()
+      };
+      
+      const { data, error } = await supabase
+        .from(TABLES.NOTIFICATIONS)
+        .insert(newNotification)
+        .select();
+      
+      if (error) throw error;
+      
+      // Update local state
+      setNotifications([...(data || []), ...notifications]);
+      Alert.alert('Success', 'Notification resent successfully');
+    } catch (err) {
+      console.error('Error resending notification:', err);
+      Alert.alert('Error', 'Failed to resend notification');
+    } finally {
+      setLoading(false);
+    }
   };
-  const handleDuplicate = (notification) => {
-    setNotifications([...notifications, { ...notification, id: 'n' + Date.now(), status: 'Scheduled' }]);
-    Alert.alert('Notification duplicated!');
+  
+  const handleDuplicate = async (notification) => {
+    try {
+      setLoading(true);
+      
+      // Create a duplicate notification
+      const duplicateNotification = {
+        type: notification.type,
+        title: notification.title,
+        message: notification.message,
+        sent_to_role: notification.sent_to_role,
+        sent_to_id: notification.sent_to_id,
+        delivery_status: 'Scheduled',
+        created_at: new Date().toISOString()
+      };
+      
+      const { data, error } = await supabase
+        .from(TABLES.NOTIFICATIONS)
+        .insert(duplicateNotification)
+        .select();
+      
+      if (error) throw error;
+      
+      // Update local state
+      setNotifications([...(data || []), ...notifications]);
+      Alert.alert('Success', 'Notification duplicated successfully');
+    } catch (err) {
+      console.error('Error duplicating notification:', err);
+      Alert.alert('Error', 'Failed to duplicate notification');
+    } finally {
+      setLoading(false);
+    }
   };
-  const handleMarkRead = (id, read) => {
-    setNotifications(notifications.map(n => n.id === id ? { ...n, read } : n));
-  };
+  
   // Create/Edit logic
-  const handleSave = () => {
-    if (!createForm.message || createForm.recipients.length === 0 || !date || !time) {
-      Alert.alert('Error', 'Please fill all fields');
+  const handleSave = async () => {
+    if (!createForm.message || !createForm.sent_to_role || !createForm.title) {
+      Alert.alert('Error', 'Please fill all required fields');
       return;
     }
-    const dateTime = `${date} ${time}`;
-    if (modal.mode === 'edit') {
-      setNotifications(notifications.map(n => n.id === modal.notification.id ? { ...n, ...createForm, date: dateTime } : n));
-    } else {
-      setNotifications([...notifications, { ...createForm, id: 'n' + Date.now(), date: dateTime }]);
+    
+    try {
+      setLoading(true);
+      
+      let scheduledAt = null;
+      if (date && time) {
+        scheduledAt = new Date(`${date}T${time}`).toISOString();
+      }
+      
+      const notificationData = {
+        type: createForm.type,
+        title: createForm.title,
+        message: createForm.message,
+        sent_to_role: createForm.sent_to_role,
+        sent_to_id: createForm.sent_to_id,
+        delivery_status: createForm.status,
+        scheduled_at: scheduledAt,
+        created_at: new Date().toISOString()
+      };
+      
+      if (modal.mode === 'edit') {
+        // Update existing notification
+        const { data, error } = await supabase
+          .from(TABLES.NOTIFICATIONS)
+          .update(notificationData)
+          .eq('id', modal.notification.id)
+          .select();
+        
+        if (error) throw error;
+        
+        // Update local state
+        setNotifications(notifications.map(n => 
+          n.id === modal.notification.id ? { ...n, ...notificationData } : n
+        ));
+        
+        Alert.alert('Success', 'Notification updated successfully');
+      } else {
+        // Create new notification
+        const { data, error } = await supabase
+          .from(TABLES.NOTIFICATIONS)
+          .insert(notificationData)
+          .select();
+        
+        if (error) throw error;
+        
+        // Update local state
+        setNotifications([...(data || []), ...notifications]);
+        Alert.alert('Success', 'Notification created successfully');
+      }
+      
+      // Reset form and close modal
+      setModal({ visible: false, mode: 'view', notification: null });
+      setCreateForm({ 
+        type: notificationTypes[0], 
+        title: '',
+        message: '', 
+        sent_to_role: '', 
+        sent_to_id: null,
+        status: 'Scheduled' 
+      });
+      setDate('');
+      setTime('');
+    } catch (err) {
+      console.error('Error saving notification:', err);
+      Alert.alert('Error', 'Failed to save notification');
+    } finally {
+      setLoading(false);
     }
-    setModal({ visible: false, mode: 'view', notification: null });
-    setCreateForm({ type: notificationTypes[0], message: '', recipients: [], date: '', status: 'Scheduled' });
-    setDate('');
-    setTime('');
   };
 
   // UI
   return (
     <View style={styles.container}>
       <Header title="Notification Management" showBack={true} />
+      
       {/* Filter/Search Bar */}
       <View style={styles.filterBarMain}>
         <View style={styles.searchBarRow}>
           <Ionicons name="search" size={20} color="#888" style={{ marginRight: 8 }} />
           <TextInput
-            placeholder="Search message..."
+            placeholder="Search message or title..."
             value={search}
             onChangeText={setSearch}
             style={styles.filterInput}
@@ -121,36 +312,72 @@ const NotificationManagement = () => {
           ))}
         </ScrollView>
       </View>
-      <FlatList
-        data={filteredNotifications}
-        keyExtractor={item => item.id}
-        style={{ width: '100%', marginTop: 8 }}
-        contentContainerStyle={{ paddingBottom: 80 }}
-        renderItem={({ item }) => (
-          <TouchableOpacity style={styles.notificationCard} onPress={() => openViewModal(item)}>
-            <View style={{ flex: 1 }}>
-              <Text style={styles.notificationType}>{item.type.toUpperCase()}</Text>
-              <Text style={styles.notificationMsg}>{item.message}</Text>
-              <Text style={styles.notificationMeta}>To: {item.recipients.join(', ')} | {item.date}</Text>
-            </View>
-            <View style={styles.iconCol}>
-              <TouchableOpacity onPress={() => openEditModal(item)}>
-                <Ionicons name="create-outline" size={22} color="#1976d2" style={styles.actionIcon} />
-              </TouchableOpacity>
-              <TouchableOpacity onPress={() => handleDelete(item.id)}>
-                <Ionicons name="trash-outline" size={22} color="#d32f2f" style={styles.actionIcon} />
-              </TouchableOpacity>
-              <TouchableOpacity onPress={() => handleResend(item)}>
-                <Ionicons name="refresh-outline" size={22} color="#388e3c" style={styles.actionIcon} />
-              </TouchableOpacity>
-            </View>
+      
+      {/* Loading Indicator */}
+      {loading && (
+        <View style={styles.loadingContainer}>
+          <ActivityIndicator size="large" color="#007bff" />
+          <Text style={styles.loadingText}>Loading notifications...</Text>
+        </View>
+      )}
+      
+      {/* Error Message */}
+      {error && (
+        <View style={styles.errorContainer}>
+          <Text style={styles.errorText}>{error}</Text>
+          <TouchableOpacity style={styles.retryButton} onPress={loadNotifications}>
+            <Text style={styles.retryButtonText}>Retry</Text>
           </TouchableOpacity>
-        )}
-      />
+        </View>
+      )}
+      
+      {/* Notifications List */}
+      {!loading && !error && (
+        <FlatList
+          data={filteredNotifications}
+          keyExtractor={item => item.id}
+          style={{ width: '100%', marginTop: 8 }}
+          contentContainerStyle={{ paddingBottom: 80 }}
+          ListEmptyComponent={
+            <View style={styles.emptyContainer}>
+              <Text style={styles.emptyText}>No notifications found</Text>
+            </View>
+          }
+          renderItem={({ item }) => (
+            <TouchableOpacity style={styles.notificationCard} onPress={() => openViewModal(item)}>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.notificationType}>{(item.type || 'general').toUpperCase()}</Text>
+                <Text style={styles.notificationTitle}>{item.title || 'No Title'}</Text>
+                <Text style={styles.notificationMsg}>{item.message}</Text>
+                <Text style={styles.notificationMeta}>
+                  To: {item.sent_to_role || 'Unknown'} 
+                  {item.scheduled_at ? ` | ${new Date(item.scheduled_at).toLocaleString()}` : ''}
+                  {item.sent_at ? ` | Sent: ${new Date(item.sent_at).toLocaleString()}` : ''}
+                </Text>
+              </View>
+              <View style={styles.iconCol}>
+                <TouchableOpacity onPress={() => openEditModal(item)}>
+                  <Ionicons name="create-outline" size={22} color="#1976d2" style={styles.actionIcon} />
+                </TouchableOpacity>
+                <TouchableOpacity onPress={() => handleDelete(item.id)}>
+                  <Ionicons name="trash-outline" size={22} color="#d32f2f" style={styles.actionIcon} />
+                </TouchableOpacity>
+                <TouchableOpacity onPress={() => handleResend(item)}>
+                  <Ionicons name="refresh-outline" size={22} color="#388e3c" style={styles.actionIcon} />
+                </TouchableOpacity>
+                <TouchableOpacity onPress={() => handleDuplicate(item)}>
+                  <Ionicons name="copy-outline" size={22} color="#ff9800" style={styles.actionIcon} />
+                </TouchableOpacity>
+              </View>
+            </TouchableOpacity>
+          )}
+        />
+      )}
       {/* Floating Add Button */}
-      <TouchableOpacity style={styles.fab} onPress={openCreateModal}>
-        <Text style={styles.fabIcon}>+</Text>
-      </TouchableOpacity>
+       <TouchableOpacity style={styles.fab} onPress={openCreateModal}>
+         <Text style={styles.fabIcon}>+</Text>
+       </TouchableOpacity>
+      
       {/* Create/Edit/View Modal */}
       <Modal visible={modal.visible} animationType="slide" transparent>
         <View style={styles.modalOverlay}>
@@ -158,17 +385,24 @@ const NotificationManagement = () => {
             {modal.mode === 'view' && modal.notification && (
               <>
                 <Text style={styles.modalTitle}>Notification Details</Text>
-                <Text style={styles.notificationType}>{modal.notification.type.toUpperCase()}</Text>
+                <Text style={styles.notificationType}>{(modal.notification.type || 'general').toUpperCase()}</Text>
+                <Text style={styles.notificationTitle}>{modal.notification.title || 'No Title'}</Text>
                 <Text style={styles.notificationMsg}>{modal.notification.message}</Text>
-                <Text style={styles.notificationMeta}>To: {modal.notification.recipients.join(', ')}</Text>
-                <Text style={styles.notificationMeta}>Date: {modal.notification.date}</Text>
-                <Text style={styles.notificationMeta}>Status: {modal.notification.status}</Text>
+                <Text style={styles.notificationMeta}>To: {modal.notification.sent_to_role || 'Unknown'}</Text>
+                {modal.notification.scheduled_at && (
+                  <Text style={styles.notificationMeta}>Scheduled: {new Date(modal.notification.scheduled_at).toLocaleString()}</Text>
+                )}
+                {modal.notification.sent_at && (
+                  <Text style={styles.notificationMeta}>Sent: {new Date(modal.notification.sent_at).toLocaleString()}</Text>
+                )}
+                <Text style={styles.notificationMeta}>Status: {modal.notification.delivery_status || 'Unknown'}</Text>
                 <Button title="Close" onPress={() => setModal({ visible: false, mode: 'view', notification: null })} />
               </>
             )}
             {(modal.mode === 'edit' || modal.mode === 'create') && (
               <ScrollView>
                 <Text style={styles.modalTitle}>{modal.mode === 'edit' ? 'Edit Notification' : 'Create Notification'}</Text>
+                
                 <Text style={{ marginTop: 8 }}>Type:</Text>
                 <ScrollView horizontal style={{ marginBottom: 8 }}>
                   {notificationTypes.map(type => (
@@ -181,20 +415,29 @@ const NotificationManagement = () => {
                     </TouchableOpacity>
                   ))}
                 </ScrollView>
+                
+                <TextInput
+                  placeholder="Title"
+                  value={createForm.title}
+                  onChangeText={text => setCreateForm(f => ({ ...f, title: text }))}
+                  style={styles.input}
+                />
+                
                 <TextInput
                   placeholder="Message"
                   value={createForm.message}
                   onChangeText={text => setCreateForm(f => ({ ...f, message: text }))}
-                  style={styles.input}
+                  style={[styles.input, { height: 100 }]}
                   multiline
                 />
-                <Text style={{ marginTop: 8 }}>Recipients:</Text>
+                
+                <Text style={{ marginTop: 8 }}>Recipient Role:</Text>
                 <ScrollView horizontal style={{ marginBottom: 8 }}>
                   {roles.map(role => (
                     <TouchableOpacity
                       key={role}
-                      style={[styles.recipientBtn, createForm.recipients.includes(role) && styles.activeRecipientBtn]}
-                      onPress={() => setCreateForm(f => ({ ...f, recipients: f.recipients.includes(role) ? f.recipients.filter(r => r !== role) : [...f.recipients, role] }))}
+                      style={[styles.recipientBtn, createForm.sent_to_role === role && styles.activeRecipientBtn]}
+                      onPress={() => setCreateForm(f => ({ ...f, sent_to_role: role }))}
                     >
                       <Text>{role}</Text>
                     </TouchableOpacity>
@@ -262,6 +505,54 @@ const NotificationManagement = () => {
 };
 
 const styles = StyleSheet.create({
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+  },
+  loadingText: {
+    marginTop: 10,
+    fontSize: 16,
+    color: '#666',
+  },
+  errorContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+  },
+  errorText: {
+    fontSize: 16,
+    color: '#d32f2f',
+    marginBottom: 16,
+    textAlign: 'center',
+  },
+  retryButton: {
+    backgroundColor: '#1976d2',
+    paddingHorizontal: 20,
+    paddingVertical: 10,
+    borderRadius: 4,
+  },
+  retryButtonText: {
+    color: '#fff',
+    fontWeight: 'bold',
+  },
+  emptyContainer: {
+    padding: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  emptyText: {
+    fontSize: 16,
+    color: '#666',
+  },
+  notificationTitle: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: '#333',
+    marginVertical: 2,
+  },
   container: {
     flex: 1,
     backgroundColor: '#f5f5f5',
@@ -484,4 +775,4 @@ const styles = StyleSheet.create({
   },
 });
 
-export default NotificationManagement; 
+export default NotificationManagement;

@@ -1,37 +1,66 @@
-import React from 'react';
-import { View, Text, FlatList, TouchableOpacity, StyleSheet } from 'react-native';
+import React, { useEffect, useState } from 'react';
+import { View, Text, FlatList, TouchableOpacity, StyleSheet, ActivityIndicator } from 'react-native';
 import Header from '../../components/Header';
 import { Ionicons } from '@expo/vector-icons';
-
-const dummyStudents = [
-  { id: 1, name: 'Emma Johnson', rollNo: 15, attendance: '92%', fee: 'Paid', phone: '+91 98765 43210', parent: 'Mr. John Johnson' },
-  { id: 2, name: 'Michael Brown', rollNo: 16, attendance: '88%', fee: 'Unpaid', phone: '+91 98765 43211', parent: 'Mrs. Sarah Brown' },
-  { id: 3, name: 'Sophia Davis', rollNo: 17, attendance: '95%', fee: 'Paid', phone: '+91 98765 43212', parent: 'Mr. Robert Davis' },
-  { id: 4, name: 'William Wilson', rollNo: 18, attendance: '90%', fee: 'Paid', phone: '+91 98765 43213', parent: 'Mrs. Lisa Wilson' },
-  { id: 5, name: 'Olivia Taylor', rollNo: 19, attendance: '87%', fee: 'Unpaid', phone: '+91 98765 43214', parent: 'Mr. James Taylor' },
-];
+import { dbHelpers } from '../../utils/supabase';
 
 const StudentList = ({ route, navigation }) => {
-  const { className } = route.params;
-  // In a real app, filter students by className
-  const students = dummyStudents; // For now, show all dummy students
+  const { classId } = route.params;
+  const [students, setStudents] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+
+  useEffect(() => {
+    const fetchStudents = async () => {
+      setLoading(true);
+      setError(null);
+      try {
+        const { data, error } = await dbHelpers.getStudentsByClass(classId);
+        if (error) throw error;
+        setStudents(data || []);
+      } catch (err) {
+        setError('Failed to load students.');
+      } finally {
+        setLoading(false);
+      }
+    };
+    fetchStudents();
+  }, [classId]);
 
   const renderStudent = ({ item }) => (
     <TouchableOpacity style={styles.card} onPress={() => navigation.navigate('StudentDetails', { student: item })}>
       <View style={styles.avatar}><Ionicons name="person" size={28} color="#2196F3" /></View>
       <View style={styles.info}>
         <Text style={styles.name}>{item.name}</Text>
-        <Text style={styles.detail}>Roll No: {item.rollNo}</Text>
-        <Text style={styles.detail}>Attendance: {item.attendance}</Text>
-        <Text style={styles.detail}>Fee: {item.fee}</Text>
+        <Text style={styles.detail}>Roll No: {item.roll_no}</Text>
+        <Text style={styles.detail}>Attendance: -</Text>
+        <Text style={styles.detail}>Fee: -</Text>
       </View>
       <Ionicons name="chevron-forward" size={20} color="#999" />
     </TouchableOpacity>
   );
 
+  if (loading) {
+    return (
+      <View style={styles.container}>
+        <Header title="Students" showBack={true} />
+        <ActivityIndicator size="large" color="#2196F3" style={{ marginTop: 40 }} />
+      </View>
+    );
+  }
+
+  if (error) {
+    return (
+      <View style={styles.container}>
+        <Header title="Students" showBack={true} />
+        <Text style={{ color: 'red', margin: 24 }}>{error}</Text>
+      </View>
+    );
+  }
+
   return (
     <View style={styles.container}>
-      <Header title={`Students of ${className}`} showBack={true} />
+      <Header title="Students" showBack={true} />
       <FlatList
         data={students}
         renderItem={renderStudent}

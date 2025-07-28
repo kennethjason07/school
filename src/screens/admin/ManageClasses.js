@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -9,76 +9,117 @@ import {
   TextInput,
   Alert,
   Modal,
+  ActivityIndicator,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import Header from '../../components/Header';
 import { Picker } from '@react-native-picker/picker';
+import { supabase, dbHelpers } from '../../utils/supabase';
 
 const ManageClasses = ({ navigation }) => {
-  const [classes, setClasses] = useState([
-    { id: 1, name: 'Class 1A', academicYear: '2024-25', section: 'A', teacher: 'Mrs. Sarah Johnson', students: 32, subjects: 6 },
-    { id: 2, name: 'Class 1B', academicYear: '2024-25', section: 'B', teacher: 'Mr. David Wilson', students: 30, subjects: 6 },
-    { id: 3, name: 'Class 2A', academicYear: '2024-25', section: 'A', teacher: 'Ms. Emily Brown', students: 28, subjects: 6 },
-    { id: 4, name: 'Class 2B', academicYear: '2024-25', section: 'B', teacher: 'Mr. James Davis', students: 31, subjects: 6 },
-    { id: 5, name: 'Class 3A', academicYear: '2024-25', section: 'A', teacher: 'Mrs. Lisa Anderson', students: 29, subjects: 7 },
-    { id: 6, name: 'Class 3B', academicYear: '2024-25', section: 'B', teacher: 'Mr. Robert Taylor', students: 33, subjects: 7 },
-  ]);
-
+  const [loading, setLoading] = useState(true);
+  const [classes, setClasses] = useState([]);
+  const [teachers, setTeachers] = useState([]);
+  const [sections, setSections] = useState(['A', 'B', 'C', 'D']);
   const [isAddModalVisible, setIsAddModalVisible] = useState(false);
   const [isEditModalVisible, setIsEditModalVisible] = useState(false);
   const [selectedClass, setSelectedClass] = useState(null);
   const [newClass, setNewClass] = useState({
     name: '',
-    academicYear: '2024-25',
+    academic_year: '2024-25',
     section: '',
-    teacher: '',
+    teacher_id: '',
   });
 
-  const teachers = [
-    'Mrs. Sarah Johnson',
-    'Mr. David Wilson',
-    'Ms. Emily Brown',
-    'Mr. James Davis',
-    'Mrs. Lisa Anderson',
-    'Mr. Robert Taylor',
-  ];
+  useEffect(() => {
+    loadAllData();
+  }, []);
 
-  const sections = ['A', 'B', 'C', 'D'];
+  const loadAllData = async () => {
+    try {
+      // Load classes
+      const { data: classData, error: classError } = await supabase
+        .from('classes')
+        .select('*')
+        .order('name', { ascending: true });
+      if (classError) throw classError;
+      setClasses(classData);
 
-  const handleAddClass = () => {
-    if (!newClass.name || !newClass.section || !newClass.teacher) {
-      Alert.alert('Error', 'Please fill in all fields');
-      return;
+      // Load teachers
+      const { data: teacherData, error: teacherError } = await supabase
+        .from('teachers')
+        .select('*')
+        .order('name', { ascending: true });
+      if (teacherError) throw teacherError;
+      setTeachers(teacherData);
+    } catch (error) {
+      console.error('Error loading data:', error);
+      Alert.alert('Error', 'Failed to load classes');
+    } finally {
+      setLoading(false);
     }
-
-    const classToAdd = {
-      id: Date.now(),
-      ...newClass,
-      students: 0,
-      subjects: 6,
-    };
-
-    setClasses([...classes, classToAdd]);
-    setNewClass({ name: '', academicYear: '2024-25', section: '', teacher: '' });
-    setIsAddModalVisible(false);
-    Alert.alert('Success', 'Class added successfully!');
   };
 
-  const handleEditClass = () => {
-    if (!selectedClass.name || !selectedClass.section || !selectedClass.teacher) {
-      Alert.alert('Error', 'Please fill in all fields');
-      return;
-    }
+  const handleAddClass = async () => {
+    try {
+      if (!newClass.name || !newClass.section || !newClass.teacher_id) {
+        Alert.alert('Error', 'Please fill in all fields');
+        return;
+      }
 
-    setClasses(classes.map(cls => 
-      cls.id === selectedClass.id ? selectedClass : cls
-    ));
-    setIsEditModalVisible(false);
-    setSelectedClass(null);
-    Alert.alert('Success', 'Class updated successfully!');
+      const { error } = await supabase
+        .from('classes')
+        .insert({
+          name: newClass.name,
+          academic_year: newClass.academic_year,
+          section: newClass.section,
+          teacher_id: newClass.teacher_id,
+        });
+
+      if (error) throw error;
+
+      // Refresh data
+      await loadAllData();
+      setNewClass({ name: '', academic_year: '2024-25', section: '', teacher_id: '' });
+      setIsAddModalVisible(false);
+      Alert.alert('Success', 'Class added successfully!');
+    } catch (error) {
+      console.error('Error adding class:', error);
+      Alert.alert('Error', 'Failed to add class');
+    }
   };
 
-  const handleDeleteClass = (classId) => {
+  const handleEditClass = async () => {
+    try {
+      if (!selectedClass.name || !selectedClass.section || !selectedClass.teacher_id) {
+        Alert.alert('Error', 'Please fill in all fields');
+        return;
+      }
+
+      const { error } = await supabase
+        .from('classes')
+        .update({
+          name: selectedClass.name,
+          academic_year: selectedClass.academic_year,
+          section: selectedClass.section,
+          teacher_id: selectedClass.teacher_id,
+        })
+        .eq('id', selectedClass.id);
+
+      if (error) throw error;
+
+      // Refresh data
+      await loadAllData();
+      setIsEditModalVisible(false);
+      setSelectedClass(null);
+      Alert.alert('Success', 'Class updated successfully!');
+    } catch (error) {
+      console.error('Error updating class:', error);
+      Alert.alert('Error', 'Failed to update class');
+    }
+  };
+
+  const handleDeleteClass = async (classId) => {
     Alert.alert(
       'Delete Class',
       'Are you sure you want to delete this class? This action cannot be undone.',
@@ -87,9 +128,22 @@ const ManageClasses = ({ navigation }) => {
         {
           text: 'Delete',
           style: 'destructive',
-          onPress: () => {
-            setClasses(classes => classes.filter(cls => cls.id !== classId));
-            Alert.alert('Success', 'Class deleted successfully!');
+          onPress: async () => {
+            try {
+              const { error } = await supabase
+                .from('classes')
+                .delete()
+                .eq('id', classId);
+
+              if (error) throw error;
+
+              // Refresh data
+              await loadAllData();
+              Alert.alert('Success', 'Class deleted successfully!');
+            } catch (error) {
+              console.error('Error deleting class:', error);
+              Alert.alert('Error', 'Failed to delete class');
+            }
           },
         },
       ]
@@ -97,65 +151,74 @@ const ManageClasses = ({ navigation }) => {
   };
 
   const openEditModal = (classItem) => {
-    setSelectedClass({ ...classItem });
+    // Find teacher name for display
+    const teacher = teachers.find(t => t.id === classItem.teacher_id);
+    setSelectedClass({ 
+      ...classItem,
+      teacher_name: teacher?.name || 'Unknown'
+    });
     setIsEditModalVisible(true);
   };
 
-  const renderClassItem = ({ item }) => (
-    <View style={styles.classCard}>
-      <View style={styles.classHeader}>
-        <View style={styles.classInfo}>
-          <Text style={styles.className}>{item.name}</Text>
-          <Text style={styles.classDetails}>
-            Section {item.section} • {item.academicYear}
-          </Text>
-          <Text style={styles.classTeacher}>Teacher: {item.teacher}</Text>
+  const renderClassItem = ({ item }) => {
+    if (loading) {
+      return (
+        <View style={styles.loadingContainer}>
+          <ActivityIndicator size="large" color="#2196F3" />
         </View>
-        <View style={styles.classStats}>
-          <View style={styles.statItem}>
-            <Text style={styles.statValue}>{item.students}</Text>
-            <Text style={styles.statLabel}>Students</Text>
+      );
+    }
+
+    return (
+      <View style={styles.classCard}>
+        <View style={styles.classHeader}>
+          <View style={styles.classInfo}>
+            <Text style={styles.className}>{item.name}</Text>
+            <Text style={styles.classDetails}>
+              Section {item.section} • {item.academic_year}
+            </Text>
+            <Text style={styles.classTeacher}>Teacher: {item.teacher_name || 'Unknown'}</Text>
           </View>
-          <View style={styles.statItem}>
-            <Text style={styles.statValue}>{item.subjects}</Text>
-            <Text style={styles.statLabel}>Subjects</Text>
+          <View style={styles.classStats}>
+            <View style={styles.statItem}>
+              <Text style={styles.statValue}>{item.students_count || 0}</Text>
+              <Text style={styles.statLabel}>Students</Text>
+            </View>
+            <View style={styles.statItem}>
+              <Text style={styles.statValue}>{item.subjects_count || 0}</Text>
+              <Text style={styles.statLabel}>Subjects</Text>
+            </View>
           </View>
+        </View>
+        
+        <View style={styles.classActions}>
+          <TouchableOpacity 
+            style={[styles.actionButton, styles.viewButton]}
+            onPress={() => navigation.navigate('StudentList', { classId: item.id })}
+          >
+            <Ionicons name="people" size={16} color="#2196F3" />
+            <Text style={styles.viewButtonText}>View Students</Text>
+          </TouchableOpacity>
+          
+          <TouchableOpacity 
+            style={[styles.actionButton, styles.editButton]}
+            onPress={() => openEditModal(item)}
+          >
+            <Ionicons name="create" size={16} color="#FF9800" />
+            <Text style={styles.editButtonText}>Edit</Text>
+          </TouchableOpacity>
+          
+          <TouchableOpacity 
+            style={[styles.actionButton, styles.deleteButton]}
+            onPress={() => handleDeleteClass(item.id)}
+          >
+            <Ionicons name="trash" size={16} color="#f44336" />
+            <Text style={styles.deleteButtonText}>Delete</Text>
+          </TouchableOpacity>
         </View>
       </View>
-      
-      <View style={styles.classActions}>
-        <TouchableOpacity 
-          style={[styles.actionButton, styles.viewButton]}
-          onPress={() => navigation.navigate('StudentDetails', { student: {
-            name: 'Emma Johnson',
-            class: item.name,
-            rollNo: 15,
-            attendance: '92%',
-            parent: 'Mr. John Johnson'
-          } })}
-        >
-          <Ionicons name="people" size={16} color="#2196F3" />
-          <Text style={styles.viewButtonText}>View Students</Text>
-        </TouchableOpacity>
-        
-        <TouchableOpacity 
-          style={[styles.actionButton, styles.editButton]}
-          onPress={() => openEditModal(item)}
-        >
-          <Ionicons name="create" size={16} color="#FF9800" />
-          <Text style={styles.editButtonText}>Edit</Text>
-        </TouchableOpacity>
-        
-        <TouchableOpacity 
-          style={[styles.actionButton, styles.deleteButton]}
-          onPress={() => handleDeleteClass(item.id)}
-        >
-          <Ionicons name="trash" size={16} color="#f44336" />
-          <Text style={styles.deleteButtonText}>Delete</Text>
-        </TouchableOpacity>
-      </View>
-    </View>
-  );
+    );
+  };
 
   const renderModal = (isVisible, isEdit = false) => (
     <Modal
@@ -199,71 +262,57 @@ const ManageClasses = ({ navigation }) => {
             </View>
 
             <View style={styles.inputGroup}>
-              <Text style={styles.inputLabel}>Section</Text>
-              <View style={styles.pickerContainer}>
-                {sections.map((section) => (
-                  <TouchableOpacity
-                    key={section}
-                    style={[
-                      styles.pickerOption,
-                      (isEdit ? selectedClass?.section : newClass.section) === section && 
-                      styles.pickerOptionSelected
-                    ]}
-                    onPress={() => 
-                      isEdit 
-                        ? setSelectedClass({ ...selectedClass, section })
-                        : setNewClass({ ...newClass, section })
-                    }
-                  >
-                    <Text style={[
-                      styles.pickerOptionText,
-                      (isEdit ? selectedClass?.section : newClass.section) === section && 
-                      styles.pickerOptionTextSelected
-                    ]}>
-                      {section}
-                    </Text>
-                  </TouchableOpacity>
-                ))}
-              </View>
+              <Text style={styles.inputLabel}>Academic Year</Text>
+              <TextInput
+                style={styles.input}
+                value={isEdit ? selectedClass?.academic_year : newClass.academic_year}
+                onChangeText={(text) => 
+                  isEdit 
+                    ? setSelectedClass({ ...selectedClass, academic_year: text })
+                    : setNewClass({ ...newClass, academic_year: text })
+                }
+                placeholder="e.g., 2024-25"
+              />
             </View>
 
             <View style={styles.inputGroup}>
-              <Text style={styles.inputLabel}>Class Teacher</Text>
-              <View style={styles.pickerDropdownContainer}>
-                <Picker
-                  selectedValue={isEdit ? selectedClass?.teacher : newClass.teacher}
-                  onValueChange={(itemValue) =>
-                    isEdit
-                      ? setSelectedClass({ ...selectedClass, teacher: itemValue })
-                      : setNewClass({ ...newClass, teacher: itemValue })
-                  }
-                  style={styles.pickerDropdown}
-                >
-                  <Picker.Item label="Select Teacher" value="" />
-                  {teachers.map((teacher) => (
-                    <Picker.Item key={teacher} label={teacher} value={teacher} />
-                  ))}
-                </Picker>
-              </View>
+              <Text style={styles.inputLabel}>Section</Text>
+              <Picker
+                selectedValue={isEdit ? selectedClass?.section : newClass.section}
+                onValueChange={(itemValue) => 
+                  isEdit 
+                    ? setSelectedClass({ ...selectedClass, section: itemValue })
+                    : setNewClass({ ...newClass, section: itemValue })
+                }
+              >
+                {sections.map((section) => (
+                  <Picker.Item key={section} label={section} value={section} />
+                ))}
+              </Picker>
             </View>
-          </View>
 
-          <View style={styles.modalActions}>
+            <View style={styles.inputGroup}>
+              <Text style={styles.inputLabel}>Teacher</Text>
+              <Picker
+                selectedValue={isEdit ? selectedClass?.teacher_id : newClass.teacher_id}
+                onValueChange={(itemValue) => 
+                  isEdit 
+                    ? setSelectedClass({ ...selectedClass, teacher_id: itemValue })
+                    : setNewClass({ ...newClass, teacher_id: itemValue })
+                }
+              >
+                {teachers.map((teacher) => (
+                  <Picker.Item key={teacher.id} label={teacher.name} value={teacher.id} />
+                ))}
+              </Picker>
+            </View>
+
             <TouchableOpacity
-              style={styles.cancelButton}
-              onPress={() => {
-                setIsAddModalVisible(false);
-                setIsEditModalVisible(false);
-              }}
-            >
-              <Text style={styles.cancelButtonText}>Cancel</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={styles.saveButton}
+              style={styles.submitButton}
               onPress={isEdit ? handleEditClass : handleAddClass}
             >
-              <Text style={styles.saveButtonText}>
-                {isEdit ? 'Update' : 'Add Class'}
+              <Text style={styles.submitButtonText}>
+                {isEdit ? 'Update Class' : 'Add Class'}
               </Text>
             </TouchableOpacity>
           </View>

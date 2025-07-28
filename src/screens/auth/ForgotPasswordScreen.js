@@ -8,32 +8,71 @@ import {
   Alert,
   KeyboardAvoidingView,
   Platform,
+  ActivityIndicator,
+  ScrollView,
+  RefreshControl,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
+import { supabase } from '../../utils/supabase';
+import * as Animatable from 'react-native-animatable';
 
 const ForgotPasswordScreen = ({ navigation }) => {
   const [email, setEmail] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  const [emailError, setEmailError] = useState('');
 
-  const handleResetPassword = () => {
+  // Validate email
+  const validateEmail = (email) => {
+    const emailRegex = /^[\w-\.]+@([\w-]+\.)+[\w-]{2,4}$/;
     if (!email) {
-      Alert.alert('Error', 'Please enter your email address');
-      return;
+      setEmailError('Email is required');
+      return false;
     }
-
-    // Email validation
-    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     if (!emailRegex.test(email)) {
-      Alert.alert('Error', 'Please enter a valid email address');
-      return;
+      setEmailError('Please enter a valid email address');
+      return false;
     }
+    setEmailError('');
+    return true;
+  };
+
+  // Check if email exists in Supabase
+  const checkEmailExists = async (email) => {
+    try {
+      const { data, error } = await supabase
+        .from('users')
+        .select('id')
+        .eq('email', email)
+        .single();
+
+      if (error) throw error;
+      return true;
+    } catch (error) {
+      console.error('Email check error:', error);
+      Alert.alert('Error', 'Email not found in our records');
+      return false;
+    }
+  };
+
+  const handleResetPassword = async () => {
+    // Validate email
+    const isValidEmail = validateEmail(email);
+    if (!isValidEmail) return;
+
+    // Check if email exists
+    const emailExists = await checkEmailExists(email);
+    if (!emailExists) return;
 
     setIsLoading(true);
 
-    // Simulate API call
-    setTimeout(() => {
-      setIsLoading(false);
+    try {
+      const { error } = await supabase.auth.resetPasswordForEmail(email, {
+        redirectTo: `${window.location.origin}/auth/reset-password`,
+      });
+
+      if (error) throw error;
+
       Alert.alert(
         'Success',
         'Password reset link has been sent to your email address.',
@@ -44,7 +83,12 @@ const ForgotPasswordScreen = ({ navigation }) => {
           },
         ]
       );
-    }, 2000);
+    } catch (error) {
+      console.error('Password reset error:', error);
+      Alert.alert('Error', 'Failed to send reset link. Please try again.');
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   return (
@@ -56,9 +100,18 @@ const ForgotPasswordScreen = ({ navigation }) => {
         colors={['#667eea', '#764ba2']}
         style={styles.gradient}
       >
-        <View style={styles.content}>
+        <ScrollView 
+          contentContainerStyle={styles.content}
+          refreshControl={
+            <RefreshControl refreshing={isLoading} onRefresh={() => {}} />
+          }
+        >
           {/* Header */}
-          <View style={styles.header}>
+          <Animatable.View 
+            style={styles.header}
+            animation="fadeInLeft"
+            duration={800}
+          >
             <TouchableOpacity 
               onPress={() => navigation.goBack()}
               style={styles.backButton}
@@ -67,31 +120,46 @@ const ForgotPasswordScreen = ({ navigation }) => {
             </TouchableOpacity>
             <Text style={styles.headerTitle}>Reset Password</Text>
             <View style={styles.placeholder} />
-          </View>
+          </Animatable.View>
 
           {/* Icon */}
-          <View style={styles.iconContainer}>
+          <Animatable.View 
+            style={styles.iconContainer}
+            animation="fadeInDown"
+            duration={1000}
+          >
             <Ionicons name="lock-open" size={80} color="#fff" />
-          </View>
+          </Animatable.View>
 
           {/* Form */}
-          <View style={styles.formContainer}>
+          <Animatable.View 
+            style={styles.formContainer}
+            animation="fadeInUp"
+            duration={800}
+          >
             <Text style={styles.title}>Forgot Your Password?</Text>
             <Text style={styles.subtitle}>
               Enter your email address and we'll send you a link to reset your password.
             </Text>
 
             <View style={styles.inputContainer}>
-              <Ionicons name="mail" size={20} color="#666" style={styles.inputIcon} />
+              <Ionicons name="mail" size={24} color="#666" />
               <TextInput
                 style={styles.input}
                 placeholder="Enter your email"
+                placeholderTextColor="#666"
                 value={email}
-                onChangeText={setEmail}
+                onChangeText={(text) => {
+                  setEmail(text);
+                  validateEmail(text);
+                }}
                 keyboardType="email-address"
                 autoCapitalize="none"
                 autoCorrect={false}
               />
+              {emailError && (
+                <Text style={styles.errorText}>{emailError}</Text>
+              )}
             </View>
 
             <TouchableOpacity 
@@ -99,19 +167,25 @@ const ForgotPasswordScreen = ({ navigation }) => {
               onPress={handleResetPassword}
               disabled={isLoading}
             >
-              <Text style={styles.resetButtonText}>
-                {isLoading ? 'Sending...' : 'Send Reset Link'}
-              </Text>
+              {isLoading ? (
+                <ActivityIndicator color="#fff" />
+              ) : (
+                <>
+                  <Ionicons name="mail" size={24} color="#fff" />
+                  <Text style={styles.resetButtonText}>Send Reset Link</Text>
+                </>
+              )}
             </TouchableOpacity>
 
-            <TouchableOpacity 
-              style={styles.backToLogin}
-              onPress={() => navigation.goBack()}
+            <TouchableOpacity
+              style={styles.backButtonLink}
+              onPress={() => navigation.navigate('Login')}
+              disabled={isLoading}
             >
-              <Text style={styles.backToLoginText}>Back to Login</Text>
+              <Text style={styles.backButtonText}>Back to Login</Text>
             </TouchableOpacity>
-          </View>
-        </View>
+          </Animatable.View>
+        </ScrollView>
       </LinearGradient>
     </KeyboardAvoidingView>
   );
@@ -127,94 +201,101 @@ const styles = StyleSheet.create({
   content: {
     flex: 1,
     padding: 20,
+    justifyContent: 'center',
   },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
-    marginTop: 40,
-    marginBottom: 40,
+    marginBottom: 20,
   },
   backButton: {
-    padding: 8,
+    marginRight: 16,
   },
   headerTitle: {
-    fontSize: 20,
+    flex: 1,
+    fontSize: 24,
     fontWeight: 'bold',
     color: '#fff',
+    textAlign: 'center',
   },
   placeholder: {
-    width: 40,
+    width: 24,
   },
   iconContainer: {
     alignItems: 'center',
     marginBottom: 40,
   },
   formContainer: {
-    backgroundColor: '#fff',
+    backgroundColor: 'rgba(255, 255, 255, 0.95)',
     borderRadius: 20,
     padding: 24,
-    elevation: 5,
+    elevation: 10,
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
+    shadowOffset: {
+      width: 0,
+      height: 10,
+    },
     shadowOpacity: 0.25,
-    shadowRadius: 3.84,
+    shadowRadius: 14,
   },
   title: {
     fontSize: 24,
     fontWeight: 'bold',
     color: '#333',
-    textAlign: 'center',
-    marginBottom: 12,
+    marginBottom: 16,
   },
   subtitle: {
     fontSize: 16,
     color: '#666',
-    textAlign: 'center',
-    lineHeight: 24,
-    marginBottom: 32,
+    marginBottom: 24,
   },
   inputContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#f8f9fa',
-    borderRadius: 12,
-    marginBottom: 24,
-    paddingHorizontal: 16,
+    backgroundColor: '#f5f5f5',
+    borderRadius: 10,
+    marginBottom: 15,
+    paddingHorizontal: 15,
+    paddingVertical: 12,
     borderWidth: 1,
-    borderColor: '#e9ecef',
-  },
-  inputIcon: {
-    marginRight: 12,
+    borderColor: '#ddd',
   },
   input: {
     flex: 1,
-    paddingVertical: 16,
     fontSize: 16,
     color: '#333',
   },
+  errorText: {
+    color: '#dc3545',
+    fontSize: 12,
+    marginTop: 5,
+  },
   resetButton: {
-    backgroundColor: '#667eea',
-    borderRadius: 12,
-    paddingVertical: 16,
+    flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 16,
+    justifyContent: 'center',
+    backgroundColor: '#1976d2',
+    borderRadius: 10,
+    padding: 15,
+    marginTop: 20,
   },
   resetButtonDisabled: {
-    backgroundColor: '#ccc',
+    opacity: 0.7,
   },
   resetButtonText: {
-    color: '#fff',
-    fontSize: 18,
-    fontWeight: 'bold',
-  },
-  backToLogin: {
-    alignItems: 'center',
-  },
-  backToLoginText: {
-    color: '#667eea',
     fontSize: 16,
+    fontWeight: '600',
+    color: '#fff',
+    marginLeft: 10,
+  },
+  backButtonLink: {
+    alignItems: 'center',
+    marginTop: 20,
+  },
+  backButtonText: {
+    color: '#1976d2',
+    fontSize: 14,
   },
 });
 
-export default ForgotPasswordScreen; 
+export default ForgotPasswordScreen;

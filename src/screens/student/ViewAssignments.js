@@ -1,65 +1,10 @@
-import React, { useState } from 'react';
-import { View, Text, StyleSheet, FlatList, TouchableOpacity, ScrollView, Modal, Pressable, Linking, Platform, Alert } from 'react-native';
+import React, { useState, useEffect } from 'react';
+import { View, Text, StyleSheet, FlatList, TouchableOpacity, ScrollView, Modal, Pressable, Linking, Platform, Alert, ActivityIndicator } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import * as DocumentPicker from 'expo-document-picker';
 import * as ImagePicker from 'expo-image-picker';
-
-const DUMMY_ASSIGNMENTS = [
-  {
-    id: 'a1',
-    subject: 'Mathematics',
-    title: 'Algebra Homework',
-    description: 'Solve all problems from Chapter 3.',
-    dueDate: '2024-07-10',
-    files: [{ name: 'worksheet.pdf', url: '#' }],
-    status: 'not_submitted',
-  },
-  {
-    id: 'a2',
-    subject: 'Mathematics',
-    title: 'Geometry Worksheet',
-    description: 'Complete the worksheet on triangles.',
-    dueDate: '2024-07-15',
-    files: [{ name: 'triangles.pdf', url: '#' }],
-    status: 'submitted',
-  },
-  {
-    id: 'a3',
-    subject: 'Science',
-    title: 'Lab Report',
-    description: 'Write a report on the photosynthesis experiment.',
-    dueDate: '2024-07-12',
-    files: [{ name: 'lab_instructions.pdf', url: '#' }],
-    status: 'graded',
-  },
-  {
-    id: 'a4',
-    subject: 'English',
-    title: 'Essay Writing',
-    description: 'Write an essay on your favorite book.',
-    dueDate: '2024-07-09',
-    files: [],
-    status: 'not_submitted',
-  },
-  {
-    id: 'a5',
-    subject: 'Science',
-    title: 'Chapter 5 Questions',
-    description: 'Answer all questions from Chapter 5.',
-    dueDate: '2024-07-14',
-    files: [],
-    status: 'submitted',
-  },
-];
-
-const groupBySubject = (assignments) => {
-  const groups = {};
-  assignments.forEach(a => {
-    if (!groups[a.subject]) groups[a.subject] = [];
-    groups[a.subject].push(a);
-  });
-  return Object.entries(groups);
-};
+import { useAuth } from '../../utils/AuthContext';
+import { supabase, TABLES } from '../../utils/supabase';
 
 const statusColors = {
   not_submitted: '#F44336',
@@ -73,7 +18,6 @@ const statusLabels = {
   graded: 'Graded',
 };
 
-// Add helpers for file icon and size
 const formatFileSize = (bytes) => {
   if (!bytes) return '0 Bytes';
   const k = 1024;
@@ -88,71 +32,146 @@ const getFileIcon = (fileType) => {
   return 'document-outline';
 };
 
-// Add dummy feedback/grade for demonstration
-const getFeedbackAndGrade = (assignment) => {
-  if (assignment.status === 'graded') {
-    // Example dummy feedback/grade
-    return {
-      grade: assignment.grade || 'A',
-      feedback: assignment.feedback || 'Excellent work! Keep it up.',
-    };
-  }
-  return null;
-};
-
-// Dummy teacher files for demonstration
-const getTeacherFiles = (assignment) => {
-  // Real, downloadable files from the internet
-  return [
-    {
-      id: 't1',
-      name: 'Sample PDF Document.pdf',
-      url: 'https://www.w3.org/WAI/ER/tests/xhtml/testfiles/resources/pdf/dummy.pdf',
-    },
-    {
-      id: 't2',
-      name: 'Sample Word Document.docx',
-      url: 'https://file-examples.com/storage/fe6b6e2e6e6e6e6e6e6e6e6e6e6e6e6e/doc-file.docx',
-    },
-    {
-      id: 't3',
-      name: 'Sample Excel Spreadsheet.xlsx',
-      url: 'https://file-examples.com/storage/fe6b6e2e6e6e6e6e6e6e6e6e6e6e6e6e/xls-file.xlsx',
-    },
-    {
-      id: 't4',
-      name: 'Sample Image.jpg',
-      url: 'https://www.w3schools.com/w3images/lights.jpg',
-    },
-  ];
-};
-
 const ViewAssignments = () => {
-  // Use local state for assignments to allow status updates
-  const [assignments, setAssignments] = useState(DUMMY_ASSIGNMENTS);
+  const { user } = useAuth();
+  const [assignments, setAssignments] = useState([]);
   const [selectedAssignment, setSelectedAssignment] = useState(null);
   const [uploadedFiles, setUploadedFiles] = useState([]);
   const [isEditing, setIsEditing] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+
+  // Fetch assignments for the student
+  const fetchAssignments = async () => {
+    try {
+      setLoading(true);
+      setError(null);
+      // Get student info
+      const { data: student, error: studentError } = await supabase
+        .from(TABLES.STUDENTS)
+        .select('id')
+        .eq('user_id', user.id)
+        .single();
+      if (studentError) throw studentError;
+      // Get assignments (homework) assigned to this student
+      const { data: homework, error: hwError } = await supabase
+        .from(TABLES.HOMEWORK)
+        .select('*')
+        .contains('assigned_students', [student.id])
+        .order('due_date', { ascending: true });
+      if (hwError) throw hwError;
+      // Get submissions for this student
+      const { data: submissions, error: subError } = await supabase
+        .from(TABLES.SUBMISSIONS)
+        .select('*')
+        .eq('student_id', student.id);
+      if (subError) throw subError;
+      // Merge homework and submission status
+      const assignmentsList = (homework || []).map(hw => {
+        const submission = submissions.find(s => s.assignment_id === hw.id);
+        let status = 'not_submitted';
+        if (submission) status = submission.status;
+        if (submission && submission.grade) status = 'graded';
+        return {
+          id: hw.id,
+          subject: hw.subjects?.name || hw.subject_id,
+          title: hw.title,
+          description: hw.description,
+          dueDate: hw.due_date,
+          files: hw.files || [],
+          status,
+          submissionId: submission?.id,
+          uploadedFiles: submission?.files || [],
+          grade: submission?.grade,
+          feedback: submission?.feedback,
+        };
+      });
+      setAssignments(assignmentsList);
+    } catch (err) {
+      setError(err.message);
+      setAssignments([]);
+      console.error('Assignments error:', err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchAssignments();
+    // Real-time subscription
+    const hwSub = supabase
+      .channel('student-assignments-homework')
+      .on('postgres_changes', { event: '*', schema: 'public', table: TABLES.HOMEWORK }, fetchAssignments)
+      .subscribe();
+    const subSub = supabase
+      .channel('student-assignments-submissions')
+      .on('postgres_changes', { event: '*', schema: 'public', table: TABLES.SUBMISSIONS }, fetchAssignments)
+      .subscribe();
+    return () => {
+      hwSub.unsubscribe();
+      subSub.unsubscribe();
+    };
+  }, []);
+
+  // Group assignments by subject
+  const groupBySubject = (assignments) => {
+    const groups = {};
+    assignments.forEach(a => {
+      if (!groups[a.subject]) groups[a.subject] = [];
+      groups[a.subject].push(a);
+    });
+    return Object.entries(groups);
+  };
   const grouped = groupBySubject(assignments);
 
-  // When opening modal, set uploadedFiles to assignment's files if any
+  // When opening modal, set uploadedFiles to submission's files if any
   const openAssignmentModal = (assignment) => {
     setSelectedAssignment(assignment);
-    setUploadedFiles(assignment.files || []);
+    setUploadedFiles(assignment.uploadedFiles || []);
     setIsEditing(assignment.status === 'not_submitted');
   };
 
   // Handler to mark as submitted
-  const handleMarkAsSubmitted = () => {
+  const handleMarkAsSubmitted = async () => {
     if (!selectedAssignment) return;
-    setAssignments(prev =>
-      prev.map(a =>
-        a.id === selectedAssignment.id ? { ...a, status: 'submitted', files: uploadedFiles } : a
-      )
-    );
-    setSelectedAssignment(null);
-    setUploadedFiles([]);
-    setIsEditing(false);
+    try {
+      setLoading(true);
+      // Get student info
+      const { data: student } = await supabase
+        .from(TABLES.STUDENTS)
+        .select('id')
+        .eq('user_id', user.id)
+        .single();
+      // Insert or update submission
+      const submissionData = {
+        assignment_id: selectedAssignment.id,
+        student_id: student.id,
+        files: uploadedFiles,
+        status: 'submitted',
+        submitted_at: new Date().toISOString(),
+      };
+      if (selectedAssignment.submissionId) {
+        // Update
+        await supabase
+          .from(TABLES.SUBMISSIONS)
+          .update(submissionData)
+          .eq('id', selectedAssignment.submissionId);
+      } else {
+        // Insert
+        await supabase
+          .from(TABLES.SUBMISSIONS)
+          .insert(submissionData);
+      }
+      setSelectedAssignment(null);
+      setUploadedFiles([]);
+      setIsEditing(false);
+      fetchAssignments();
+    } catch (err) {
+      Alert.alert('Error', 'Failed to submit assignment.');
+      console.error('Submit assignment error:', err);
+    } finally {
+      setLoading(false);
+    }
   };
 
   // Handler to enable editing (re-upload)
@@ -162,120 +181,101 @@ const ViewAssignments = () => {
 
   // File upload (documents)
   const handleFileUpload = async () => {
-    if (Platform.OS === 'web') {
-      const input = document.createElement('input');
-      input.type = 'file';
-      input.accept = '.pdf,.doc,.docx,.txt,.xls,.xlsx';
-      input.onchange = (event) => {
-        const file = event.target.files[0];
-        if (file) {
-          const newFile = {
-            id: Date.now().toString(),
-            name: file.name,
-            size: file.size,
-            type: file.type,
-            uri: URL.createObjectURL(file),
-            uploadTime: new Date().toISOString(),
-          };
-          setUploadedFiles(prev => [...prev, newFile]);
-          Alert.alert('Success', `File "${file.name}" uploaded successfully!`);
-        }
-      };
-      input.click();
-    } else {
-      try {
-        const result = await DocumentPicker.getDocumentAsync({
-          type: [
-            'application/pdf',
-            'application/msword',
-            'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-            'text/plain',
-            'application/vnd.ms-excel',
-            'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
-          ],
-          copyToCacheDirectory: true,
-          multiple: false,
-        });
-        if (!result.canceled && result.assets && result.assets.length > 0) {
-          const file = result.assets[0];
-          const newFile = {
-            id: Date.now().toString(),
-            name: file.name,
-            size: file.size || 0,
-            type: file.mimeType || 'application/octet-stream',
-            uri: file.uri,
-            uploadTime: new Date().toISOString(),
-          };
-          setUploadedFiles(prev => [...prev, newFile]);
-          Alert.alert('Success', `File "${file.name}" uploaded from your device!`);
-        }
-      } catch (error) {
-        console.log('File upload error:', error);
-        Alert.alert('Error', 'Failed to upload file. Please try again.');
+    try {
+      const result = await DocumentPicker.getDocumentAsync({
+        type: '*/*',
+        copyToCacheDirectory: true,
+        multiple: false,
+      });
+      if (!result.canceled && result.assets && result.assets.length > 0) {
+        const file = result.assets[0];
+        const newFile = {
+          id: Date.now().toString(),
+          name: file.name,
+          size: file.size || 0,
+          type: file.mimeType || 'application/octet-stream',
+          uri: file.uri,
+          uploadTime: new Date().toISOString(),
+        };
+        setUploadedFiles(prev => [...prev, newFile]);
+        Alert.alert('Success', `File "${file.name}" uploaded from your device!`);
       }
+    } catch (error) {
+      Alert.alert('Error', 'Failed to upload file. Please try again.');
+      console.error('File upload error:', error);
     }
   };
 
   // Image upload
   const handleImageUpload = async () => {
-    if (Platform.OS === 'web') {
-      const input = document.createElement('input');
-      input.type = 'file';
-      input.accept = 'image/*';
-      input.onchange = (event) => {
-        const file = event.target.files[0];
-        if (file) {
-          const newFile = {
-            id: Date.now().toString(),
-            name: file.name,
-            size: file.size,
-            type: file.type,
-            uri: URL.createObjectURL(file),
-            uploadTime: new Date().toISOString(),
-          };
-          setUploadedFiles(prev => [...prev, newFile]);
-          Alert.alert('Success', `Image "${file.name}" uploaded successfully!`);
-        }
-      };
-      input.click();
-    } else {
-      try {
-        const permissionResult = await ImagePicker.requestMediaLibraryPermissionsAsync();
-        if (permissionResult.granted === false) {
-          Alert.alert('Permission Required', 'Please grant permission to access your photo library.');
-          return;
-        }
-        const result = await ImagePicker.launchImageLibraryAsync({
-          mediaTypes: ImagePicker.MediaTypeOptions.Images,
-          allowsEditing: true,
-          aspect: [4, 3],
-          quality: 0.8,
-          allowsMultipleSelection: false,
-        });
-        if (!result.canceled && result.assets && result.assets.length > 0) {
-          const image = result.assets[0];
-          const newFile = {
-            id: Date.now().toString(),
-            name: `image_${Date.now()}.jpg`,
-            size: image.fileSize || 0,
-            type: 'image/jpeg',
-            uri: image.uri,
-            uploadTime: new Date().toISOString(),
-          };
-          setUploadedFiles(prev => [...prev, newFile]);
-          Alert.alert('Success', 'Image uploaded from your gallery!');
-        }
-      } catch (error) {
-        console.log('Image upload error:', error);
-        Alert.alert('Error', 'Failed to upload image. Please try again.');
+    try {
+      const permissionResult = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (permissionResult.granted === false) {
+        Alert.alert('Permission Required', 'Please grant permission to access your photo library.');
+        return;
       }
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        allowsEditing: true,
+        aspect: [4, 3],
+        quality: 0.8,
+        allowsMultipleSelection: false,
+      });
+      if (!result.canceled && result.assets && result.assets.length > 0) {
+        const image = result.assets[0];
+        const newFile = {
+          id: Date.now().toString(),
+          name: `image_${Date.now()}.jpg`,
+          size: image.fileSize || 0,
+          type: 'image/jpeg',
+          uri: image.uri,
+          uploadTime: new Date().toISOString(),
+        };
+        setUploadedFiles(prev => [...prev, newFile]);
+        Alert.alert('Success', 'Image uploaded from your gallery!');
+      }
+    } catch (error) {
+      Alert.alert('Error', 'Failed to upload image. Please try again.');
+      console.error('Image upload error:', error);
     }
   };
 
-  // Placeholder for file removal logic
+  // File removal
   const handleRemoveFile = (id) => {
     setUploadedFiles(prev => prev.filter(file => file.id !== id));
   };
+
+  // Get teacher files (resources)
+  const getTeacherFiles = (assignment) => assignment.files || [];
+
+  // Get feedback/grade
+  const getFeedbackAndGrade = (assignment) => {
+    if (assignment.status === 'graded') {
+      return {
+        grade: assignment.grade || 'A',
+        feedback: assignment.feedback || 'Excellent work! Keep it up.',
+      };
+    }
+    return null;
+  };
+
+  if (loading) {
+    return (
+      <View style={[styles.container, { justifyContent: 'center', alignItems: 'center' }]}> 
+        <ActivityIndicator size="large" color="#1976d2" />
+      </View>
+    );
+  }
+  if (error) {
+    return (
+      <View style={[styles.container, { justifyContent: 'center', alignItems: 'center' }]}> 
+        <Text style={{ color: '#d32f2f', fontSize: 16, marginBottom: 12, textAlign: 'center' }}>Error: {error}</Text>
+        <TouchableOpacity onPress={fetchAssignments} style={{ backgroundColor: '#1976d2', padding: 12, borderRadius: 8 }}>
+          <Text style={{ color: '#fff', fontWeight: 'bold' }}>Retry</Text>
+        </TouchableOpacity>
+      </View>
+    );
+  }
 
   return (
     <>
@@ -398,26 +398,21 @@ const ViewAssignments = () => {
                 <View style={{ marginTop: 18 }}>
                   <Text style={styles.modalLabel}>Teacher Feedback & Grade:</Text>
                   {selectedAssignment.status === 'graded' ? (
-                    (() => {
-                      const fg = getFeedbackAndGrade(selectedAssignment);
-                      return (
-                        <View style={{ backgroundColor: '#e8f5e9', borderRadius: 10, padding: 12, marginTop: 6 }}>
-                          <Text style={{ color: '#388e3c', fontWeight: 'bold', fontSize: 16 }}>Grade: {fg.grade}</Text>
-                          <Text style={{ color: '#333', marginTop: 4 }}>{fg.feedback}</Text>
-                        </View>
-                      );
-                    })()
+                    <View style={{ backgroundColor: '#e8f5e9', borderRadius: 8, padding: 10, marginTop: 6 }}>
+                      <Text style={{ color: '#388e3c', fontWeight: 'bold', fontSize: 16 }}>Grade: {getFeedbackAndGrade(selectedAssignment)?.grade}</Text>
+                      <Text style={{ color: '#333', marginTop: 4 }}>{getFeedbackAndGrade(selectedAssignment)?.feedback}</Text>
+                    </View>
                   ) : (
-                    <Text style={{ color: '#888', fontStyle: 'italic', marginTop: 6 }}>Awaiting grading/feedback from teacher.</Text>
+                    <Text style={{ color: '#888', fontStyle: 'italic', marginTop: 6 }}>No feedback or grade yet.</Text>
                   )}
                 </View>
-                <TouchableOpacity style={styles.closeButton} onPress={() => { setSelectedAssignment(null); setUploadedFiles([]); setIsEditing(false); }}>
-                  <Text style={styles.closeButtonText}>Close</Text>
+                <TouchableOpacity style={styles.closeBtn} onPress={() => { setSelectedAssignment(null); setUploadedFiles([]); setIsEditing(false); }}>
+                  <Ionicons name="close" size={24} color="#1976d2" />
                 </TouchableOpacity>
               </>
             )}
-      </View>
-    </View>
+          </View>
+        </View>
       </Modal>
     </>
   );
@@ -619,6 +614,10 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     fontSize: 14,
     letterSpacing: 0.1,
+  },
+  closeBtn: {
+    marginTop: 18,
+    alignSelf: 'flex-end',
   },
 });
 

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -10,108 +10,68 @@ import {
   TextInput,
   Alert,
   Dimensions,
+  ActivityIndicator,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import Header from '../../components/Header';
+import { dbHelpers } from '../../utils/supabase';
+import { useAuth } from '../../utils/AuthContext';
 
 const { width } = Dimensions.get('window');
 
-// Dummy notifications data
-export const DUMMY_NOTIFICATIONS = [
-  {
-    id: '1',
-    title: 'Fee Payment Reminder',
-    message: 'Second term fee is due on 15th October. Please make the payment before the due date to avoid late fees.',
-    sender: 'School Admin',
-    type: 'fee_reminder',
-    priority: 'important',
-    isRead: false,
-    timestamp: '2024-01-15T10:30:00Z',
-    relatedAction: 'fee_payment'
-  },
-  {
-    id: '2',
-    title: 'Parent-Teacher Meeting',
-    message: 'PTM scheduled for January 5th, 2025 at 2:00 PM. Please confirm your attendance.',
-    sender: 'Class Teacher',
-    type: 'meeting',
-    priority: 'important',
-    isRead: false,
-    timestamp: '2024-01-14T14:20:00Z',
-    relatedAction: 'ptm_attendance'
-  },
-  {
-    id: '3',
-    title: 'Annual Day Invitation',
-    message: 'You are cordially invited to the Annual Day celebration on December 25th, 2024 at 6:00 PM.',
-    sender: 'School Principal',
-    type: 'event',
-    priority: 'regular',
-    isRead: true,
-    timestamp: '2024-01-13T09:15:00Z',
-    relatedAction: 'event_details'
-  },
-  {
-    id: '4',
-    title: 'Attendance Update',
-    message: 'Your child was absent on January 12th, 2024. Please provide a reason for the absence.',
-    sender: 'Class Teacher',
-    type: 'attendance',
-    priority: 'regular',
-    isRead: true,
-    timestamp: '2024-01-12T16:45:00Z',
-    relatedAction: 'attendance_update'
-  },
-  {
-    id: '5',
-    title: 'Sports Day Registration',
-    message: 'Sports day registration is now open. Please register your child for the events by January 20th.',
-    sender: 'Sports Department',
-    type: 'sports',
-    priority: 'regular',
-    isRead: false,
-    timestamp: '2024-01-11T11:30:00Z',
-    relatedAction: 'sports_registration'
-  },
-  {
-    id: '6',
-    title: 'Library Book Due',
-    message: 'The library book "Science Encyclopedia" is due for return on January 18th. Please ensure timely return.',
-    sender: 'Library Staff',
-    type: 'academic',
-    priority: 'regular',
-    isRead: true,
-    timestamp: '2024-01-10T13:20:00Z',
-    relatedAction: 'library_return'
-  },
-  {
-    id: '7',
-    title: 'Exam Schedule Update',
-    message: 'Midterm examinations will be conducted from January 20-22, 2025. Please check the updated schedule.',
-    sender: 'Examination Department',
-    type: 'exam',
-    priority: 'important',
-    isRead: false,
-    timestamp: '2024-01-09T15:10:00Z',
-    relatedAction: 'exam_schedule'
-  },
-  {
-    id: '8',
-    title: 'Transport Route Change',
-    message: 'Due to road construction, the bus route has been modified. New pickup time is 7:30 AM from tomorrow.',
-    sender: 'Transport Department',
-    type: 'transport',
-    priority: 'important',
-    isRead: true,
-    timestamp: '2024-01-08T08:45:00Z',
-    relatedAction: 'transport_update'
-  }
-];
-
 const Notifications = ({ navigation }) => {
-  const [notifications, setNotifications] = useState(DUMMY_NOTIFICATIONS);
+  const { user } = useAuth();
+  const [notifications, setNotifications] = useState([]);
   const [filter, setFilter] = useState('all');
   const [search, setSearch] = useState('');
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+
+  useEffect(() => {
+    const fetchNotifications = async () => {
+      setLoading(true);
+      setError(null);
+      try {
+        // Get parent's data
+        const parentData = await dbHelpers.read('parents', { user_id: user.id });
+        if (!parentData || parentData.length === 0) {
+          throw new Error('Parent data not found');
+        }
+        const parent = parentData[0];
+        
+        // Get notifications for parent
+        const parentNotifications = await dbHelpers.read('notifications', { 
+          recipient_type: 'parent', 
+          recipient_id: parent.id 
+        });
+        
+        // Transform the data to match the expected format
+        const transformedNotifications = (parentNotifications || []).map(notification => ({
+          id: notification.id,
+          title: notification.title,
+          message: notification.message,
+          sender: notification.sender || 'School Admin',
+          type: notification.type || 'general',
+          priority: notification.priority || 'regular',
+          isRead: notification.is_read || false,
+          timestamp: notification.created_at,
+          relatedAction: notification.related_action || null
+        }));
+        
+        setNotifications(transformedNotifications);
+      } catch (err) {
+        console.error('Error fetching notifications:', err);
+        setError(err.message);
+        Alert.alert('Error', 'Failed to load notifications');
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    if (user) {
+      fetchNotifications();
+    }
+  }, [user]);
 
   const filteredNotifications = notifications.filter(n => {
     if (filter === 'unread') return !n.isRead;
@@ -124,20 +84,53 @@ const Notifications = ({ navigation }) => {
     n.sender.toLowerCase().includes(search.toLowerCase())
   );
 
-  const markAsRead = (id) => {
-    setNotifications(notifications =>
-      notifications.map(n => n.id === id ? { ...n, isRead: true } : n)
-    );
+  const markAsRead = async (id) => {
+    try {
+      // Update notification in database
+      await dbHelpers.update('notifications', id, { is_read: true });
+      
+      // Update local state
+      setNotifications(notifications =>
+        notifications.map(n => n.id === id ? { ...n, isRead: true } : n)
+      );
+    } catch (error) {
+      console.error('Error marking notification as read:', error);
+      Alert.alert('Error', 'Failed to mark notification as read');
+    }
   };
-  const markAsUnread = (id) => {
-    setNotifications(notifications =>
-      notifications.map(n => n.id === id ? { ...n, isRead: false } : n)
-    );
+
+  const markAsUnread = async (id) => {
+    try {
+      // Update notification in database
+      await dbHelpers.update('notifications', id, { is_read: false });
+      
+      // Update local state
+      setNotifications(notifications =>
+        notifications.map(n => n.id === id ? { ...n, isRead: false } : n)
+      );
+    } catch (error) {
+      console.error('Error marking notification as unread:', error);
+      Alert.alert('Error', 'Failed to mark notification as unread');
+    }
   };
 
   const formatDate = (timestamp) => {
     const date = new Date(timestamp);
-    return date.toLocaleDateString();
+    const now = new Date();
+    const diffInHours = Math.floor((now - date) / (1000 * 60 * 60));
+    
+    if (diffInHours < 1) {
+      return 'Just now';
+    } else if (diffInHours < 24) {
+      return `${diffInHours} hour${diffInHours > 1 ? 's' : ''} ago`;
+    } else {
+      const diffInDays = Math.floor(diffInHours / 24);
+      if (diffInDays < 7) {
+        return `${diffInDays} day${diffInDays > 1 ? 's' : ''} ago`;
+      } else {
+        return date.toLocaleDateString();
+      }
+    }
   };
 
   const renderNotification = ({ item }) => (
@@ -153,12 +146,19 @@ const Notifications = ({ navigation }) => {
       <Text style={styles.message}>{item.message}</Text>
       <View style={styles.metaRow}>
         <Text style={styles.sender}>{item.sender}</Text>
-        {!item.isRead && (
-          <TouchableOpacity style={styles.actionBtn} onPress={() => markAsRead(item.id)}>
-            <Ionicons name="mail-open" size={18} color="#388e3c" />
-            <Text style={styles.actionText}>Mark as Read</Text>
-          </TouchableOpacity>
-        )}
+        <View style={styles.actionButtons}>
+          {item.isRead ? (
+            <TouchableOpacity style={styles.actionBtn} onPress={() => markAsUnread(item.id)}>
+              <Ionicons name="mail" size={18} color="#1976d2" />
+              <Text style={styles.actionText}>Mark as Unread</Text>
+            </TouchableOpacity>
+          ) : (
+            <TouchableOpacity style={styles.actionBtn} onPress={() => markAsRead(item.id)}>
+              <Ionicons name="mail-open" size={18} color="#388e3c" />
+              <Text style={styles.actionText}>Mark as Read</Text>
+            </TouchableOpacity>
+          )}
+        </View>
       </View>
     </View>
   );
@@ -169,6 +169,33 @@ const Notifications = ({ navigation }) => {
     { key: 'read', label: 'Read' },
     { key: 'important', label: 'Important' },
   ];
+
+  if (loading) {
+    return (
+      <View style={styles.container}>
+        <Header title="Notifications" showBack={true} />
+        <View style={styles.loadingContainer}>
+          <ActivityIndicator size="large" color="#1976d2" />
+          <Text style={styles.loadingText}>Loading notifications...</Text>
+        </View>
+      </View>
+    );
+  }
+
+  if (error) {
+    return (
+      <View style={styles.container}>
+        <Header title="Notifications" showBack={true} />
+        <View style={styles.errorContainer}>
+          <Ionicons name="alert-circle" size={48} color="#F44336" />
+          <Text style={styles.errorText}>Failed to load notifications</Text>
+          <TouchableOpacity style={styles.retryButton} onPress={() => window.location.reload()}>
+            <Text style={styles.retryButtonText}>Retry</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+    );
+  }
 
   return (
     <View style={styles.container}>
@@ -199,7 +226,18 @@ const Notifications = ({ navigation }) => {
         keyExtractor={item => item.id}
         renderItem={renderNotification}
         contentContainerStyle={{ paddingBottom: 24 }}
-        ListEmptyComponent={<Text style={{ color: '#888', textAlign: 'center', marginTop: 40 }}>No notifications found.</Text>}
+        ListEmptyComponent={
+          <View style={styles.emptyContainer}>
+            <Ionicons name="notifications-off" size={64} color="#ccc" />
+            <Text style={styles.emptyText}>No notifications found</Text>
+            <Text style={styles.emptySubtext}>
+              {filter === 'all' 
+                ? 'You have no notifications yet.' 
+                : `No ${filter} notifications found.`
+              }
+            </Text>
+          </View>
+        }
         showsVerticalScrollIndicator={false}
       />
     </View>
@@ -322,6 +360,63 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     marginLeft: 4,
     fontSize: 13,
+  },
+  actionButtons: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+  },
+  loadingText: {
+    marginTop: 10,
+    color: '#1976d2',
+    fontSize: 16,
+  },
+  errorContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+  },
+  errorText: {
+    color: '#F44336',
+    fontSize: 18,
+    marginTop: 10,
+    textAlign: 'center',
+  },
+  retryButton: {
+    marginTop: 20,
+    paddingVertical: 10,
+    paddingHorizontal: 20,
+    backgroundColor: '#1976d2',
+    borderRadius: 8,
+  },
+  retryButtonText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: 'bold',
+  },
+  emptyContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+  },
+  emptyText: {
+    color: '#888',
+    fontSize: 18,
+    marginTop: 10,
+    textAlign: 'center',
+  },
+  emptySubtext: {
+    color: '#bbb',
+    fontSize: 14,
+    marginTop: 5,
+    textAlign: 'center',
   },
 });
 

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -7,48 +7,140 @@ import {
   TouchableOpacity,
   Switch,
   Alert,
+  ActivityIndicator,
+  RefreshControl,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '../../utils/AuthContext';
+import { supabase } from '../../utils/supabase';
+import { format } from 'date-fns';
 
 const SettingsScreen = ({ navigation }) => {
-  const [notificationsEnabled, setNotificationsEnabled] = useState(true);
-  const [darkModeEnabled, setDarkModeEnabled] = useState(false);
-  const [biometricEnabled, setBiometricEnabled] = useState(false);
-  
+  const [loading, setLoading] = useState(true);
+  const [settings, setSettings] = useState({
+    notifications: true,
+    darkMode: false,
+    biometric: false,
+    language: 'en'
+  });
+  const [appVersion, setAppVersion] = useState('1.0.0');
   const { signOut } = useAuth();
 
-  const handleLogout = () => {
-    Alert.alert(
-      'Logout',
-      'Are you sure you want to logout?',
-      [
-        {
-          text: 'Cancel',
-          style: 'cancel',
-        },
-        {
-          text: 'Logout',
-          style: 'destructive',
-          onPress: async () => {
-            try {
-              await signOut();
-              // Navigation will be handled automatically by AuthContext
-            } catch (error) {
-              Alert.alert('Error', 'Failed to logout. Please try again.');
-            }
+  // Load settings from Supabase
+  const loadSettings = async () => {
+    try {
+      setLoading(true);
+      
+      // Get user settings
+      const { data: settingsData, error: settingsError } = await supabase
+        .from('user_settings')
+        .select('*')
+        .eq('user_id', supabase.auth.user().id)
+        .single();
+
+      if (settingsError) throw settingsError;
+
+      setSettings({
+        notifications: settingsData.notifications || true,
+        darkMode: settingsData.dark_mode || false,
+        biometric: settingsData.biometric || false,
+        language: settingsData.language || 'en',
+      });
+
+      // Get app version
+      const { data: versionData, error: versionError } = await supabase
+        .from('app_versions')
+        .select('version')
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .single();
+
+      if (versionError) throw versionError;
+      setAppVersion(versionData.version);
+    } catch (error) {
+      console.error('Error loading settings:', error);
+      Alert.alert('Error', 'Failed to load settings. Using default values.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Subscribe to real-time updates
+  useEffect(() => {
+    loadSettings();
+
+    const subscription = supabase
+      .channel('settings-updates')
+      .on('postgres_changes', {
+        event: '*',
+        schema: 'public',
+        table: 'user_settings'
+      }, () => {
+        loadSettings();
+      })
+      .subscribe();
+
+    return () => {
+      subscription.unsubscribe();
+    };
+  }, []);
+
+  // Save setting to Supabase
+  const saveSetting = async (key, value) => {
+    try {
+      const { error } = await supabase
+        .from('user_settings')
+        .upsert([
+          {
+            user_id: supabase.auth.user().id,
+            [key]: value,
+            updated_at: new Date()
+          }
+        ]);
+
+      if (error) throw error;
+    } catch (error) {
+      console.error('Error saving setting:', error);
+      Alert.alert('Error', 'Failed to save setting');
+    }
+  };
+
+  const handleLogout = async () => {
+    try {
+      Alert.alert(
+        'Logout',
+        'Are you sure you want to logout?',
+        [
+          {
+            text: 'Cancel',
+            style: 'cancel',
           },
-        },
-      ]
-    );
+          {
+            text: 'Logout',
+            style: 'destructive',
+            onPress: async () => {
+              try {
+                await signOut();
+              } catch (error) {
+                console.error('Logout error:', error);
+                Alert.alert('Error', 'Failed to logout. Please try again.');
+              }
+            },
+          },
+        ]
+      );
+    } catch (error) {
+      console.error('Logout error:', error);
+      Alert.alert('Error', 'Failed to logout. Please try again.');
+    }
   };
 
   const renderSettingItem = (icon, title, subtitle, onPress, showSwitch = false, switchValue = false, onSwitchChange = null) => (
     <TouchableOpacity style={styles.settingItem} onPress={onPress} disabled={showSwitch}>
       <View style={styles.settingItemLeft}>
         <View style={styles.iconContainer}>
-          <Ionicons name={icon} size={20} color="#007AFF" />
+          <Ionicons name={icon} size={24} color="#1976d2" />
         </View>
         <View style={styles.settingTextContainer}>
           <Text style={styles.settingTitle}>{title}</Text>
@@ -58,62 +150,84 @@ const SettingsScreen = ({ navigation }) => {
       {showSwitch ? (
         <Switch
           value={switchValue}
-          onValueChange={onSwitchChange}
+          onValueChange={(value) => {
+            onSwitchChange(value);
+            saveSetting(title.toLowerCase().replace(' ', '_'), value);
+          }}
           trackColor={{ false: '#767577', true: '#81b0ff' }}
-          thumbColor={switchValue ? '#007AFF' : '#f4f3f4'}
+          thumbColor={switchValue ? '#1976d2' : '#f4f3f4'}
         />
       ) : (
-        <Ionicons name="chevron-forward" size={20} color="#C7C7CC" />
+        <Ionicons name="chevron-forward" size={20} color="#666" />
       )}
     </TouchableOpacity>
   );
+
+  if (loading) {
+    return (
+      <View style={styles.loadingContainer}>
+        <ActivityIndicator size="large" color="#1976d2" />
+      </View>
+    );
+  }
 
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.header}>
         <TouchableOpacity onPress={() => navigation.goBack()}>
-          <Ionicons name="arrow-back" size={24} color="#007AFF" />
+          <Ionicons name="arrow-back" size={24} color="#1976d2" />
         </TouchableOpacity>
         <Text style={styles.headerTitle}>Settings</Text>
         <View style={styles.headerRight} />
       </View>
 
-      <ScrollView style={styles.content}>
+      <ScrollView
+        style={styles.content}
+        refreshControl={
+          <RefreshControl refreshing={loading} onRefresh={loadSettings} />
+        }
+      >
         {/* Account Settings */}
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Account</Text>
           {renderSettingItem('person-outline', 'Profile', 'Manage your profile information', () => navigation.navigate('Profile'))}
-          {renderSettingItem('lock-closed-outline', 'Change Password', 'Update your password', () => Alert.alert('Change Password', 'Password change functionality would go here'))}
-          {renderSettingItem('finger-print-outline', 'Biometric Login', 'Use fingerprint or face ID', null, true, biometricEnabled, setBiometricEnabled)}
+          {renderSettingItem('lock-closed-outline', 'Change Password', 'Update your password', () => navigation.navigate('ChangePassword'))}
+          {renderSettingItem('finger-print-outline', 'Biometric Login', 'Use fingerprint or face ID', null, true, settings.biometric, (value) => setSettings(prev => ({ ...prev, biometric: value }))}
         </View>
 
         {/* App Settings */}
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>App Settings</Text>
-          {renderSettingItem('notifications-outline', 'Notifications', 'Manage notification preferences', null, true, notificationsEnabled, setNotificationsEnabled)}
-          {renderSettingItem('moon-outline', 'Dark Mode', 'Switch to dark theme', null, true, darkModeEnabled, setDarkModeEnabled)}
-          {renderSettingItem('language-outline', 'Language', 'English', () => Alert.alert('Language', 'Language selection would go here'))}
+          {renderSettingItem('notifications-outline', 'Notifications', 'Manage notification preferences', null, true, settings.notifications, (value) => setSettings(prev => ({ ...prev, notifications: value }))}
+          {renderSettingItem('moon-outline', 'Dark Mode', 'Switch to dark theme', null, true, settings.darkMode, (value) => setSettings(prev => ({ ...prev, darkMode: value }))}
+          {renderSettingItem('language-outline', 'Language', settings.language.toUpperCase(), () => navigation.navigate('LanguageSettings'))}
         </View>
 
         {/* Support */}
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Support</Text>
-          {renderSettingItem('help-circle-outline', 'Help & Support', 'Get help and contact support', () => Alert.alert('Help & Support', 'Support functionality would go here'))}
-          {renderSettingItem('document-text-outline', 'Terms of Service', 'Read our terms of service', () => Alert.alert('Terms of Service', 'Terms of service would be displayed here'))}
-          {renderSettingItem('shield-checkmark-outline', 'Privacy Policy', 'Read our privacy policy', () => Alert.alert('Privacy Policy', 'Privacy policy would be displayed here'))}
+          {renderSettingItem('help-circle-outline', 'Help Center', 'Get help and support', () => navigation.navigate('HelpCenter'))}
+          {renderSettingItem('mail-outline', 'Feedback', 'Send feedback', () => navigation.navigate('Feedback'))}
+          {renderSettingItem('bug-outline', 'Report a Bug', 'Report issues', () => navigation.navigate('ReportBug'))}
         </View>
 
         {/* About */}
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>About</Text>
-          {renderSettingItem('information-circle-outline', 'App Version', '1.0.0', null)}
-          {renderSettingItem('star-outline', 'Rate App', 'Rate us on the app store', () => Alert.alert('Rate App', 'App store rating functionality would go here'))}
+          {renderSettingItem('information-circle-outline', 'About App', `Version ${appVersion}`, () => navigation.navigate('About'))}
+          {renderSettingItem('shield-checkmark-outline', 'Privacy Policy', 'View privacy policy', () => navigation.navigate('PrivacyPolicy'))}
+          {renderSettingItem('document-text-outline', 'Terms of Service', 'View terms of service', () => navigation.navigate('Terms'))}
         </View>
 
         {/* Logout */}
         <View style={styles.section}>
-          <TouchableOpacity style={styles.logoutButton} onPress={handleLogout}>
-            <Ionicons name="log-out-outline" size={20} color="#FF3B30" />
+          <TouchableOpacity
+            style={styles.logoutButton}
+            onPress={handleLogout}
+          >
+            <View style={styles.logoutIconContainer}>
+              <Ionicons name="log-out-outline" size={24} color="#fff" />
+            </View>
             <Text style={styles.logoutText}>Logout</Text>
           </TouchableOpacity>
         </View>
@@ -125,22 +239,27 @@ const SettingsScreen = ({ navigation }) => {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#F2F2F7',
+    backgroundColor: '#f5f7fa',
+  },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: 16,
-    paddingVertical: 12,
-    backgroundColor: '#FFFFFF',
+    paddingVertical: 16,
+    backgroundColor: 'white',
     borderBottomWidth: 1,
-    borderBottomColor: '#E5E5EA',
+    borderBottomColor: '#e0e0e0',
   },
   headerTitle: {
-    fontSize: 18,
-    fontWeight: '600',
-    color: '#000000',
+    fontSize: 20,
+    fontWeight: 'bold',
+    color: '#1976d2',
   },
   headerRight: {
     width: 24,
@@ -149,39 +268,46 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   section: {
-    marginTop: 20,
+    backgroundColor: 'white',
+    marginHorizontal: 16,
+    borderRadius: 12,
+    shadowColor: '#000',
+    shadowOffset: {
+      width: 0,
+      height: 2,
+    },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
+    marginBottom: 12,
   },
   sectionTitle: {
-    fontSize: 13,
+    fontSize: 16,
     fontWeight: '600',
-    color: '#8E8E93',
-    marginBottom: 8,
-    marginLeft: 16,
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
+    color: '#1976d2',
+    padding: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: '#e0e0e0',
   },
   settingItem: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    backgroundColor: '#FFFFFF',
+    padding: 16,
     borderBottomWidth: 1,
-    borderBottomColor: '#E5E5EA',
+    borderBottomColor: '#e0e0e0',
   },
   settingItemLeft: {
+    flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
-    flex: 1,
   },
   iconContainer: {
-    width: 32,
-    height: 32,
-    borderRadius: 8,
-    backgroundColor: '#F2F2F7',
-    alignItems: 'center',
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: '#e3f2fd',
     justifyContent: 'center',
+    alignItems: 'center',
     marginRight: 12,
   },
   settingTextContainer: {
@@ -189,29 +315,37 @@ const styles = StyleSheet.create({
   },
   settingTitle: {
     fontSize: 16,
-    color: '#000000',
-    marginBottom: 2,
+    fontWeight: '500',
+    color: '#333',
   },
   settingSubtitle: {
     fontSize: 14,
-    color: '#8E8E93',
+    color: '#666',
+    marginTop: 4,
   },
   logoutButton: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: 16,
-    backgroundColor: '#FFFFFF',
-    marginHorizontal: 16,
+    padding: 16,
+    backgroundColor: '#dc3545',
     borderRadius: 12,
-    marginBottom: 20,
+    marginHorizontal: 16,
+    marginBottom: 16,
+  },
+  logoutIconContainer: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: 'rgba(255, 255, 255, 0.1)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 12,
   },
   logoutText: {
     fontSize: 16,
-    fontWeight: '600',
-    color: '#FF3B30',
-    marginLeft: 8,
+    fontWeight: '500',
+    color: 'white',
   },
 });
 
-export default SettingsScreen; 
+export default SettingsScreen;

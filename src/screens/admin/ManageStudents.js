@@ -1,84 +1,195 @@
-import React, { useState } from 'react';
-import { View, Text, FlatList, StyleSheet, TouchableOpacity, Modal, TextInput, ScrollView } from 'react-native';
+import React, { useState, useEffect } from 'react';
+import { View, Text, FlatList, StyleSheet, TouchableOpacity, Modal, TextInput, ScrollView, ActivityIndicator, Share } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import Header from '../../components/Header';
 import StatCard from '../../components/StatCard';
 import { Picker } from '@react-native-picker/picker';
-
-const DUMMY_STUDENTS = [
-  {
-    id: '1',
-    roll: '101',
-    name: 'Amit Sharma',
-    class: '5',
-    section: 'A',
-    parent: 'Rajesh Sharma',
-    contact: '9876543210',
-    attendance: '95%',
-    marks: '88',
-    fees: 'Paid',
-  },
-  {
-    id: '2',
-    roll: '102',
-    name: 'Priya Singh',
-    class: '6',
-    section: 'B',
-    parent: 'Sunita Singh',
-    contact: '9123456780',
-    attendance: '97%',
-    marks: '92',
-    fees: 'Unpaid',
-  },
-  {
-    id: '3',
-    roll: '103',
-    name: 'Rahul Verma',
-    class: '5',
-    section: 'A',
-    parent: 'Anil Verma',
-    contact: '9988776655',
-    attendance: '92%',
-    marks: '75',
-    fees: 'Paid',
-  },
-  {
-    id: '4',
-    roll: '104',
-    name: 'Sneha Gupta',
-    class: '7',
-    section: 'C',
-    parent: 'Meena Gupta',
-    contact: '9001122334',
-    attendance: '98%',
-    marks: '89',
-    fees: 'Unpaid',
-  },
-];
+import { supabase, dbHelpers } from '../../utils/supabase';
+import CrossPlatformPieChart from '../../components/CrossPlatformPieChart';
+import * as Print from 'expo-print';
 
 const ManageStudents = () => {
-  const [students, setStudents] = useState(DUMMY_STUDENTS);
+  const [students, setStudents] = useState([]);
+  const [classes, setClasses] = useState([]);
+  const [sections, setSections] = useState([]);
+  const [academicYears, setAcademicYears] = useState([]);
+  const [attendanceHistory, setAttendanceHistory] = useState([]);
+  const [marksHistory, setMarksHistory] = useState([]);
+  const [documents, setDocuments] = useState([]);
+  const [achievements, setAchievements] = useState([]);
+  const [communicationHistory, setCommunicationHistory] = useState([]);
+  const classOptions = ['All', ...classes.map(cls => cls.class_name)];
+  const sectionOptions = ['All', ...sections.map(section => section.section_name)];
+  const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [modalVisible, setModalVisible] = useState(false);
-  const [form, setForm] = useState({ roll: '', name: '', class: '', section: '', parent: '', contact: '', marks: '', fees: '' });
+  const [form, setForm] = useState({ 
+    roll: '', 
+    name: '', 
+    class: '', 
+    section: '', 
+    parent: '', 
+    contact: '', 
+    marks: '', 
+    fees: '',
+    academic_year: '',
+    behavior: 'Good',
+    achievements: []
+  });
   const [viewModalVisible, setViewModalVisible] = useState(false);
   const [selectedStudent, setSelectedStudent] = useState(null);
   const [editModalVisible, setEditModalVisible] = useState(false);
-  const [editForm, setEditForm] = useState({ roll: '', name: '', class: '', section: '', parent: '', contact: '', marks: '', fees: '' });
+  const [editForm, setEditForm] = useState({ 
+    roll: '', 
+    name: '', 
+    class: '', 
+    section: '', 
+    parent: '', 
+    contact: '', 
+    marks: '', 
+    fees: '',
+    academic_year: '',
+    behavior: 'Good',
+    achievements: []
+  });
   const [scoreModalVisible, setScoreModalVisible] = useState(false);
   const [scoreStudent, setScoreStudent] = useState(null);
   const [selectedClass, setSelectedClass] = useState('All');
   const [selectedSection, setSelectedSection] = useState('All');
+  const [selectedAcademicYear, setSelectedAcademicYear] = useState('Current');
+  const [showAnalysis, setShowAnalysis] = useState(false);
+  const [showDocumentModal, setShowDocumentModal] = useState(false);
+  const [selectedDocument, setSelectedDocument] = useState(null);
 
-  const classOptions = ['All', '5', '6', '7'];
-  const sectionOptions = ['All', 'A', 'B', 'C'];
+  useEffect(() => {
+    loadStudents();
+    loadClassesAndSections();
+    loadAcademicYears();
+  }, []);
+
+  useEffect(() => {
+    if (selectedStudent) {
+      loadStudentDetails(selectedStudent.id);
+    }
+  }, [selectedStudent]);
+
+  const loadStudents = async () => {
+    try {
+      const { data: studentsData, error } = await dbHelpers.getStudentsByClass(null, null);
+      if (error) throw error;
+      
+      const formattedStudents = studentsData.map(student => ({
+        id: student.id,
+        roll: student.roll_no,
+        name: student.full_name,
+        class: student.class_id,
+        section: student.section_id,
+        parent: student.parent_id,
+        contact: student.phone,
+        attendance: '0%', // This would need to be calculated from attendance records
+        marks: '0', // This would need to be calculated from marks records
+        fees: 'Paid', // This would need to be checked from fees records
+        academic_year: student.academic_year,
+        behavior: student.behavior || 'Good',
+        achievements: student.achievements || []
+      }));
+      
+      setStudents(formattedStudents);
+    } catch (error) {
+      console.error('Error loading students:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const loadAcademicYears = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('academic_years')
+        .select('*');
+      if (error) throw error;
+      setAcademicYears(['Current', ...data.map(year => year.year)]);
+    } catch (error) {
+      console.error('Error loading academic years:', error);
+    }
+  };
+
+  const loadStudentDetails = async (studentId) => {
+    try {
+      // Load attendance history
+      const { data: attendanceData, error: attendanceError } = await supabase
+        .from('attendance')
+        .select('*')
+        .eq('student_id', studentId)
+        .order('attendance_date', { ascending: false });
+      if (attendanceError) throw attendanceError;
+      setAttendanceHistory(attendanceData || []);
+
+      // Load marks history
+      const { data: marksData, error: marksError } = await supabase
+        .from('marks')
+        .select('*')
+        .eq('student_id', studentId)
+        .order('exam_date', { ascending: false });
+      if (marksError) throw marksError;
+      setMarksHistory(marksData || []);
+
+      // Load documents
+      const { data: docsData, error: docsError } = await supabase
+        .from('documents')
+        .select('*')
+        .eq('student_id', studentId);
+      if (docsError) throw docsError;
+      setDocuments(docsData || []);
+
+      // Load achievements
+      const { data: achievementsData, error: achievementsError } = await supabase
+        .from('achievements')
+        .select('*')
+        .eq('student_id', studentId)
+        .order('date', { ascending: false });
+      if (achievementsError) throw achievementsError;
+      setAchievements(achievementsData || []);
+
+      // Load communication history
+      const { data: commData, error: commError } = await supabase
+        .from('communication_history')
+        .select('*')
+        .eq('student_id', studentId)
+        .order('date', { ascending: false });
+      if (commError) throw commError;
+      setCommunicationHistory(commData || []);
+    } catch (error) {
+      console.error('Error loading student details:', error);
+    }
+  };
+
+  const loadClassesAndSections = async () => {
+    try {
+      const { data: classData, error: classError } = await dbHelpers.getClasses();
+      if (classError) throw classError;
+
+      const { data: sectionData, error: sectionError } = await dbHelpers.getSectionsByClass(null);
+      if (sectionError) throw sectionError;
+
+      setClasses(classData || []);
+      setSections(sectionData || []);
+    } catch (error) {
+      console.error('Error loading classes and sections:', error);
+    }
+  };
 
   const handleAddStudent = () => {
-    setForm(form => ({
-      ...form,
-      class: selectedClass !== 'All' ? selectedClass : '',
-      section: selectedSection !== 'All' ? selectedSection : '',
-    }));
+    setForm({
+      roll: '',
+      name: '',
+      class: '',
+      section: '',
+      parent: '',
+      contact: '',
+      marks: '',
+      fees: ''
+    });
     setModalVisible(true);
   };
 
@@ -86,20 +197,44 @@ const ManageStudents = () => {
     setForm({ ...form, [field]: value });
   };
 
-  const handleSubmit = () => {
-    if (!form.roll || !form.name || !form.class || !form.section || !form.parent || !form.contact) return;
-    const newStudent = {
-      id: (students.length + 1).toString(),
-      ...form,
-      attendance: '0%', // Default attendance
-    };
-    setStudents([newStudent, ...students]);
-    setForm({ roll: '', name: '', class: '', section: '', parent: '', contact: '', marks: '', fees: '' });
-    setModalVisible(false);
+  const handleSubmit = async () => {
+    try {
+      if (!form.roll || !form.name || !form.class || !form.section || !form.parent || !form.contact) return;
+
+      const { error } = await supabase
+        .from('students')
+        .insert({
+          full_name: form.name,
+          roll_no: parseInt(form.roll),
+          class_id: form.class,
+          section_id: form.section,
+          parent_id: form.parent,
+          phone: form.contact
+        });
+
+      if (error) throw error;
+
+      await loadStudents();
+      setForm({ roll: '', name: '', class: '', section: '', parent: '', contact: '', marks: '', fees: '' });
+      setModalVisible(false);
+    } catch (error) {
+      console.error('Error adding student:', error);
+    }
   };
 
-  const handleDelete = (id) => {
-    setStudents(students.filter((student) => student.id !== id));
+  const handleDelete = async (id) => {
+    try {
+      const { error } = await supabase
+        .from('students')
+        .delete()
+        .eq('id', id);
+
+      if (error) throw error;
+
+      await loadStudents();
+    } catch (error) {
+      console.error('Error deleting student:', error);
+    }
   };
 
   const handleEdit = (student) => {
@@ -121,17 +256,133 @@ const ManageStudents = () => {
     setEditForm({ ...editForm, [field]: value });
   };
 
-  const handleEditSave = () => {
-    setStudents(students.map(s =>
-      s.id === selectedStudent.id ? { ...s, ...editForm } : s
-    ));
-    setEditModalVisible(false);
-    setSelectedStudent(null);
+  const handleEditSave = async () => {
+    try {
+      if (!editForm.roll || !editForm.name || !editForm.class || !editForm.section || !editForm.parent || !editForm.contact) return;
+
+      const { error } = await supabase
+        .from('students')
+        .update({
+          full_name: editForm.name,
+          roll_no: parseInt(editForm.roll),
+          class_id: editForm.class,
+          section_id: editForm.section,
+          parent_id: editForm.parent,
+          phone: editForm.contact
+        })
+        .eq('id', selectedStudent.id);
+
+      if (error) throw error;
+
+      await loadStudents();
+      setEditModalVisible(false);
+      setSelectedStudent(null);
+    } catch (error) {
+      console.error('Error updating student:', error);
+    }
   };
 
   const handleViewProfile = (student) => {
     setSelectedStudent(student);
     setViewModalVisible(true);
+  };
+
+  const handleViewDocuments = (student) => {
+    setSelectedStudent(student);
+    setShowDocumentModal(true);
+  };
+
+  const exportStudentData = async () => {
+    try {
+      const html = `
+        <h2 style="text-align:center;">Student Profile - ${selectedStudent.name}</h2>
+        <h3 style="text-align:center;">Roll No: ${selectedStudent.roll}</h3>
+        <h3 style="text-align:center;">Class: ${selectedStudent.class} - Section: ${selectedStudent.section}</h3>
+        
+        <div style="margin:20px 0;">
+          <h3>Basic Information</h3>
+          <table border="1" style="border-collapse:collapse;width:100%;margin-top:10px;">
+            <tr>
+              <th style="text-align:left;padding:8px;">Parent Name</th>
+              <td style="text-align:left;padding:8px;">${selectedStudent.parent}</td>
+            </tr>
+            <tr>
+              <th style="text-align:left;padding:8px;">Contact</th>
+              <td style="text-align:left;padding:8px;">${selectedStudent.contact}</td>
+            </tr>
+            <tr>
+              <th style="text-align:left;padding:8px;">Behavior</th>
+              <td style="text-align:left;padding:8px;">${selectedStudent.behavior}</td>
+            </tr>
+          </table>
+        </div>
+
+        <div style="margin:20px 0;">
+          <h3>Academic History</h3>
+          <table border="1" style="border-collapse:collapse;width:100%;margin-top:10px;">
+            <tr>
+              <th style="text-align:center;padding:8px;">Subject</th>
+              <th style="text-align:center;padding:8px;">Marks</th>
+              <th style="text-align:center;padding:8px;">Grade</th>
+              <th style="text-align:center;padding:8px;">Exam Date</th>
+            </tr>
+            ${marksHistory
+              .map(record => `
+                <tr>
+                  <td style="text-align:center;padding:8px;">${record.subject_name}</td>
+                  <td style="text-align:center;padding:8px;">${record.marks}</td>
+                  <td style="text-align:center;padding:8px;">${calculateGrade(record.marks)}</td>
+                  <td style="text-align:center;padding:8px;">${formatDateDMY(record.exam_date)}</td>
+                </tr>
+              `)
+              .join('')}
+          </table>
+        </div>
+
+        <div style="margin:20px 0;">
+          <h3>Attendance History</h3>
+          <table border="1" style="border-collapse:collapse;width:100%;margin-top:10px;">
+            <tr>
+              <th style="text-align:center;padding:8px;">Date</th>
+              <th style="text-align:center;padding:8px;">Status</th>
+            </tr>
+            ${attendanceHistory
+              .map(record => `
+                <tr>
+                  <td style="text-align:center;padding:8px;">${formatDateDMY(record.attendance_date)}</td>
+                  <td style="text-align:center;padding:8px;">${record.status}</td>
+                </tr>
+              `)
+              .join('')}
+          </table>
+        </div>
+
+        <div style="margin:20px 0;">
+          <h3>Achievements</h3>
+          <ul style="margin-top:10px;">
+            ${achievements
+              .map(achievement => `
+                <li style="margin:5px 0;">${achievement.description} (${formatDateDMY(achievement.date)})</li>
+              `)
+              .join('')}
+          </ul>
+        </div>
+      `;
+
+      await Print.printAsync({ html });
+    } catch (error) {
+      console.error('Error exporting student data:', error);
+      Alert.alert('Error', 'Failed to export student data');
+    }
+  };
+
+  const calculateGrade = (marks) => {
+    if (marks >= 90) return 'A+';
+    if (marks >= 80) return 'A';
+    if (marks >= 70) return 'B';
+    if (marks >= 60) return 'C';
+    if (marks >= 50) return 'D';
+    return 'F';
   };
 
   const handleViewScore = (student) => {
@@ -166,7 +417,7 @@ const ManageStudents = () => {
           <Text style={styles.topBadgeText}>Top Student</Text>
         </View>
       )}
-      <TouchableOpacity activeOpacity={0.8} onPress={() => navigation.navigate('StudentDetails', { student: item })} style={{ flex: 1 }}>
+      <TouchableOpacity activeOpacity={0.8} onPress={() => handleViewProfile(item)} style={{ flex: 1 }}>
         <View style={styles.teacherInfo}>
           <View style={styles.teacherAvatar}>
             <Ionicons name="person" size={24} color="#2196F3" />
@@ -184,12 +435,13 @@ const ManageStudents = () => {
             <Text style={styles.teacherParent}>Parent: {item.parent}</Text>
             <Text style={styles.teacherContact}>Contact: {item.contact}</Text>
             <Text style={styles.marksFees}>Fees: <Text style={item.fees === 'Paid' ? styles.feesPaid : styles.feesUnpaid}>{item.fees}</Text></Text>
-        </View>
+            <Text style={styles.behaviorText}>Behavior: <Text style={styles.behaviorValue}>{item.behavior}</Text></Text>
+          </View>
           <View style={styles.teacherStats}>
-          <Text style={styles.attendanceText}>{item.attendance}</Text>
-          <Text style={styles.attendanceLabel}>Attendance</Text>
+            <Text style={styles.attendanceText}>{item.attendance}</Text>
+            <Text style={styles.attendanceLabel}>Attendance</Text>
+          </View>
         </View>
-      </View>
       </TouchableOpacity>
       <View style={styles.studentActions}>
         <TouchableOpacity style={styles.viewScoreBtn} onPress={() => handleViewScore(item)}>
@@ -203,6 +455,10 @@ const ManageStudents = () => {
         <TouchableOpacity style={styles.actionButton} onPress={() => handleDelete(item.id)}>
           <Ionicons name="trash" size={16} color="#f44336" />
           <Text style={styles.actionText}>Delete</Text>
+        </TouchableOpacity>
+        <TouchableOpacity style={styles.actionButton} onPress={() => handleViewDocuments(item)}>
+          <Ionicons name="document-text" size={16} color="#2196F3" />
+          <Text style={styles.actionText}>Documents</Text>
         </TouchableOpacity>
       </View>
     </View>
@@ -229,8 +485,9 @@ const ManageStudents = () => {
               onValueChange={setSelectedClass}
               style={styles.picker}
             >
-              {classOptions.map(opt => (
-                <Picker.Item key={opt} label={opt === 'All' ? 'All Classes' : `Class ${opt}`} value={opt} />
+              <Picker.Item key="All" label="All Classes" value="All" />
+              {classes.map(cls => (
+                <Picker.Item key={cls.id} label={`Class ${cls.class_name}`} value={cls.id} />
               ))}
             </Picker>
           </View>
@@ -243,8 +500,9 @@ const ManageStudents = () => {
               onValueChange={setSelectedSection}
               style={styles.picker}
             >
-              {sectionOptions.map(opt => (
-                <Picker.Item key={opt} label={opt === 'All' ? 'All Sections' : opt} value={opt} />
+              <Picker.Item key="All" label="All Sections" value="All" />
+              {sections.map(section => (
+                <Picker.Item key={section.id} label={section.section_name} value={section.id} />
               ))}
             </Picker>
           </View>
@@ -531,30 +789,25 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: '#666',
   },
-  card: {
+  filterRow: {
+    flexDirection: 'row',
+    paddingHorizontal: 16,
+    paddingVertical: 8,
     backgroundColor: '#fff',
-    borderRadius: 8,
-    padding: 16,
-    marginBottom: 12,
-    shadowColor: '#000',
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 2,
+    borderBottomWidth: 1,
+    borderBottomColor: '#e0e0e0',
   },
-  name: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    color: '#222',
+  filterCol: {
+    flex: 1,
+    marginRight: 8,
   },
-  detail: {
+  filterColMargin: {
+    marginRight: 8,
+  },
+  filterLabel: {
     fontSize: 14,
-    color: '#555',
-    marginTop: 4,
-  },
-  profileBtn: {
-    marginTop: 10,
-    alignSelf: 'flex-end',
-    backgroundColor: '#1976d2',
+    color: '#666',
+    marginBottom: 4,
     paddingVertical: 6,
     paddingHorizontal: 14,
     borderRadius: 5,

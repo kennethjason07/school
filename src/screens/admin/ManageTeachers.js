@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -9,90 +9,280 @@ import {
   TextInput,
   ScrollView,
   Platform,
+  ActivityIndicator,
+  Alert,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import Header from '../../components/Header';
+import { supabase, TABLES, dbHelpers } from '../../utils/supabase';
 
-const SUBJECTS = [
-  'Mathematics', 'English', 'Science', 'History', 'Geography', 'Computer Science', 'Physics', 'Chemistry', 'Biology', 'Art', 'Music', 'Physical Education'
-];
-const CLASSES = [
-  'Class 1A', 'Class 1B', 'Class 2A', 'Class 2B', 'Class 3A', 'Class 3B', 'Class 4A', 'Class 4B', 'Class 5A', 'Class 5B'
-];
-
-const initialTeachers = [
-  { id: 1, name: 'Sarah Johnson', subjects: ['Mathematics'], classes: ['Class 5A'], students: 32, attendance: '98%', salary: 50000, qualification: 'M.Sc. Physics' },
-  { id: 2, name: 'David Wilson', subjects: ['English'], classes: ['Class 4B'], students: 30, attendance: '95%', salary: 45000, qualification: 'B.Ed. English' },
-  { id: 3, name: 'Emily Brown', subjects: ['Science'], classes: ['Class 3A'], students: 28, attendance: '92%', salary: 52000, qualification: 'M.Sc. Chemistry' },
-  { id: 4, name: 'James Davis', subjects: ['History'], classes: ['Class 2B'], students: 31, attendance: '94%', salary: 48000, qualification: 'B.A. History' },
-  { id: 5, name: 'Lisa Anderson', subjects: ['Geography'], classes: ['Class 1A'], students: 29, attendance: '96%', salary: 51000, qualification: 'M.Sc. Geography' },
-];
-
+// Will be fetched from Supabase
 const ManageTeachers = ({ navigation }) => {
-  const [teachers, setTeachers] = useState(initialTeachers);
+  const [subjects, setSubjects] = useState([]);
+  const [classes, setClasses] = useState([]);
+  const [teachers, setTeachers] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
   const [isModalVisible, setIsModalVisible] = useState(false);
   const [modalMode, setModalMode] = useState('add'); // 'add' or 'edit'
   const [selectedTeacher, setSelectedTeacher] = useState(null);
-  const [form, setForm] = useState({ name: '', subjects: [], classes: [], salary: '', qualification: '' });
+  const [form, setForm] = useState({ full_name: '', subjects: [], classes: [], salary: '', qualification: '' });
   const [searchVisible, setSearchVisible] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
+  
+  // Load data on component mount
+  useEffect(() => {
+    loadData();
+  }, []);
+  
+  // Function to load all necessary data
+  const loadData = async () => {
+    setLoading(true);
+    setError(null);
+    
+    try {
+      // Load teachers
+      const { data: teachersData, error: teachersError } = await dbHelpers.getTeachers();
+      if (teachersError) throw new Error('Failed to load teachers');
+      
+      // Load classes
+      const { data: classesData, error: classesError } = await dbHelpers.getClasses();
+      if (classesError) throw new Error('Failed to load classes');
+      
+      // Load subjects
+      const { data: subjectsData, error: subjectsError } = await supabase
+        .from(TABLES.SUBJECTS)
+        .select('*');
+      if (subjectsError) throw new Error('Failed to load subjects');
+      
+      // Process teacher data to include subjects and classes
+      const processedTeachers = await Promise.all(teachersData.map(async (teacher) => {
+        // Get teacher subjects
+        const { data: teacherSubjects, error: subjectsError } = await dbHelpers.getTeacherSubjects(teacher.id);
+        if (subjectsError) console.error('Error loading teacher subjects:', subjectsError);
+        
+        // Extract subject names and class names
+        const subjects = teacherSubjects?.map(ts => ts.subjects?.name || '') || [];
+        const classes = teacherSubjects?.map(ts => ts.classes?.class_name || '') || [];
+        
+        return {
+          ...teacher,
+          subjects: subjects.filter(Boolean),
+          classes: classes.filter(Boolean),
+        };
+      }));
+      
+      // Update state with loaded data
+      setTeachers(processedTeachers);
+      setClasses(classesData.map(c => c.class_name));
+      setSubjects(subjectsData.map(s => s.name));
+      
+    } catch (err) {
+      console.error('Error loading data:', err);
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
 
   // Multi-select logic
   const toggleSelect = (arr, value) => arr.includes(value) ? arr.filter(v => v !== value) : [...arr, value];
 
   const openAddModal = () => {
     setModalMode('add');
-    setForm({ name: '', subjects: [], classes: [], salary: '', qualification: '' });
+    setForm({ full_name: '', subjects: [], classes: [], salary: '', qualification: '' });
     setIsModalVisible(true);
   };
   const openEditModal = (teacher) => {
     setModalMode('edit');
     setSelectedTeacher(teacher);
-    setForm({ name: teacher.name, subjects: teacher.subjects, classes: teacher.classes, salary: teacher.salary, qualification: teacher.qualification });
+    setForm({ 
+      full_name: teacher.full_name, 
+      subjects: teacher.subjects, 
+      classes: teacher.classes, 
+      salary: teacher.salary_amount, 
+      qualification: teacher.qualification 
+    });
     setIsModalVisible(true);
   };
   const closeModal = () => {
     setIsModalVisible(false);
     setSelectedTeacher(null);
   };
-  const handleSave = () => {
-    if (!form.name.trim() || form.subjects.length === 0 || form.classes.length === 0) {
-      alert('Please fill all fields and select at least one subject and class.');
+  const handleSave = async () => {
+    if (!form.full_name.trim() || form.subjects.length === 0 || form.classes.length === 0) {
+      Alert.alert('Error', 'Please fill all fields and select at least one subject and class.');
       return;
     }
-    if (modalMode === 'add') {
-      const newTeacher = {
-        id: Date.now() + Math.random(),
-        name: form.name.trim(),
-        subjects: form.subjects,
-        classes: form.classes,
-        students: Math.floor(Math.random() * 40) + 20,
-        attendance: (90 + Math.floor(Math.random() * 10)) + '%',
-        salary: form.salary,
-        qualification: form.qualification,
-      };
-      setTeachers([...teachers, newTeacher].sort((a, b) => a.name.localeCompare(b.name)));
-    } else if (modalMode === 'edit' && selectedTeacher) {
-      const updatedTeachers = teachers.map(t => t.id === selectedTeacher.id ? {
-        ...t,
-        name: form.name.trim(),
-        subjects: form.subjects,
-        classes: form.classes,
-        salary: form.salary,
-        qualification: form.qualification,
-      } : t);
-      setTeachers(updatedTeachers.sort((a, b) => a.name.localeCompare(b.name)));
+    
+    setLoading(true);
+    
+    try {
+      if (modalMode === 'add') {
+        // Create new teacher in Supabase
+        const teacherData = {
+          full_name: form.full_name.trim(),
+          qualification: form.qualification,
+          salary_amount: parseFloat(form.salary) || 0,
+          salary_type: 'monthly', // Default value
+        };
+        
+        const { data: newTeacher, error } = await supabase
+          .from(TABLES.TEACHERS)
+          .insert(teacherData)
+          .select()
+          .single();
+          
+        if (error) throw new Error('Failed to create teacher');
+        
+        // Handle subject and class assignments
+        await handleSubjectClassAssignments(newTeacher.id);
+        
+        // Reload data to get updated list
+        await loadData();
+        
+      } else if (modalMode === 'edit' && selectedTeacher) {
+        // Update teacher in Supabase
+        const teacherData = {
+          full_name: form.full_name.trim(),
+          qualification: form.qualification,
+          salary_amount: parseFloat(form.salary) || 0,
+        };
+        
+        const { error } = await supabase
+          .from(TABLES.TEACHERS)
+          .update(teacherData)
+          .eq('id', selectedTeacher.id);
+          
+        if (error) throw new Error('Failed to update teacher');
+        
+        // Handle subject and class assignments
+        await handleSubjectClassAssignments(selectedTeacher.id);
+        
+        // Reload data to get updated list
+        await loadData();
+      }
+      
+      closeModal();
+    } catch (err) {
+      console.error('Error saving teacher:', err);
+      Alert.alert('Error', err.message);
+    } finally {
+      setLoading(false);
     }
-    closeModal();
   };
-  const handleDelete = (teacher) => {
-    setTeachers(teachers.filter(t => t.id !== teacher.id));
+  
+  // Helper function to handle subject and class assignments
+  const handleSubjectClassAssignments = async (teacherId) => {
+    try {
+      // First, get all existing assignments for this teacher
+      const { data: existingAssignments, error: fetchError } = await supabase
+        .from(TABLES.TEACHER_SUBJECTS)
+        .select('*')
+        .eq('teacher_id', teacherId);
+        
+      if (fetchError) throw new Error('Failed to fetch existing assignments');
+      
+      // Delete existing assignments
+      if (existingAssignments.length > 0) {
+        const { error: deleteError } = await supabase
+          .from(TABLES.TEACHER_SUBJECTS)
+          .delete()
+          .eq('teacher_id', teacherId);
+          
+        if (deleteError) throw new Error('Failed to update assignments');
+      }
+      
+      // Create new assignments based on form data
+      const assignments = [];
+      
+      // For each subject, find matching subject ID
+      for (const subjectName of form.subjects) {
+        const { data: subjectData } = await supabase
+          .from(TABLES.SUBJECTS)
+          .select('id')
+          .eq('name', subjectName)
+          .single();
+          
+        if (subjectData) {
+          // For each class, find matching class ID
+          for (const className of form.classes) {
+            const { data: classData } = await supabase
+              .from(TABLES.CLASSES)
+              .select('id')
+              .eq('class_name', className)
+              .single();
+              
+            if (classData) {
+              assignments.push({
+                teacher_id: teacherId,
+                subject_id: subjectData.id,
+                class_id: classData.id,
+              });
+            }
+          }
+        }
+      }
+      
+      // Insert new assignments if there are any
+      if (assignments.length > 0) {
+        const { error: insertError } = await supabase
+          .from(TABLES.TEACHER_SUBJECTS)
+          .insert(assignments);
+          
+        if (insertError) throw new Error('Failed to create assignments');
+      }
+    } catch (err) {
+      console.error('Error handling assignments:', err);
+      throw err; // Re-throw to be caught by the caller
+    }
+  };
+  const handleDelete = async (teacher) => {
+    Alert.alert(
+      'Confirm Delete',
+      `Are you sure you want to delete ${teacher.full_name}?`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        { 
+          text: 'Delete', 
+          style: 'destructive',
+          onPress: async () => {
+            setLoading(true);
+            try {
+              // First delete teacher-subject assignments
+              const { error: assignmentError } = await supabase
+                .from(TABLES.TEACHER_SUBJECTS)
+                .delete()
+                .eq('teacher_id', teacher.id);
+                
+              if (assignmentError) throw new Error('Failed to delete teacher assignments');
+              
+              // Then delete the teacher
+              const { error } = await supabase
+                .from(TABLES.TEACHERS)
+                .delete()
+                .eq('id', teacher.id);
+                
+              if (error) throw new Error('Failed to delete teacher');
+              
+              // Update local state
+              setTeachers(teachers.filter(t => t.id !== teacher.id));
+            } catch (err) {
+              console.error('Error deleting teacher:', err);
+              Alert.alert('Error', err.message);
+            } finally {
+              setLoading(false);
+            }
+          } 
+        }
+      ]
+    );
   };
 
   // Filtered and sorted teachers
   const filteredTeachers = teachers
-    .filter(t => t.name.toLowerCase().includes(searchQuery.toLowerCase()))
-    .sort((a, b) => a.name.localeCompare(b.name));
+    .filter(t => t.full_name.toLowerCase().includes(searchQuery.toLowerCase()))
+    .sort((a, b) => a.full_name.localeCompare(b.full_name));
 
   const renderTeacherItem = ({ item }) => (
     <View style={styles.teacherCard}>
@@ -101,12 +291,12 @@ const ManageTeachers = ({ navigation }) => {
           <Ionicons name="person" size={24} color="#4CAF50" />
         </View>
         <View style={styles.teacherDetails}>
-          <Text style={styles.teacherName}>{item.name}</Text>
+          <Text style={styles.teacherName}>{item.full_name}</Text>
           <Text style={styles.teacherSubject}>{item.subjects.join(', ')}</Text>
           <Text style={styles.teacherClass}>{item.classes.join(', ')}</Text>
           {/* Salary and Education */}
           <Text style={styles.teacherSalary}>
-            Salary: {item.salary ? `₹${parseFloat(item.salary).toFixed(2)}` : 'N/A'}
+            Salary: {item.salary_amount ? `₹${parseFloat(item.salary_amount).toFixed(2)}` : 'N/A'}
           </Text>
           <Text style={styles.teacherQualification}>
             Education: {item.qualification || 'N/A'}
@@ -134,9 +324,38 @@ const ManageTeachers = ({ navigation }) => {
     </View>
   );
 
+  // Render loading state
+  if (loading && teachers.length === 0) {
+    return (
+      <View style={[styles.container, styles.centerContent]}>
+        <Header title="Manage Teachers" showBack={true} />
+        <ActivityIndicator size="large" color="#4CAF50" />
+        <Text style={styles.loadingText}>Loading teachers...</Text>
+      </View>
+    );
+  }
+  
+  // Render error state
+  if (error && teachers.length === 0) {
+    return (
+      <View style={[styles.container, styles.centerContent]}>
+        <Header title="Manage Teachers" showBack={true} />
+        <Text style={styles.errorText}>{error}</Text>
+        <TouchableOpacity style={styles.retryButton} onPress={loadData}>
+          <Text style={styles.retryButtonText}>Retry</Text>
+        </TouchableOpacity>
+      </View>
+    );
+  }
+  
   return (
     <View style={styles.container}>
       <Header title="Manage Teachers" showBack={true} />
+      {loading && (
+        <View style={styles.loadingOverlay}>
+          <ActivityIndicator size="large" color="#4CAF50" />
+        </View>
+      )}
       <View style={styles.header}>
         <View style={styles.headerInfo}>
           <Text style={styles.headerTitle}>Total Teachers: {filteredTeachers.length}</Text>
@@ -188,8 +407,8 @@ const ManageTeachers = ({ navigation }) => {
             <Text style={{ fontSize: 18, fontWeight: 'bold', marginBottom: 12 }}>{modalMode === 'add' ? 'Add Teacher' : 'Edit Teacher'}</Text>
             <TextInput
               placeholder="Teacher Name"
-              value={form.name}
-              onChangeText={text => setForm({ ...form, name: text })}
+              value={form.full_name}
+              onChangeText={text => setForm({ ...form, full_name: text })}
               style={{ borderWidth: 1, borderColor: '#e0e0e0', borderRadius: 8, padding: 10, marginBottom: 12, fontSize: 15, backgroundColor: '#fafafa' }}
             />
             <TextInput
@@ -207,7 +426,7 @@ const ManageTeachers = ({ navigation }) => {
             />
             <Text style={{ fontWeight: 'bold', marginBottom: 4 }}>Subjects Assigned</Text>
             <View style={{ flexDirection: 'row', flexWrap: 'wrap', marginBottom: 12 }}>
-              {SUBJECTS.map(subject => (
+              {subjects.map(subject => (
                 <TouchableOpacity
                   key={subject}
                   style={{
@@ -226,7 +445,7 @@ const ManageTeachers = ({ navigation }) => {
             </View>
             <Text style={{ fontWeight: 'bold', marginBottom: 4 }}>Classes Assigned</Text>
             <View style={{ flexDirection: 'row', flexWrap: 'wrap', marginBottom: 12 }}>
-              {CLASSES.map(cls => (
+              {classes.map(cls => (
                 <TouchableOpacity
                   key={cls}
                   style={{
@@ -258,6 +477,41 @@ const ManageTeachers = ({ navigation }) => {
 };
 
 const styles = StyleSheet.create({
+  centerContent: {
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  loadingText: {
+    marginTop: 10,
+    fontSize: 16,
+    color: '#666',
+  },
+  errorText: {
+    marginTop: 20,
+    fontSize: 16,
+    color: '#f44336',
+    textAlign: 'center',
+    paddingHorizontal: 30,
+  },
+  retryButton: {
+    marginTop: 15,
+    backgroundColor: '#4CAF50',
+    paddingVertical: 10,
+    paddingHorizontal: 20,
+    borderRadius: 8,
+  },
+  retryButtonText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: 'bold',
+  },
+  loadingOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(255, 255, 255, 0.7)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    zIndex: 1000,
+  },
   container: {
     flex: 1,
     backgroundColor: '#f5f5f5',
@@ -392,4 +646,4 @@ const styles = StyleSheet.create({
   },
 });
 
-export default ManageTeachers; 
+export default ManageTeachers;

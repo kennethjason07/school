@@ -1,113 +1,431 @@
-import React, { useState } from 'react';
-import { View, Text, StyleSheet, FlatList, TouchableOpacity, Modal, ScrollView } from 'react-native';
+import React, { useState, useEffect, useRef } from 'react';
+import {
+  View,
+  Text,
+  StyleSheet,
+  FlatList,
+  TouchableOpacity,
+  Modal,
+  ScrollView,
+  RefreshControl,
+  ActivityIndicator,
+  Dimensions,
+  Platform,
+  Alert,
+  Pressable,
+} from 'react-native';
 import Header from '../../components/Header';
-
-const mockMonthlyAttendance = [
-  { month: 'January', percent: 95 },
-  { month: 'February', percent: 92 },
-  { month: 'March', percent: 97 },
-  { month: 'April', percent: 93 },
-  { month: 'May', percent: 90 },
-  { month: 'June', percent: 96 },
-  { month: 'July', percent: 94 },
-  { month: 'August', percent: 98 },
-  { month: 'September', percent: 91 },
-  { month: 'October', percent: 95 },
-  { month: 'November', percent: 93 },
-  { month: 'December', percent: 97 },
-];
-
-// Mock daily attendance for a month (e.g., 31 days, random Present/Absent)
-function getMockDailyAttendance(month) {
-  const daysInMonth = {
-    January: 31, February: 28, March: 31, April: 30, May: 31, June: 30,
-    July: 31, August: 31, September: 30, October: 31, November: 30, December: 31
-  };
-  const days = daysInMonth[month] || 30;
-  const arr = [];
-  for (let i = 1; i <= days; i++) {
-    arr.push({ day: i, status: Math.random() > 0.1 ? 'Present' : 'Absent' });
-  }
-  return arr;
-}
+import { supabase, TABLES } from '../../utils/supabase';
+import { format, parseISO } from 'date-fns';
+import { CrossPlatformBarChart } from '../../components/CrossPlatformChart';
+import { Ionicons } from '@expo/vector-icons';
 
 const StudentAttendanceScreen = ({ navigation, route }) => {
   const { student } = route.params;
+  const [monthlyAttendance, setMonthlyAttendance] = useState([]);
   const [selectedMonth, setSelectedMonth] = useState(null);
   const [modalVisible, setModalVisible] = useState(false);
   const [dailyAttendance, setDailyAttendance] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
 
-  const openMonth = (month) => {
+  // Load attendance data
+  const loadAttendanceData = async () => {
+    try {
+      setLoading(true);
+      
+      // Get daily attendance records
+      const { data: dailyData, error: dailyError } = await supabase
+        .from(TABLES.STUDENT_ATTENDANCE)
+        .select('*')
+        .eq('student_id', student.id)
+        .order('date');
+
+      if (dailyError) throw dailyError;
+
+      // Process data to create monthly summaries
+      const attendanceByMonth = {};
+      const monthlySummary = {};
+
+      dailyData.forEach(record => {
+        const date = new Date(record.date);
+        const month = format(date, 'MMMM yyyy');
+        const monthKey = format(date, 'yyyy-MM');
+        
+        if (!attendanceByMonth[month]) {
+          attendanceByMonth[month] = [];
+        }
+        
+        attendanceByMonth[month].push({
+          day: format(date, 'd'),
+          status: record.status,
+          date: record.date
+        });
+
+        // Calculate monthly summary
+        if (!monthlySummary[monthKey]) {
+          monthlySummary[monthKey] = {
+            month: month,
+            totalDays: 0,
+            presentDays: 0,
+            percentage: 0
+          };
+        }
+        
+        monthlySummary[monthKey].totalDays++;
+        if (record.status === 'Present') {
+          monthlySummary[monthKey].presentDays++;
+        }
+      });
+
+      // Calculate percentages
+      Object.values(monthlySummary).forEach(summary => {
+        summary.percentage = summary.totalDays > 0 
+          ? (summary.presentDays / summary.totalDays) * 100 
+          : 0;
+      });
+
+      setMonthlyAttendance(Object.values(monthlySummary));
+      setDailyAttendance(attendanceByMonth);
+    } catch (error) {
+      console.error('Error loading attendance data:', error);
+      Alert.alert('Error', 'Failed to load attendance data. Please try again.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Subscribe to real-time updates
+  useEffect(() => {
+    loadAttendanceData();
+
+    const subscription = supabase
+      .channel('attendance-updates')
+      .on('postgres_changes', {
+        event: '*',
+        schema: 'public',
+        table: TABLES.STUDENT_ATTENDANCE
+      }, () => {
+        loadAttendanceData();
+      })
+      .subscribe();
+
+    return () => {
+      subscription.unsubscribe();
+    };
+  }, []);
+
+  // Handle month selection
+  const handleMonthSelect = (month) => {
     setSelectedMonth(month);
-    setDailyAttendance(getMockDailyAttendance(month));
     setModalVisible(true);
+  };
+
+  // Handle attendance update
+  const handleAttendanceUpdate = async (date, status) => {
+    try {
+      const { error } = await supabase
+        .from(TABLES.STUDENT_ATTENDANCE)
+        .update({ status })
+        .eq('student_id', student.id)
+        .eq('date', date);
+
+      if (error) throw error;
+
+      Alert.alert('Success', 'Attendance updated successfully');
+      loadAttendanceData();
+    } catch (error) {
+      console.error('Error updating attendance:', error);
+      Alert.alert('Error', 'Failed to update attendance');
+    }
+  };
+
+  // Format attendance percentage
+  const formatPercentage = (percent) => {
+    return `${Math.round(percent)}%`;
   };
 
   return (
     <View style={styles.container}>
-      <Header title={`${student.name}'s Attendance`} showBack={true} />
-      <View style={{ height: 16 }} />
-      <FlatList
-        data={mockMonthlyAttendance}
-        keyExtractor={item => item.month}
-        renderItem={({ item }) => (
-          <TouchableOpacity style={styles.row} onPress={() => openMonth(item.month)}>
-            <Text style={styles.month}>{item.month}</Text>
-            <Text style={styles.percent}>{item.percent}%</Text>
-          </TouchableOpacity>
-        )}
-        contentContainerStyle={styles.list}
-      />
-      {/* Calendar Modal */}
-      <Modal
-        visible={modalVisible}
-        transparent={true}
-        animationType="slide"
-        onRequestClose={() => setModalVisible(false)}
-      >
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalContent}>
-            <Text style={styles.modalTitle}>{selectedMonth} Daily Attendance</Text>
-            <ScrollView>
-              <View style={styles.calendarGrid}>
-                {dailyAttendance.map(({ day, status }) => (
-                  <View key={day} style={[styles.dayCell, status === 'Present' ? styles.present : styles.absent]}>
-                    <Text style={styles.dayText}>{day}</Text>
-                    <Text style={styles.statusText}>{status[0]}</Text>
-                  </View>
-                ))}
-              </View>
-            </ScrollView>
-            <TouchableOpacity style={styles.closeBtn} onPress={() => setModalVisible(false)}>
-              <Text style={styles.closeBtnText}>Close</Text>
-            </TouchableOpacity>
-          </View>
+      <Header title={`${student.full_name}'s Attendance`} showBack={true} />
+      
+      {loading ? (
+        <View style={styles.loadingContainer}>
+          <ActivityIndicator size="large" color="#1976d2" />
         </View>
-      </Modal>
+      ) : (
+        <ScrollView
+          contentContainerStyle={styles.scrollContent}
+          refreshControl={
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={() => {
+                setRefreshing(true);
+                loadAttendanceData().finally(() => setRefreshing(false));
+              }}
+            />
+          }
+        >
+          {monthlyAttendance.length === 0 ? (
+            <View style={styles.noDataContainer}>
+              <Ionicons name="calendar-outline" size={48} color="#ccc" />
+              <Text style={styles.noDataText}>No attendance records found</Text>
+              <Text style={styles.noDataSubtext}>Attendance will appear here once marked</Text>
+            </View>
+          ) : (
+            <>
+              {/* Attendance Summary Chart */}
+              <View style={styles.chartContainer}>
+                <Text style={styles.sectionTitle}>Attendance Summary</Text>
+                <CrossPlatformBarChart
+                  data={monthlyAttendance.map(month => ({
+                    month: month.month,
+                    percentage: month.percentage
+                  }))}
+                  xAxisLabel="Month"
+                  yAxisLabel="Attendance %"
+                  barColor="#1976d2"
+                  style={{ height: 200 }}
+                />
+              </View>
+
+              {/* Monthly Attendance List */}
+              <View style={styles.attendanceList}>
+                <Text style={styles.sectionTitle}>Monthly Attendance</Text>
+                <FlatList
+                  data={monthlyAttendance}
+                  keyExtractor={item => item.month}
+                  renderItem={({ item }) => (
+                    <TouchableOpacity
+                      style={[styles.monthRow, {
+                        backgroundColor: selectedMonth === item.month ? '#e3f2fd' : '#fff'
+                      }]}
+                      onPress={() => handleMonthSelect(item.month)}
+                    >
+                      <View style={styles.monthInfo}>
+                        <Ionicons name="calendar" size={20} color="#1976d2" />
+                        <Text style={styles.monthText}>{item.month}</Text>
+                      </View>
+                      <View style={styles.monthStats}>
+                        <Text style={styles.percentText}>{formatPercentage(item.percentage)}</Text>
+                        <Text style={styles.daysText}>
+                          {item.presentDays}/{item.totalDays} days
+                        </Text>
+                      </View>
+                    </TouchableOpacity>
+                  )}
+                  contentContainerStyle={styles.list}
+                />
+              </View>
+            </>
+          )}
+
+          {/* Calendar Modal */}
+          <Modal
+            visible={modalVisible}
+            transparent={true}
+            animationType="slide"
+            onRequestClose={() => setModalVisible(false)}
+          >
+            <View style={styles.modalOverlay}>
+              <View style={styles.modalContent}>
+                <View style={styles.modalHeader}>
+                  <TouchableOpacity
+                    style={styles.closeBtn}
+                    onPress={() => setModalVisible(false)}
+                  >
+                    <Ionicons name="close" size={24} color="#1976d2" />
+                  </TouchableOpacity>
+                  <Text style={styles.modalTitle}>{selectedMonth} Daily Attendance</Text>
+                </View>
+                
+                <ScrollView>
+                  <View style={styles.calendarGrid}>
+                    {dailyAttendance[selectedMonth]?.map(({ day, status, date }) => (
+                      <Pressable
+                        key={date}
+                        style={[styles.dayCell, 
+                          status === 'Present' ? styles.present : styles.absent,
+                          styles.dayCard
+                        ]}
+                        onPress={() => handleAttendanceUpdate(date, status === 'Present' ? 'Absent' : 'Present')}
+                      >
+                        <Text style={styles.dayText}>{day}</Text>
+                        <View style={styles.statusIndicator}>
+                          <Ionicons 
+                            name={status === 'Present' ? 'checkmark-circle' : 'close-circle'} 
+                            size={20}
+                            color={status === 'Present' ? '#4caf50' : '#f44336'}
+                          />
+                          <Text style={styles.statusText}>{status}</Text>
+                        </View>
+                      </Pressable>
+                    ))}
+                  </View>
+                </ScrollView>
+              </View>
+            </View>
+          </Modal>
+        </ScrollView>
+      )}
     </View>
   );
 };
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#f5f5f5', padding: 16 },
-  backBtn: { marginBottom: 12 },
-  backText: { color: '#1976d2', fontWeight: 'bold', fontSize: 16 },
-  title: { fontSize: 22, fontWeight: 'bold', color: '#222', marginBottom: 20, textAlign: 'center' },
-  list: { paddingBottom: 20 },
-  row: { flexDirection: 'row', justifyContent: 'space-between', backgroundColor: '#fff', padding: 16, borderRadius: 8, marginBottom: 10, elevation: 1 },
-  month: { fontSize: 16, color: '#333' },
-  percent: { fontSize: 16, color: '#1976d2', fontWeight: 'bold' },
-  modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.3)', justifyContent: 'center', alignItems: 'center' },
-  modalContent: { width: '90%', maxHeight: '80%', backgroundColor: '#fff', borderRadius: 16, padding: 20, alignItems: 'center' },
-  modalTitle: { fontSize: 18, fontWeight: 'bold', color: '#1976d2', marginBottom: 16 },
-  calendarGrid: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'flex-start', marginBottom: 16 },
-  dayCell: { width: 40, height: 40, margin: 4, borderRadius: 8, alignItems: 'center', justifyContent: 'center', backgroundColor: '#eee' },
-  present: { backgroundColor: '#c8e6c9' },
-  absent: { backgroundColor: '#ffcdd2' },
-  dayText: { fontWeight: 'bold', color: '#333' },
-  statusText: { fontSize: 12, color: '#555' },
-  closeBtn: { marginTop: 10, backgroundColor: '#1976d2', borderRadius: 8, paddingHorizontal: 18, paddingVertical: 8 },
-  closeBtnText: { color: '#fff', fontWeight: 'bold' },
+  container: {
+    flex: 1,
+    backgroundColor: '#f5f5f5',
+  },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  scrollContent: {
+    padding: 16,
+  },
+  chartContainer: {
+    marginBottom: 24,
+  },
+  sectionTitle: {
+    fontSize: 18,
+    fontWeight: '600',
+    marginBottom: 12,
+    color: '#333',
+  },
+  attendanceList: {
+    marginBottom: 24,
+  },
+  monthRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    backgroundColor: '#fff',
+    padding: 16,
+    borderRadius: 12,
+    marginBottom: 10,
+    shadowColor: '#000',
+    shadowOffset: {
+      width: 0,
+      height: 2,
+    },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  monthInfo: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  monthText: {
+    marginLeft: 12,
+    fontSize: 16,
+    color: '#333',
+    fontWeight: '500',
+  },
+  monthStats: {
+    alignItems: 'flex-end',
+  },
+  percentText: {
+    fontSize: 16,
+    color: '#1976d2',
+    fontWeight: 'bold',
+  },
+  daysText: {
+    fontSize: 12,
+    color: '#666',
+    marginTop: 2,
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.3)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  modalContent: {
+    backgroundColor: '#fff',
+    borderRadius: 12,
+    padding: 16,
+    width: '90%',
+    maxHeight: '80%',
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 16,
+  },
+  closeBtn: {
+    padding: 8,
+  },
+  modalTitle: {
+    fontSize: 18,
+    fontWeight: '600',
+    color: '#333',
+  },
+  calendarGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  dayCard: {
+    backgroundColor: '#fff',
+    borderRadius: 8,
+    padding: 12,
+    shadowColor: '#000',
+    shadowOffset: {
+      width: 0,
+      height: 2,
+    },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  dayCell: {
+    width: 50,
+    height: 50,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  present: {
+    backgroundColor: '#e8f5e9',
+  },
+  absent: {
+    backgroundColor: '#ffebee',
+  },
+  dayText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#333',
+  },
+  statusIndicator: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 4,
+  },
+  statusText: {
+    marginLeft: 4,
+    fontSize: 12,
+    color: '#666',
+  },
+  noDataContainer: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 60,
+  },
+  noDataText: {
+    fontSize: 18,
+    color: '#666',
+    marginTop: 12,
+    fontWeight: 'bold',
+  },
+  noDataSubtext: {
+    fontSize: 14,
+    color: '#999',
+    marginTop: 4,
+    textAlign: 'center',
+  }
 });
 
 export default StudentAttendanceScreen; 

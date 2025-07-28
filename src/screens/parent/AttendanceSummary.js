@@ -9,6 +9,7 @@ import {
   Dimensions,
   Modal,
   FlatList,
+  ActivityIndicator,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { format, startOfMonth, endOfMonth, eachDayOfInterval, isSameDay, isToday } from 'date-fns';
@@ -16,156 +17,12 @@ import { LineChart, BarChart } from 'react-native-chart-kit';
 import * as Print from 'expo-print';
 import * as Sharing from 'expo-sharing';
 import Header from '../../components/Header';
+import { useAuth } from '../../contexts/AuthContext';
+import { dbHelpers } from '../../utils/supabase';
 
 const { width } = Dimensions.get('window');
 
-// Mock attendance data - in real app, this would come from API
-const MOCK_ATTENDANCE_DATA = {
-  '2024-01': {
-    '2024-01-01': { status: 'present', subject: 'All' },
-    '2024-01-02': { status: 'present', subject: 'All' },
-    '2024-01-03': { status: 'absent', subject: 'All', reason: 'Sick' },
-    '2024-01-04': { status: 'present', subject: 'All' },
-    '2024-01-05': { status: 'late', subject: 'All', reason: 'Traffic' },
-    '2024-01-08': { status: 'present', subject: 'All' },
-    '2024-01-09': { status: 'present', subject: 'All' },
-    '2024-01-10': { status: 'excused', subject: 'All', reason: 'Family event' },
-    '2024-01-11': { status: 'present', subject: 'All' },
-    '2024-01-12': { status: 'present', subject: 'All' },
-    '2024-01-15': { status: 'present', subject: 'All' },
-    '2024-01-16': { status: 'present', subject: 'All' },
-    '2024-01-17': { status: 'absent', subject: 'All', reason: 'Sick' },
-    '2024-01-18': { status: 'present', subject: 'All' },
-    '2024-01-19': { status: 'present', subject: 'All' },
-    '2024-01-22': { status: 'present', subject: 'All' },
-    '2024-01-23': { status: 'late', subject: 'All', reason: 'Overslept' },
-    '2024-01-24': { status: 'present', subject: 'All' },
-    '2024-01-25': { status: 'present', subject: 'All' },
-    '2024-01-26': { status: 'present', subject: 'All' },
-    '2024-01-29': { status: 'present', subject: 'All' },
-    '2024-01-30': { status: 'present', subject: 'All' },
-    '2024-01-31': { status: 'present', subject: 'All' },
-  },
-  '2024-02': {
-    '2024-02-01': { status: 'present', subject: 'All' },
-    '2024-02-02': { status: 'present', subject: 'All' },
-    '2024-02-05': { status: 'present', subject: 'All' },
-    '2024-02-06': { status: 'absent', subject: 'All', reason: 'Sick' },
-    '2024-02-07': { status: 'present', subject: 'All' },
-    '2024-02-08': { status: 'present', subject: 'All' },
-    '2024-02-09': { status: 'present', subject: 'All' },
-    '2024-02-12': { status: 'late', subject: 'All', reason: 'Traffic' },
-    '2024-02-13': { status: 'present', subject: 'All' },
-    '2024-02-14': { status: 'present', subject: 'All' },
-    '2024-02-15': { status: 'present', subject: 'All' },
-    '2024-02-16': { status: 'present', subject: 'All' },
-    '2024-02-19': { status: 'present', subject: 'All' },
-    '2024-02-20': { status: 'present', subject: 'All' },
-    '2024-02-21': { status: 'present', subject: 'All' },
-    '2024-02-22': { status: 'present', subject: 'All' },
-    '2024-02-23': { status: 'present', subject: 'All' },
-    '2024-02-26': { status: 'present', subject: 'All' },
-    '2024-02-27': { status: 'present', subject: 'All' },
-    '2024-02-28': { status: 'present', subject: 'All' },
-    '2024-02-29': { status: 'present', subject: 'All' },
-  },
-  '2024-03': {
-    '2024-03-01': { status: 'present', subject: 'All' },
-    '2024-03-04': { status: 'present', subject: 'All' },
-    '2024-03-05': { status: 'present', subject: 'All' },
-    '2024-03-06': { status: 'absent', subject: 'All', reason: 'Sick' },
-    '2024-03-07': { status: 'present', subject: 'All' },
-    '2024-03-08': { status: 'present', subject: 'All' },
-    '2024-03-11': { status: 'late', subject: 'All', reason: 'Traffic' },
-    '2024-03-12': { status: 'present', subject: 'All' },
-    '2024-03-13': { status: 'present', subject: 'All' },
-    '2024-03-14': { status: 'present', subject: 'All' },
-    '2024-03-15': { status: 'present', subject: 'All' },
-    '2024-03-18': { status: 'present', subject: 'All' },
-    '2024-03-19': { status: 'present', subject: 'All' },
-    '2024-03-20': { status: 'present', subject: 'All' },
-    '2024-03-21': { status: 'present', subject: 'All' },
-    '2024-03-22': { status: 'present', subject: 'All' },
-    '2024-03-25': { status: 'present', subject: 'All' },
-    '2024-03-26': { status: 'present', subject: 'All' },
-    '2024-03-27': { status: 'present', subject: 'All' },
-    '2024-03-28': { status: 'present', subject: 'All' },
-    '2024-03-29': { status: 'present', subject: 'All' },
-  },
-      '2024-04': {
-      '2024-04-01': { status: 'present', subject: 'All' },
-      '2024-04-02': { status: 'present', subject: 'All' },
-      '2024-04-03': { status: 'present', subject: 'All' },
-      '2024-04-04': { status: 'present', subject: 'All' },
-      '2024-04-05': { status: 'present', subject: 'All' },
-      '2024-04-08': { status: 'absent', subject: 'All', reason: 'Sick' },
-      '2024-04-09': { status: 'present', subject: 'All' },
-      '2024-04-10': { status: 'present', subject: 'All' },
-      '2024-04-11': { status: 'present', subject: 'All' },
-      '2024-04-12': { status: 'present', subject: 'All' },
-      '2024-04-15': { status: 'present', subject: 'All' },
-      '2024-04-16': { status: 'late', subject: 'All', reason: 'Overslept' },
-      '2024-04-17': { status: 'present', subject: 'All' },
-      '2024-04-18': { status: 'present', subject: 'All' },
-      '2024-04-19': { status: 'present', subject: 'All' },
-      '2024-04-22': { status: 'present', subject: 'All' },
-      '2024-04-23': { status: 'present', subject: 'All' },
-      '2024-04-24': { status: 'present', subject: 'All' },
-      '2024-04-25': { status: 'present', subject: 'All' },
-      '2024-04-26': { status: 'present', subject: 'All' },
-      '2024-04-29': { status: 'present', subject: 'All' },
-      '2024-04-30': { status: 'present', subject: 'All' },
-    },
-    '2024-05': {
-      '2024-05-01': { status: 'present', subject: 'All' },
-      '2024-05-02': { status: 'present', subject: 'All' },
-      '2024-05-03': { status: 'present', subject: 'All' },
-      '2024-05-06': { status: 'present', subject: 'All' },
-      '2024-05-07': { status: 'absent', subject: 'All', reason: 'Sick' },
-      '2024-05-08': { status: 'present', subject: 'All' },
-      '2024-05-09': { status: 'present', subject: 'All' },
-      '2024-05-10': { status: 'present', subject: 'All' },
-      '2024-05-13': { status: 'present', subject: 'All' },
-      '2024-05-14': { status: 'late', subject: 'All', reason: 'Traffic' },
-      '2024-05-15': { status: 'present', subject: 'All' },
-      '2024-05-16': { status: 'present', subject: 'All' },
-      '2024-05-17': { status: 'present', subject: 'All' },
-      '2024-05-20': { status: 'present', subject: 'All' },
-      '2024-05-21': { status: 'present', subject: 'All' },
-      '2024-05-22': { status: 'present', subject: 'All' },
-      '2024-05-23': { status: 'present', subject: 'All' },
-      '2024-05-24': { status: 'present', subject: 'All' },
-      '2024-05-27': { status: 'present', subject: 'All' },
-      '2024-05-28': { status: 'present', subject: 'All' },
-      '2024-05-29': { status: 'present', subject: 'All' },
-      '2024-05-30': { status: 'present', subject: 'All' },
-      '2024-05-31': { status: 'present', subject: 'All' },
-    },
-    '2024-06': {
-      '2024-06-01': { status: 'present', subject: 'All' },
-      '2024-06-02': { status: 'present', subject: 'All' },
-      '2024-06-03': { status: 'present', subject: 'All' },
-      '2024-06-04': { status: 'present', subject: 'All' },
-      '2024-06-05': { status: 'present', subject: 'All' },
-      '2024-06-06': { status: 'absent', subject: 'All', reason: 'Sick' },
-      '2024-06-07': { status: 'present', subject: 'All' },
-      '2024-06-10': { status: 'present', subject: 'All' },
-      '2024-06-11': { status: 'present', subject: 'All' },
-      '2024-06-12': { status: 'present', subject: 'All' },
-      '2024-06-13': { status: 'present', subject: 'All' },
-      '2024-06-14': { status: 'present', subject: 'All' },
-      '2024-06-17': { status: 'late', subject: 'All', reason: 'Overslept' },
-      '2024-06-18': { status: 'present', subject: 'All' },
-      '2024-06-19': { status: 'present', subject: 'All' },
-      '2024-06-20': { status: 'present', subject: 'All' },
-      '2024-06-21': { status: 'present', subject: 'All' },
-      '2024-06-24': { status: 'present', subject: 'All' },
-      '2024-06-25': { status: 'present', subject: 'All' },
-      '2024-06-26': { status: 'present', subject: 'All' },
-      '2024-06-27': { status: 'present', subject: 'All' },
-      '2024-06-28': { status: 'present', subject: 'All' },
-    }
-};
+// Attendance data will be fetched from Supabase
 
 const SUBJECTS = ['All', 'Maths', 'Science', 'English', 'History', 'Geography'];
 const TERMS = ['All Terms', 'Term 1', 'Term 2', 'Term 3', 'Term 4'];
@@ -204,10 +61,73 @@ const AttendanceSummary = () => {
   const [showSubjectPicker, setShowSubjectPicker] = useState(false);
   const [showTermPicker, setShowTermPicker] = useState(false);
   const [displayMonth, setDisplayMonth] = useState(new Date());
-  // Add state for popup modal
   const [showDownloadModal, setShowDownloadModal] = useState(false);
   const [showMonthSelect, setShowMonthSelect] = useState(false);
   const [showTermSelect, setShowTermSelect] = useState(false);
+  
+  // New state for Supabase data
+  const [attendanceData, setAttendanceData] = useState({});
+  const [studentData, setStudentData] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+  const { user } = useAuth();
+
+  // Fetch attendance data from Supabase
+  const fetchAttendanceData = async () => {
+    try {
+      setLoading(true);
+      setError(null);
+
+      // Get parent data
+      const parentData = await dbHelpers.read('parents', { user_id: user.id });
+      if (!parentData || parentData.length === 0) {
+        throw new Error('Parent data not found');
+      }
+      const parent = parentData[0];
+
+      // Get student data
+      const student = await dbHelpers.getStudentById(parent.student_id);
+      if (!student) {
+        throw new Error('Student data not found');
+      }
+      setStudentData(student);
+
+      // Get attendance records for the student
+      const attendanceRecords = await dbHelpers.read('attendance', { 
+        student_id: student.id 
+      });
+
+      // Organize attendance data by month
+      const organizedData = {};
+      attendanceRecords.forEach(record => {
+        const date = new Date(record.date);
+        const monthKey = format(date, 'yyyy-MM');
+        const dateKey = format(date, 'yyyy-MM-dd');
+        
+        if (!organizedData[monthKey]) {
+          organizedData[monthKey] = {};
+        }
+        
+        organizedData[monthKey][dateKey] = {
+          status: record.status,
+          subject: record.subject_name || 'All',
+          reason: record.reason || null
+        };
+      });
+
+      setAttendanceData(organizedData);
+    } catch (err) {
+      console.error('Error fetching attendance data:', err);
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Fetch data on component mount
+  useEffect(() => {
+    fetchAttendanceData();
+  }, []);
 
   // Update displayMonth when selectedMonth changes (for specific months)
   useEffect(() => {
@@ -221,14 +141,14 @@ const AttendanceSummary = () => {
     if (selectedMonth === 'all') {
       // Combine all months data
       const allData = {};
-      Object.keys(MOCK_ATTENDANCE_DATA).forEach(month => {
-        Object.assign(allData, MOCK_ATTENDANCE_DATA[month]);
+      Object.keys(attendanceData).forEach(month => {
+        Object.assign(allData, attendanceData[month]);
       });
       return allData;
     } else {
       // For specific month, use displayMonth to get the correct month data
       const monthKey = format(displayMonth, 'yyyy-MM');
-      return MOCK_ATTENDANCE_DATA[monthKey] || {};
+      return attendanceData[monthKey] || {};
     }
   };
 
@@ -334,19 +254,26 @@ const AttendanceSummary = () => {
     }
   };
 
-  // Placeholders for school and student info
+  // School info (you can make this dynamic later)
   const SCHOOL_INFO = {
     name: 'Springfield Public School',
     address: '123 Main St, Springfield, USA',
     logoUrl: 'https://via.placeholder.com/60x60?text=Logo',
   };
-  // Placeholders for student info
-  const STUDENT_INFO = {
-    name: 'John Doe',
-    class: '5A',
-    rollNo: '123',
-    section: 'A',
-    profilePicUrl: '', // If empty, show placeholder
+  
+  // Student info from database
+  const STUDENT_INFO = studentData ? {
+    name: studentData.name,
+    class: studentData.class_name || 'N/A',
+    rollNo: studentData.roll_number || 'N/A',
+    section: studentData.section || 'N/A',
+    profilePicUrl: studentData.profile_picture || '',
+  } : {
+    name: 'Loading...',
+    class: 'N/A',
+    rollNo: 'N/A',
+    section: 'N/A',
+    profilePicUrl: '',
   };
 
   // Helper to generate a calendar table for a given month
@@ -384,7 +311,7 @@ const AttendanceSummary = () => {
     let dataToInclude = {};
     let calendarHtml = '';
     if (mode === 'month' && value) {
-      dataToInclude = MOCK_ATTENDANCE_DATA[value] || {};
+      dataToInclude = attendanceData[value] || {};
       const [year, month] = value.split('-').map(Number);
       calendarHtml = getCalendarTableHtml(month - 1, year, dataToInclude);
     } else if (mode === 'term' && value) {
@@ -392,17 +319,17 @@ const AttendanceSummary = () => {
       if (months && months.length > 0) {
         calendarHtml = months.map(m => {
           const [year, month] = m.split('-').map(Number);
-          const monthData = MOCK_ATTENDANCE_DATA[m] || {};
+          const monthData = attendanceData[m] || {};
           return `<div style="margin-bottom:24px"><div style="font-weight:bold;margin-bottom:4px;">${getMonthLabel(m)}</div>${getCalendarTableHtml(month - 1, year, monthData)}</div>`;
         }).join('');
       }
     } else if (mode === 'overall') {
       // Only render the first two months for performance testing
-      const months = Object.keys(MOCK_ATTENDANCE_DATA).slice(0, 2);
+      const months = Object.keys(attendanceData).slice(0, 2);
       console.log('Rendering months in overall report:', months);
       calendarHtml = months.map(m => {
         const [year, month] = m.split('-').map(Number);
-        const monthData = MOCK_ATTENDANCE_DATA[m] || {};
+        const monthData = attendanceData[m] || {};
         return `<div style="margin-bottom:24px"><div style="font-weight:bold;margin-bottom:4px;">${getMonthLabel(m)}</div>${getCalendarTableHtml(month - 1, year, monthData)}</div>`;
       }).join('');
     } else {
@@ -522,6 +449,32 @@ const AttendanceSummary = () => {
     acc[monthKey].push(day);
     return acc;
   }, {});
+
+  if (loading) {
+    return (
+      <View style={styles.container}>
+        <Header title="Attendance Summary" showBack={true} />
+        <View style={styles.loadingContainer}>
+          <ActivityIndicator size="large" color="#1976d2" />
+          <Text style={styles.loadingText}>Loading attendance data...</Text>
+        </View>
+      </View>
+    );
+  }
+
+  if (error) {
+    return (
+      <View style={styles.container}>
+        <Header title="Attendance Summary" showBack={true} />
+        <View style={styles.errorContainer}>
+          <Text style={styles.errorText}>Error: {error}</Text>
+          <TouchableOpacity style={styles.retryButton} onPress={fetchAttendanceData}>
+            <Text style={styles.retryButtonText}>Retry</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+    );
+  }
 
   return (
     <View style={styles.container}>
@@ -1034,7 +987,7 @@ const AttendanceSummary = () => {
                     const monthLabel = m.label;
                     // Attendance data for the selected month
                     const [year, month] = m.value.split('-').map(Number);
-                    const monthData = MOCK_ATTENDANCE_DATA[m.value] || {};
+                    const monthData = attendanceData[m.value] || {};
                     const firstDay = new Date(year, month - 1, 1);
                     const lastDay = new Date(year, month, 0);
                     const startWeekday = firstDay.getDay();
@@ -1582,6 +1535,39 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: '#2196F3',
     fontWeight: '600',
+  },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  loadingText: {
+    marginTop: 10,
+    fontSize: 16,
+    color: '#666',
+  },
+  errorContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+  },
+  errorText: {
+    fontSize: 16,
+    color: '#d32f2f',
+    textAlign: 'center',
+    marginBottom: 20,
+  },
+  retryButton: {
+    backgroundColor: '#1976d2',
+    paddingHorizontal: 20,
+    paddingVertical: 10,
+    borderRadius: 8,
+  },
+  retryButtonText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: 'bold',
   },
 });
 

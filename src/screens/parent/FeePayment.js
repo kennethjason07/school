@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   View, 
   Text, 
@@ -9,156 +9,116 @@ import {
   Modal, 
   Alert,
   Dimensions,
-  Platform
+  Platform,
+  ActivityIndicator
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import Header from '../../components/Header';
 import * as FileSystem from 'expo-file-system';
 import * as Sharing from 'expo-sharing';
 import * as Print from 'expo-print';
+import { dbHelpers } from '../../utils/supabase';
+import { useAuth } from '../../utils/AuthContext';
 
 const { width } = Dimensions.get('window');
 
-// Dummy data for fee structure
-const DUMMY_FEE_STRUCTURE = {
-  studentName: 'Rahul Kumar',
-  class: '5A',
-  academicYear: '2024-2025',
-  totalDue: 17000,
-  totalPaid: 4000,
-  outstanding: 13000,
-  fees: [
-    {
-      id: '1',
-      name: 'First Term Fee',
-      amount: 5000,
-      dueDate: '2024-07-15',
-      status: 'unpaid', // unpaid, paid, partial
-      paidAmount: 0,
-      description: 'First term tuition and development fee',
-      category: 'tuition'
-    },
-    {
-      id: '2',
-      name: 'Second Term Fee',
-      amount: 5000,
-      dueDate: '2024-10-15',
-      status: 'unpaid',
-      paidAmount: 0,
-      description: 'Second term tuition and development fee',
-      category: 'tuition'
-    },
-    {
-      id: '3',
-      name: 'Books Fee',
-      amount: 2000,
-      dueDate: '2024-06-30',
-      status: 'paid',
-      paidAmount: 2000,
-      description: 'Textbooks and study materials',
-      category: 'books'
-    },
-    {
-      id: '4',
-      name: 'Bus Fee',
-      amount: 3000,
-      dueDate: '2024-07-01',
-      status: 'partial',
-      paidAmount: 1500,
-      description: 'Transportation fee for the academic year',
-      category: 'transport'
-    },
-    {
-      id: '5',
-      name: 'Laboratory Fee',
-      amount: 1000,
-      dueDate: '2024-08-15',
-      status: 'unpaid',
-      paidAmount: 0,
-      description: 'Science lab and computer lab fee',
-      category: 'facilities'
-    },
-    {
-      id: '6',
-      name: 'Sports Fee',
-      amount: 800,
-      dueDate: '2024-07-20',
-      status: 'unpaid',
-      paidAmount: 0,
-      description: 'Sports equipment and activities fee',
-      category: 'activities'
-    },
-    {
-      id: '7',
-      name: 'Library Fee',
-      amount: 500,
-      dueDate: '2024-06-25',
-      status: 'paid',
-      paidAmount: 500,
-      description: 'Library membership and resources',
-      category: 'facilities'
-    },
-    {
-      id: '8',
-      name: 'Examination Fee',
-      amount: 700,
-      dueDate: '2024-09-01',
-      status: 'unpaid',
-      paidAmount: 0,
-      description: 'Mid-term and final examination fee',
-      category: 'examination'
-    }
-  ]
-};
-
-// Dummy payment history
-const DUMMY_PAYMENT_HISTORY = [
-  {
-    id: '1',
-    feeName: 'Books Fee',
-    amount: 2000,
-    paymentDate: '2024-06-20',
-    paymentMethod: 'Online',
-    transactionId: 'TXN123456',
-    status: 'completed',
-    receiptUrl: 'receipt_books_fee.pdf'
-  },
-  {
-    id: '2',
-    feeName: 'Library Fee',
-    amount: 500,
-    paymentDate: '2024-06-18',
-    paymentMethod: 'Cash',
-    transactionId: 'CASH001',
-    status: 'completed',
-    receiptUrl: 'receipt_library_fee.pdf'
-  },
-  {
-    id: '3',
-    feeName: 'Bus Fee',
-    amount: 1500,
-    paymentDate: '2024-06-25',
-    paymentMethod: 'UPI',
-    transactionId: 'UPI789012',
-    status: 'completed',
-    receiptUrl: 'receipt_bus_fee.pdf'
-  }
-];
-
 const FeePayment = () => {
+  const { user } = useAuth();
+  const [feeStructure, setFeeStructure] = useState(null);
+  const [paymentHistory, setPaymentHistory] = useState([]);
+  const [studentData, setStudentData] = useState(null);
   const [selectedTab, setSelectedTab] = useState('overview');
   const [selectedFee, setSelectedFee] = useState(null);
   const [paymentModalVisible, setPaymentModalVisible] = useState(false);
   const [receiptModalVisible, setReceiptModalVisible] = useState(false);
   const [selectedReceipt, setSelectedReceipt] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
 
-  // Calculate total fee from individual fees
-  const calculatedTotalFee = DUMMY_FEE_STRUCTURE.fees.reduce((total, fee) => total + fee.amount, 0);
-  const isTotalFeeMatching = calculatedTotalFee === DUMMY_FEE_STRUCTURE.totalDue;
+  useEffect(() => {
+    const fetchFeeData = async () => {
+      setLoading(true);
+      setError(null);
+      try {
+        // Get parent's student data
+        const parentData = await dbHelpers.read('parents', { user_id: user.id });
+        if (!parentData || parentData.length === 0) {
+          throw new Error('Parent data not found');
+        }
+        const parent = parentData[0];
+        
+        // Get student details
+        const studentDetails = await dbHelpers.getStudentById(parent.student_id);
+        setStudentData(studentDetails);
+        
+        // Get fee structure for student's class
+        const classFees = await dbHelpers.read('fees', { class_id: studentDetails.class_id });
+        
+        // Get payment history for the student
+        const studentPayments = await dbHelpers.read('payments', { student_id: parent.student_id });
+        
+        // Transform fee structure data
+        const transformedFees = (classFees || []).map(fee => {
+          const payment = studentPayments?.find(p => p.fee_id === fee.id);
+          const paidAmount = payment ? payment.amount : 0;
+          const status = paidAmount === 0 ? 'unpaid' : paidAmount >= fee.amount ? 'paid' : 'partial';
+          
+          return {
+            id: fee.id,
+            name: fee.fee_name,
+            amount: fee.amount,
+            dueDate: fee.due_date,
+            status: status,
+            paidAmount: paidAmount,
+            description: fee.description || 'Fee payment',
+            category: fee.category || 'general'
+          };
+        });
+        
+        // Calculate totals
+        const totalDue = transformedFees.reduce((sum, fee) => sum + fee.amount, 0);
+        const totalPaid = transformedFees.reduce((sum, fee) => sum + fee.paidAmount, 0);
+        const outstanding = totalDue - totalPaid;
+        
+        setFeeStructure({
+          studentName: studentDetails.name,
+          class: studentDetails.class_name,
+          academicYear: '2024-2025', // This could be fetched from settings
+          totalDue: totalDue,
+          totalPaid: totalPaid,
+          outstanding: outstanding,
+          fees: transformedFees
+        });
+        
+        // Transform payment history
+        const transformedPayments = (studentPayments || []).map(payment => {
+          const fee = classFees?.find(f => f.id === payment.fee_id);
+          return {
+            id: payment.id,
+            feeName: fee ? fee.fee_name : 'Fee Payment',
+            amount: payment.amount,
+            paymentDate: payment.payment_date,
+            paymentMethod: payment.payment_method || 'Online',
+            transactionId: payment.transaction_id || `TXN${payment.id}`,
+            status: payment.status || 'completed',
+            receiptUrl: payment.receipt_url || null
+          };
+        });
+        
+        setPaymentHistory(transformedPayments);
+      } catch (err) {
+        console.error('Error fetching fee data:', err);
+        setError(err.message);
+        Alert.alert('Error', 'Failed to load fee data');
+      } finally {
+        setLoading(false);
+      }
+    };
 
-  console.log('Calculated Total Fee:', calculatedTotalFee);
-  console.log('Total Due from data:', DUMMY_FEE_STRUCTURE.totalDue);
-  console.log('Are they matching?', isTotalFeeMatching);
+    if (user) {
+      fetchFeeData();
+    }
+  }, [user]);
 
   const getStatusColor = (status) => {
     switch (status) {
@@ -343,8 +303,8 @@ const FeePayment = () => {
 
           <div class="receipt-info">
             <div class="info-row">
-              <span><strong>Student Name:</strong> ${DUMMY_FEE_STRUCTURE.studentName}</span>
-              <span><strong>Class:</strong> ${DUMMY_FEE_STRUCTURE.class}</span>
+              <span><strong>Student Name:</strong> ${feeStructure?.studentName || 'Student Name'}</span>
+              <span><strong>Class:</strong> ${feeStructure?.class || 'Class'}</span>
             </div>
             <div class="info-row">
               <span><strong>Fee Type:</strong> ${receipt.feeName}</span>
@@ -364,156 +324,6 @@ const FeePayment = () => {
           <div class="footer">
             <p>This is a computer generated receipt. No signature required.</p>
             <p>Thank you for your payment!</p>
-          </div>
-        </body>
-      </html>
-    `;
-  };
-
-  const generateReceiptPreview = (receipt) => {
-    return `
-      <!DOCTYPE html>
-      <html>
-        <head>
-          <meta charset="utf-8">
-          <title>Fee Receipt Preview</title>
-          <style>
-            body {
-              font-family: Arial, sans-serif;
-              margin: 0;
-              padding: 20px;
-              color: #333;
-              background-color: #f8f9fa;
-            }
-            .receipt-container {
-              background-color: #fff;
-              border-radius: 12px;
-              padding: 24px;
-              box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
-              max-width: 400px;
-              margin: 0 auto;
-            }
-            .header {
-              text-align: center;
-              border-bottom: 2px solid #2196F3;
-              padding-bottom: 20px;
-              margin-bottom: 24px;
-            }
-            .school-name {
-              font-size: 20px;
-              font-weight: bold;
-              color: #2196F3;
-              margin-bottom: 4px;
-            }
-            .receipt-title {
-              font-size: 16px;
-              font-weight: bold;
-              margin-bottom: 8px;
-            }
-            .receipt-info {
-              background-color: #f8f9fa;
-              padding: 16px;
-              border-radius: 8px;
-              margin-bottom: 20px;
-            }
-            .info-row {
-              display: flex;
-              justify-content: space-between;
-              margin-bottom: 8px;
-              font-size: 14px;
-            }
-            .info-label {
-              font-weight: bold;
-              color: #666;
-            }
-            .info-value {
-              color: #333;
-            }
-            .amount-section {
-              text-align: center;
-              margin: 20px 0;
-              padding: 20px;
-              background-color: #e3f2fd;
-              border-radius: 8px;
-            }
-            .amount {
-              font-size: 24px;
-              font-weight: bold;
-              color: #2196F3;
-              margin-bottom: 4px;
-            }
-            .amount-label {
-              font-size: 14px;
-              color: #666;
-            }
-            .footer {
-              margin-top: 20px;
-              text-align: center;
-              font-size: 12px;
-              color: #666;
-              border-top: 1px solid #e0e0e0;
-              padding-top: 16px;
-            }
-            .status-badge {
-              display: inline-block;
-              background-color: #4CAF50;
-              color: white;
-              padding: 4px 8px;
-              border-radius: 12px;
-              font-size: 10px;
-              font-weight: bold;
-              margin-left: 8px;
-            }
-          </style>
-        </head>
-        <body>
-          <div class="receipt-container">
-            <div class="header">
-              <div class="school-name">ABC School</div>
-              <div class="receipt-title">Fee Receipt</div>
-            </div>
-
-            <div class="receipt-info">
-              <div class="info-row">
-                <span class="info-label">Student Name:</span>
-                <span class="info-value">${DUMMY_FEE_STRUCTURE.studentName}</span>
-              </div>
-              <div class="info-row">
-                <span class="info-label">Class:</span>
-                <span class="info-value">${DUMMY_FEE_STRUCTURE.class}</span>
-              </div>
-              <div class="info-row">
-                <span class="info-label">Fee Type:</span>
-                <span class="info-value">${receipt.feeName}</span>
-              </div>
-              <div class="info-row">
-                <span class="info-label">Payment Date:</span>
-                <span class="info-value">${receipt.paymentDate}</span>
-              </div>
-              <div class="info-row">
-                <span class="info-label">Transaction ID:</span>
-                <span class="info-value">${receipt.transactionId}</span>
-              </div>
-              <div class="info-row">
-                <span class="info-label">Payment Method:</span>
-                <span class="info-value">${receipt.paymentMethod}</span>
-              </div>
-              <div class="info-row">
-                <span class="info-label">Status:</span>
-                <span class="info-value">Completed <span class="status-badge">PAID</span></span>
-              </div>
-            </div>
-
-            <div class="amount-section">
-              <div class="amount">₹${receipt.amount}</div>
-              <div class="amount-label">Amount Paid</div>
-            </div>
-
-            <div class="footer">
-              <p>This is a computer generated receipt.</p>
-              <p>No signature required.</p>
-              <p>Thank you for your payment!</p>
-            </div>
           </div>
         </body>
       </html>
@@ -587,6 +397,46 @@ const FeePayment = () => {
     </View>
   );
 
+  if (loading) {
+    return (
+      <View style={styles.container}>
+        <Header title="Fee Payment" showBack={true} />
+        <View style={styles.loadingContainer}>
+          <ActivityIndicator size="large" color="#2196F3" />
+          <Text style={styles.loadingText}>Loading fee information...</Text>
+        </View>
+      </View>
+    );
+  }
+
+  if (error) {
+    return (
+      <View style={styles.container}>
+        <Header title="Fee Payment" showBack={true} />
+        <View style={styles.errorContainer}>
+          <Ionicons name="alert-circle" size={48} color="#F44336" />
+          <Text style={styles.errorText}>Failed to load fee information</Text>
+          <TouchableOpacity style={styles.retryButton} onPress={() => window.location.reload()}>
+            <Text style={styles.retryButtonText}>Retry</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+    );
+  }
+
+  if (!feeStructure) {
+    return (
+      <View style={styles.container}>
+        <Header title="Fee Payment" showBack={true} />
+        <View style={styles.emptyContainer}>
+          <Ionicons name="card-outline" size={64} color="#ccc" />
+          <Text style={styles.emptyText}>No fee information available</Text>
+          <Text style={styles.emptySubtext}>Fee structure will be available once configured by the school.</Text>
+        </View>
+      </View>
+    );
+  }
+
   return (
     <View style={styles.container}>
       <Header title="Fee Payment" showBack={true} />
@@ -596,15 +446,15 @@ const FeePayment = () => {
         <View style={styles.summaryCards}>
           <View style={styles.summaryCard}>
             <Text style={styles.summaryLabel}>Total Academic Fee</Text>
-            <Text style={[styles.summaryAmount, { color: '#2196F3' }]}>₹{DUMMY_FEE_STRUCTURE.totalDue}</Text>
+            <Text style={[styles.summaryAmount, { color: '#2196F3' }]}>₹{feeStructure.totalDue}</Text>
           </View>
           <View style={styles.summaryCard}>
             <Text style={styles.summaryLabel}>Paid</Text>
-            <Text style={[styles.summaryAmount, { color: '#4CAF50' }]}>₹{DUMMY_FEE_STRUCTURE.totalPaid}</Text>
+            <Text style={[styles.summaryAmount, { color: '#4CAF50' }]}>₹{feeStructure.totalPaid}</Text>
           </View>
           <View style={styles.summaryCard}>
             <Text style={styles.summaryLabel}>Outstanding</Text>
-            <Text style={[styles.summaryAmount, { color: '#F44336' }]}>₹{DUMMY_FEE_STRUCTURE.outstanding}</Text>
+            <Text style={[styles.summaryAmount, { color: '#F44336' }]}>₹{feeStructure.outstanding}</Text>
           </View>
         </View>
 
@@ -628,11 +478,18 @@ const FeePayment = () => {
         {selectedTab === 'overview' ? (
           <View>
             <FlatList
-              data={DUMMY_FEE_STRUCTURE.fees}
+              data={feeStructure.fees}
               renderItem={renderFeeItem}
               keyExtractor={(item) => item.id}
               showsVerticalScrollIndicator={false}
               contentContainerStyle={styles.feeList}
+              ListEmptyComponent={
+                <View style={styles.emptyContainer}>
+                  <Ionicons name="card-outline" size={48} color="#ccc" />
+                  <Text style={styles.emptyText}>No fees configured</Text>
+                  <Text style={styles.emptySubtext}>Fee structure will be available once configured by the school.</Text>
+                </View>
+              }
             />
             
             {/* Fee Distribution Summary */}
@@ -642,63 +499,33 @@ const FeePayment = () => {
               <View style={styles.feeDistributionRow}>
                 <View style={styles.feeDistributionItem}>
                   <Text style={styles.feeDistributionLabel}>Total Academic Fee</Text>
-                  <Text style={[styles.feeDistributionAmount, { color: '#2196F3' }]}>₹{DUMMY_FEE_STRUCTURE.totalDue}</Text>
+                  <Text style={[styles.feeDistributionAmount, { color: '#2196F3' }]}>₹{feeStructure.totalDue}</Text>
                 </View>
                 <View style={styles.feeDistributionItem}>
                   <Text style={styles.feeDistributionLabel}>Total Paid</Text>
-                  <Text style={[styles.feeDistributionAmount, { color: '#4CAF50' }]}>₹{DUMMY_FEE_STRUCTURE.totalPaid}</Text>
+                  <Text style={[styles.feeDistributionAmount, { color: '#4CAF50' }]}>₹{feeStructure.totalPaid}</Text>
                 </View>
                 <View style={styles.feeDistributionItem}>
                   <Text style={styles.feeDistributionLabel}>Total Outstanding</Text>
-                  <Text style={[styles.feeDistributionAmount, { color: '#F44336' }]}>₹{DUMMY_FEE_STRUCTURE.outstanding}</Text>
-                </View>
-              </View>
-              
-              {/* Fee Category Breakdown */}
-              <View style={styles.feeCategoryBreakdown}>
-                <Text style={styles.feeCategoryTitle}>Fee Category Breakdown</Text>
-                
-                <View style={styles.feeCategoryItem}>
-                  <Text style={styles.feeCategoryName}>Tuition Fees</Text>
-                  <View style={styles.feeCategoryDetails}>
-                    <Text style={styles.feeCategoryAmount}>₹10,000</Text>
-                    <Text style={styles.feeCategoryStatus}>Unpaid</Text>
-                  </View>
-                </View>
-                
-                <View style={styles.feeCategoryItem}>
-                  <Text style={styles.feeCategoryName}>Books & Materials</Text>
-                  <View style={styles.feeCategoryDetails}>
-                    <Text style={styles.feeCategoryAmount}>₹2,000</Text>
-                    <Text style={[styles.feeCategoryStatus, { color: '#4CAF50' }]}>Paid</Text>
-                  </View>
-                </View>
-                
-                <View style={styles.feeCategoryItem}>
-                  <Text style={styles.feeCategoryName}>Transport</Text>
-                  <View style={styles.feeCategoryDetails}>
-                    <Text style={styles.feeCategoryAmount}>₹3,000</Text>
-                    <Text style={[styles.feeCategoryStatus, { color: '#FF9800' }]}>Partial</Text>
-                  </View>
-                </View>
-                
-                <View style={styles.feeCategoryItem}>
-                  <Text style={styles.feeCategoryName}>Other Fees</Text>
-                  <View style={styles.feeCategoryDetails}>
-                    <Text style={styles.feeCategoryAmount}>₹2,000</Text>
-                    <Text style={styles.feeCategoryStatus}>Unpaid</Text>
-                  </View>
+                  <Text style={[styles.feeDistributionAmount, { color: '#F44336' }]}>₹{feeStructure.outstanding}</Text>
                 </View>
               </View>
             </View>
           </View>
         ) : (
           <FlatList
-            data={DUMMY_PAYMENT_HISTORY}
+            data={paymentHistory}
             renderItem={renderPaymentHistoryItem}
             keyExtractor={(item) => item.id}
             showsVerticalScrollIndicator={false}
             contentContainerStyle={styles.historyList}
+            ListEmptyComponent={
+              <View style={styles.emptyContainer}>
+                <Ionicons name="receipt-outline" size={48} color="#ccc" />
+                <Text style={styles.emptyText}>No payment history</Text>
+                <Text style={styles.emptySubtext}>Payment history will appear here once payments are made.</Text>
+              </View>
+            }
           />
         )}
       </View>
@@ -779,11 +606,11 @@ const FeePayment = () => {
                   <View style={styles.receiptInfo}>
                     <View style={styles.receiptInfoRow}>
                       <Text style={styles.receiptInfoLabel}>Student Name:</Text>
-                      <Text style={styles.receiptInfoValue}>{DUMMY_FEE_STRUCTURE.studentName}</Text>
+                      <Text style={styles.receiptInfoValue}>{feeStructure?.studentName}</Text>
                     </View>
                     <View style={styles.receiptInfoRow}>
                       <Text style={styles.receiptInfoLabel}>Class:</Text>
-                      <Text style={styles.receiptInfoValue}>{DUMMY_FEE_STRUCTURE.class}</Text>
+                      <Text style={styles.receiptInfoValue}>{feeStructure?.class}</Text>
                     </View>
                     <View style={styles.receiptInfoRow}>
                       <Text style={styles.receiptInfoLabel}>Fee Type:</Text>
@@ -1378,6 +1205,59 @@ const styles = StyleSheet.create({
   feeCategoryStatus: {
     fontSize: 12,
     color: '#FF9800',
+  },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#f5f5f5',
+  },
+  loadingText: {
+    marginTop: 10,
+    color: '#666',
+    fontSize: 16,
+  },
+  errorContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#f5f5f5',
+    padding: 20,
+  },
+  errorText: {
+    color: '#F44336',
+    fontSize: 18,
+    textAlign: 'center',
+    marginBottom: 20,
+  },
+  retryButton: {
+    backgroundColor: '#2196F3',
+    paddingVertical: 12,
+    paddingHorizontal: 24,
+    borderRadius: 8,
+  },
+  retryButtonText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '500',
+  },
+  emptyContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#f5f5f5',
+    padding: 20,
+  },
+  emptyText: {
+    color: '#666',
+    fontSize: 18,
+    textAlign: 'center',
+    marginBottom: 10,
+  },
+  emptySubtext: {
+    color: '#999',
+    fontSize: 14,
+    textAlign: 'center',
   },
 });
 

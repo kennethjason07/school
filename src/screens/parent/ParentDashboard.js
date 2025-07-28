@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -7,159 +7,131 @@ import {
   TouchableOpacity,
   FlatList,
   Image,
+  ActivityIndicator,
+  Alert,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import Header from '../../components/Header';
 import StatCard from '../../components/StatCard';
 import CrossPlatformPieChart from '../../components/CrossPlatformPieChart';
-
-// Import notifications data to calculate real unread count
-import { DUMMY_NOTIFICATIONS } from './Notifications';
+import { dbHelpers } from '../../utils/supabase';
+import { useAuth } from '../../utils/AuthContext';
 
 const ParentDashboard = ({ navigation }) => {
-  // Calculate real unread count from notifications data
-  const unreadCount = DUMMY_NOTIFICATIONS.filter(notification => !notification.isRead).length;
+  const { user } = useAuth();
+  const [studentData, setStudentData] = useState(null);
+  const [notifications, setNotifications] = useState([]);
+  const [exams, setExams] = useState([]);
+  const [events, setEvents] = useState([]);
+  const [attendance, setAttendance] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
 
-  // Mock data
-  const upcomingExams = [
-    { subject: 'Mathematics', date: 'Dec 15, 2024', time: '9:00 AM', class: 'Class 5A' },
-    { subject: 'Science', date: 'Dec 17, 2024', time: '10:00 AM', class: 'Class 5A' },
-  ];
-
-  const upcomingEvents = [
-    { 
-      title: 'Annual Day Celebration', 
-      date: 'Dec 25, 2024', 
-      time: '6:00 PM - 9:00 PM', 
-      type: 'event',
-      description: 'Annual day with cultural performances and awards',
-      icon: 'trophy',
-      color: '#FF9800'
-    },
-    { 
-      title: 'Sports Day', 
-      date: 'Dec 28, 2024', 
-      time: '8:00 AM - 4:00 PM', 
-      type: 'sports',
-      description: 'Annual sports day with various competitions',
-      icon: 'football',
-      color: '#4CAF50'
-    },
-    { 
-      title: 'Parent-Teacher Meeting', 
-      date: 'Jan 5, 2025', 
-      time: '2:00 PM - 4:00 PM', 
-      type: 'meeting',
-      description: 'Quarterly parent-teacher meeting',
-      icon: 'people',
-      color: '#9C27B0'
-    },
-    { 
-      title: 'Science Exhibition', 
-      date: 'Jan 10, 2025', 
-      time: '10:00 AM - 2:00 PM', 
-      type: 'exhibition',
-      description: 'Annual science exhibition with student projects',
-      icon: 'flask',
-      color: '#607D8B'
-    },
-    { 
-      title: 'Art & Craft Fair', 
-      date: 'Jan 15, 2025', 
-      time: '11:00 AM - 3:00 PM', 
-      type: 'art',
-      description: 'Art and craft exhibition showcasing student creativity',
-      icon: 'color-palette',
-      color: '#E91E63'
-    },
-    { 
-      title: 'Library Week', 
-      date: 'Jan 25, 2025', 
-      time: 'All Day', 
-      type: 'library',
-      description: 'Week-long library activities and book fair',
-      icon: 'library',
-      color: '#8BC34A'
-    },
-    { 
-      title: 'Music Concert', 
-      date: 'Jan 30, 2025', 
-      time: '6:30 PM - 8:30 PM', 
-      type: 'music',
-      description: 'Annual music concert featuring school choir',
-      icon: 'musical-notes',
-      color: '#FF5722'
-    },
-    { 
-      title: 'Career Counseling', 
-      date: 'Feb 5, 2025', 
-      time: '3:00 PM - 5:00 PM', 
-      type: 'counseling',
-      description: 'Career guidance session for senior students',
-      icon: 'school',
-      color: '#3F51B5'
-    },
-  ];
-
-  const recentNotifications = [
-    { title: 'Annual Day Invitation', message: 'You are invited to Annual Day celebration on Dec 25, 2024', time: '1 hour ago', type: 'event' },
-    { title: 'Sports Day Registration', message: 'Sports day registration open for your child', time: '3 hours ago', type: 'sports' },
-    { title: 'Midterm Exam Schedule', message: 'Midterm exams will be conducted from Dec 20-22, 2024', time: '1 day ago', type: 'exam' },
-    { title: 'Parent-Teacher Meeting', message: 'PTM scheduled for Jan 5, 2025 at 2:00 PM', time: '2 days ago', type: 'meeting' },
-  ];
-
-  // Helper function to convert time string to a comparable value
-  function getTimeValue(timeStr) {
-    if (timeStr.includes('hour')) return parseInt(timeStr) * 60;
-    if (timeStr.includes('hours')) return parseInt(timeStr) * 60;
-    if (timeStr.includes('min')) return parseInt(timeStr);
-    if (timeStr.includes('day')) return parseInt(timeStr) * 24 * 60;
-    if (timeStr.includes('days')) return parseInt(timeStr) * 24 * 60;
-    return 999999; // fallback for unknown
-  }
-
-  const sortedNotifications = [...recentNotifications].sort((a, b) => getTimeValue(a.time) - getTimeValue(b.time));
-
-
-  // State for attendance details modal
+  // Modal states
   const [showAttendanceModal, setShowAttendanceModal] = useState(false);
-  // State for events modal
   const [showEventsModal, setShowEventsModal] = useState(false);
+  const [showExamsModal, setShowExamsModal] = useState(false);
+  const [showNotificationsModal, setShowNotificationsModal] = useState(false);
+  const [showStudentDetailsModal, setShowStudentDetailsModal] = useState(false);
 
-  // Mock week attendance data
-  const weekAttendance = [
-    { date: '10-06-2024', day: 'Monday', status: 'Present' },
-    { date: '11-06-2024', day: 'Tuesday', status: 'Present' },
-    { date: '12-06-2024', day: 'Wednesday', status: 'Absent' },
-    { date: '13-06-2024', day: 'Thursday', status: 'Present' },
-    { date: '14-06-2024', day: 'Friday', status: 'Present' },
-    { date: '15-06-2024', day: 'Saturday', status: 'Present' },
-  ];
+  useEffect(() => {
+    const fetchDashboardData = async () => {
+      setLoading(true);
+      setError(null);
+      try {
+        // Get parent's student data
+        const parentData = await dbHelpers.read('parents', { user_id: user.id });
+        if (!parentData || parentData.length === 0) {
+          throw new Error('Parent data not found');
+        }
+        const parent = parentData[0];
+        
+        // Get student details
+        const studentDetails = await dbHelpers.getStudentById(parent.student_id);
+        setStudentData(studentDetails);
+
+        // Get notifications for parent
+        const parentNotifications = await dbHelpers.read('notifications', { 
+          recipient_type: 'parent', 
+          recipient_id: parent.id 
+        });
+        setNotifications(parentNotifications || []);
+
+        // Get upcoming exams for student's class
+        const studentExams = await dbHelpers.read('exams', { class_id: studentDetails.class_id });
+        setExams(studentExams || []);
+
+        // Get events
+        const schoolEvents = await dbHelpers.read('events');
+        setEvents(schoolEvents || []);
+
+        // Get attendance for current week
+        const currentDate = new Date();
+        const weekStart = new Date(currentDate.setDate(currentDate.getDate() - currentDate.getDay()));
+        const weekEnd = new Date(currentDate.setDate(currentDate.getDate() + 6));
+        
+        const weekAttendance = await dbHelpers.read('attendance', {
+          student_id: parent.student_id,
+          date: { gte: weekStart.toISOString().split('T')[0], lte: weekEnd.toISOString().split('T')[0] }
+        });
+        setAttendance(weekAttendance || []);
+
+      } catch (err) {
+        console.error('Error fetching dashboard data:', err);
+        setError(err.message);
+        Alert.alert('Error', 'Failed to load dashboard data');
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    if (user) {
+      fetchDashboardData();
+    }
+  }, [user]);
+
+  // Calculate unread notifications count
+  const unreadCount = notifications.filter(notification => !notification.is_read).length;
 
   // Calculate attendance data for pie chart
-  const presentCount = weekAttendance.filter(item => item.status === 'Present').length;
-  const absentCount = weekAttendance.filter(item => item.status === 'Absent').length;
+  const presentCount = attendance.filter(item => item.status === 'present').length;
+  const absentCount = attendance.filter(item => item.status === 'absent').length;
   const attendancePieData = [
     { name: 'Present', population: presentCount, color: '#4CAF50', legendFontColor: '#333', legendFontSize: 14 },
     { name: 'Absent', population: absentCount, color: '#F44336', legendFontColor: '#333', legendFontSize: 14 },
   ];
 
-  // 2. Create a new upcomingExamsList array (at least 8 items, sorted latest first)
-  const upcomingExamsList = [
-    { title: 'Mathematics Final Exam', date: 'Feb 20, 2025', time: '9:00 AM - 12:00 PM', description: 'Final exam for Mathematics', icon: 'calculator', color: '#2196F3', type: 'exam' },
-    { title: 'Science Final Exam', date: 'Feb 18, 2025', time: '9:00 AM - 12:00 PM', description: 'Final exam for Science', icon: 'flask', color: '#4CAF50', type: 'exam' },
-    { title: 'English Final Exam', date: 'Feb 16, 2025', time: '9:00 AM - 12:00 PM', description: 'Final exam for English', icon: 'book', color: '#9C27B0', type: 'exam' },
-    { title: 'Social Studies Final Exam', date: 'Feb 14, 2025', time: '9:00 AM - 12:00 PM', description: 'Final exam for Social Studies', icon: 'globe', color: '#FF9800', type: 'exam' },
-    { title: 'Computer Science Exam', date: 'Feb 12, 2025', time: '9:00 AM - 12:00 PM', description: 'Final exam for Computer Science', icon: 'laptop', color: '#607D8B', type: 'exam' },
-    { title: 'Hindi Final Exam', date: 'Feb 10, 2025', time: '9:00 AM - 12:00 PM', description: 'Final exam for Hindi', icon: 'language', color: '#E91E63', type: 'exam' },
-    { title: 'Mathematics Olympiad', date: 'Jan 20, 2025', time: '9:00 AM - 11:00 AM', description: 'Inter-school mathematics competition', icon: 'calculator', color: '#795548', type: 'exam' },
-    { title: 'Midterm Examinations', date: 'Dec 20, 2024', time: '9:00 AM - 12:00 PM', description: 'All subjects midterm exams', icon: 'document-text', color: '#2196F3', type: 'exam' },
-  ];
-  // Sort by date (latest first)
-  const sortedExams = [...upcomingExamsList].sort((a, b) => new Date(b.date) - new Date(a.date));
+  // Calculate attendance percentage
+  const attendancePercentage = attendance.length > 0 ? Math.round((presentCount / attendance.length) * 100) : 0;
 
-  // 3. Add state for exams modal
-  const [showExamsModal, setShowExamsModal] = useState(false);
+  // Get fee status
+  const getFeeStatus = () => {
+    // This would need to be implemented based on your fee structure
+    return '₹5,000'; // Placeholder
+  };
+
+  // Get average marks
+  const getAverageMarks = () => {
+    // This would need to be implemented based on your marks structure
+    return '85%'; // Placeholder
+  };
+
+  // Find the next upcoming event
+  const nextEvent = events && events.length > 0 ? events[0] : null;
+
+  // Update childStats for the event card
+  const childStats = [
+    { title: 'Attendance', value: `${attendancePercentage}%`, icon: 'checkmark-circle', color: '#4CAF50', subtitle: 'This month' },
+    { title: 'Fee Due', value: getFeeStatus(), icon: 'card', color: '#FF9800', subtitle: 'Due in 5 days' },
+    { title: 'Average Marks', value: getAverageMarks(), icon: 'document-text', color: '#2196F3', subtitle: 'This semester' },
+    { 
+      title: 'Upcoming Events', 
+      value: String(events.length), 
+      icon: 'calendar', 
+      color: '#9C27B0', 
+      subtitle: nextEvent ? `${nextEvent.title} (${nextEvent.event_date})` : 'No upcoming event',
+    },
+  ];
 
   const renderExamItem = ({ item, index }) => (
     <View style={styles.examItem}>
@@ -167,9 +139,9 @@ const ParentDashboard = ({ navigation }) => {
         <Ionicons name="calendar" size={24} color="#9C27B0" />
       </View>
       <View style={styles.examInfo}>
-        <Text style={styles.examSubject}>{item.subject}</Text>
-        <Text style={styles.examDetails}>{item.date} • {item.time}</Text>
-        <Text style={styles.examClass}>{item.class}</Text>
+        <Text style={styles.examSubject}>{item.subject_name}</Text>
+        <Text style={styles.examDetails}>{item.exam_date} • {item.exam_time}</Text>
+        <Text style={styles.examClass}>{item.class_name}</Text>
       </View>
       <TouchableOpacity style={styles.examAction}>
         <Ionicons name="chevron-forward" size={20} color="#9C27B0" />
@@ -179,12 +151,12 @@ const ParentDashboard = ({ navigation }) => {
 
   const renderEventItem = ({ item, index }) => (
     <View style={styles.eventItem}>
-      <View style={[styles.eventIcon, { backgroundColor: item.color }]}>
-        <Ionicons name={item.icon} size={24} color="#fff" />
+      <View style={[styles.eventIcon, { backgroundColor: item.color || '#FF9800' }]}>
+        <Ionicons name={item.icon || 'calendar'} size={24} color="#fff" />
       </View>
       <View style={styles.eventInfo}>
         <Text style={styles.eventTitle}>{item.title}</Text>
-        <Text style={styles.eventDetails}>{item.date} • {item.time}</Text>
+        <Text style={styles.eventDetails}>{item.event_date} • {item.event_time}</Text>
         <Text style={styles.eventDescription}>{item.description}</Text>
       </View>
     </View>
@@ -198,7 +170,7 @@ const ParentDashboard = ({ navigation }) => {
       <View style={styles.notificationContent}>
         <Text style={styles.notificationTitle}>{item.title}</Text>
         <Text style={styles.notificationMessage}>{item.message}</Text>
-        <Text style={styles.notificationTime}>{item.time}</Text>
+        <Text style={styles.notificationTime}>{new Date(item.created_at).toLocaleDateString()}</Text>
       </View>
     </View>
   );
@@ -212,12 +184,6 @@ const ParentDashboard = ({ navigation }) => {
       case 'event': return '#FF9800';
       case 'sports': return '#4CAF50';
       case 'meeting': return '#9C27B0';
-      case 'exhibition': return '#607D8B';
-      case 'art': return '#E91E63';
-      case 'competition': return '#795548';
-      case 'library': return '#8BC34A';
-      case 'music': return '#FF5722';
-      case 'counseling': return '#3F51B5';
       default: return '#666';
     }
   };
@@ -231,85 +197,52 @@ const ParentDashboard = ({ navigation }) => {
       case 'event': return 'trophy';
       case 'sports': return 'football';
       case 'meeting': return 'people';
-      case 'exhibition': return 'flask';
-      case 'art': return 'color-palette';
-      case 'competition': return 'calculator';
-      case 'library': return 'library';
-      case 'music': return 'musical-notes';
-      case 'counseling': return 'school';
       default: return 'notifications';
     }
   };
 
-  // 4. Render function for exams (same style as events)
   const renderExamCard = ({ item, index }) => (
     <View style={styles.eventItem}>
-      <View style={[styles.eventIcon, { backgroundColor: item.color }]}> 
-        <Ionicons name={item.icon} size={24} color="#fff" />
+      <View style={[styles.eventIcon, { backgroundColor: '#9C27B0' }]}> 
+        <Ionicons name="calendar" size={24} color="#fff" />
       </View>
       <View style={styles.eventInfo}>
-        <Text style={styles.eventTitle}>{item.title}</Text>
-        <Text style={styles.eventDetails}>{item.date} • {item.time}</Text>
-        <Text style={styles.eventDescription}>{item.description}</Text>
+        <Text style={styles.eventTitle}>{item.subject_name} Exam</Text>
+        <Text style={styles.eventDetails}>{item.exam_date} • {item.exam_time}</Text>
+        <Text style={styles.eventDescription}>{item.description || 'Exam scheduled'}</Text>
       </View>
     </View>
   );
 
-  // 1. Add state for notifications modal
-  const [showNotificationsModal, setShowNotificationsModal] = useState(false);
+  if (loading) {
+    return (
+      <View style={styles.container}>
+        <Header title="Parent Dashboard" showBack={false} showNotifications={true} />
+        <View style={styles.loadingContainer}>
+          <ActivityIndicator size="large" color="#FF9800" />
+          <Text style={styles.loadingText}>Loading dashboard...</Text>
+        </View>
+      </View>
+    );
+  }
 
-  // 2. Filter sortedNotifications for last 7 days
-  const weekNotifications = sortedNotifications.filter(n => {
-    if (n.time.includes('min') || n.time.includes('hour') || n.time.includes('hours')) return true;
-    if (n.time.includes('day')) {
-      const days = parseInt(n.time);
-      return days <= 7;
-    }
-    if (n.time.includes('days')) {
-      const days = parseInt(n.time);
-      return days <= 7;
-    }
-    return false;
-  });
-
-  // 1. Add state for student details modal
-  const [showStudentDetailsModal, setShowStudentDetailsModal] = useState(false);
-
-  // 2. Student details object
-  const studentDetails = {
-    name: 'Emma Johnson',
-    fatherName: 'Robert Johnson',
-    motherName: 'Sophia Johnson',
-    class: '5A',
-    rollNo: '15',
-    dob: '2014-03-12',
-    bloodGroup: 'A+',
-    mobile: '+91 9876543210',
-    address: '123, Green Avenue, Springfield',
-    email: 'emma.johnson@email.com',
-    gender: 'Female',
-    admissionNo: '2020-0051',
-  };
+  if (error) {
+    return (
+      <View style={styles.container}>
+        <Header title="Parent Dashboard" showBack={false} showNotifications={true} />
+        <View style={styles.errorContainer}>
+          <Ionicons name="alert-circle" size={48} color="#F44336" />
+          <Text style={styles.errorText}>Failed to load dashboard</Text>
+          <TouchableOpacity style={styles.retryButton} onPress={() => navigation.replace('ParentDashboard')}>
+            <Text style={styles.retryButtonText}>Retry</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+    );
+  }
 
   // Demo student image (local asset or placeholder)
-  const studentImage = require('../../../assets/icon.png'); // or use a placeholder URL
-
-  // Find the next upcoming event
-  const nextEvent = upcomingEvents && upcomingEvents.length > 0 ? upcomingEvents[0] : null;
-
-  // Update childStats for the event card
-  const childStats = [
-    { title: 'Attendance', value: '92%', icon: 'checkmark-circle', color: '#4CAF50', subtitle: 'This month' },
-    { title: 'Fee Due', value: '₹5,000', icon: 'card', color: '#FF9800', subtitle: 'Due in 5 days' },
-    { title: 'Average Marks', value: '85%', icon: 'document-text', color: '#2196F3', subtitle: 'This semester' },
-    { 
-      title: 'Upcoming Events', 
-      value: String(upcomingEvents.length), 
-      icon: 'calendar', 
-      color: '#9C27B0', 
-      subtitle: nextEvent ? `${nextEvent.title} (${nextEvent.date})` : 'No upcoming event',
-    },
-  ];
+  const studentImage = require('../../../assets/icon.png');
 
   return (
     <View style={styles.container}>
@@ -329,8 +262,8 @@ const ParentDashboard = ({ navigation }) => {
           <View style={styles.studentCardRow}>
             <Image source={studentImage} style={styles.studentAvatar} />
             <View style={{ flex: 1 }}>
-              <Text style={styles.studentCardName}>{studentDetails.name}</Text>
-              <Text style={styles.studentCardClass}>Class {studentDetails.class} • Roll No: {studentDetails.rollNo}</Text>
+              <Text style={styles.studentCardName}>{studentData?.name || 'Student Name'}</Text>
+              <Text style={styles.studentCardClass}>Class {studentData?.class_name} • Roll No: {studentData?.roll_number}</Text>
             </View>
             <Ionicons name="chevron-forward" size={28} color="#bbb" />
           </View>
@@ -385,8 +318,6 @@ const ParentDashboard = ({ navigation }) => {
           </View>
         </View>
 
-
-
         {/* Upcoming Events */}
         <View style={styles.section}>
           <View style={styles.sectionHeader}>
@@ -396,7 +327,7 @@ const ParentDashboard = ({ navigation }) => {
             </TouchableOpacity>
           </View>
           <FlatList
-            data={upcomingEvents.slice(0, 4)}
+            data={events.slice(0, 4)}
             renderItem={renderEventItem}
             keyExtractor={(item, index) => index.toString()}
             scrollEnabled={false}
@@ -412,7 +343,7 @@ const ParentDashboard = ({ navigation }) => {
             </TouchableOpacity>
           </View>
           <FlatList
-            data={sortedExams.slice(0, 4)}
+            data={exams.slice(0, 4)}
             renderItem={renderExamCard}
             keyExtractor={(item, index) => index.toString()}
             scrollEnabled={false}
@@ -428,7 +359,7 @@ const ParentDashboard = ({ navigation }) => {
             </TouchableOpacity>
           </View>
           <FlatList
-            data={sortedNotifications}
+            data={notifications.slice(0, 4)}
             renderItem={renderNotificationItem}
             keyExtractor={(item, index) => index.toString()}
             scrollEnabled={false}
@@ -457,11 +388,11 @@ const ParentDashboard = ({ navigation }) => {
                 <Text style={styles.attendanceTableColHeader}>Day</Text>
                 <Text style={styles.attendanceTableColHeader}>Status</Text>
               </View>
-              {weekAttendance.map((item, idx) => (
+              {attendance.map((item, idx) => (
                 <View key={idx} style={styles.attendanceTableRow}>
                   <Text style={styles.attendanceTableCol}>{item.date}</Text>
-                  <Text style={styles.attendanceTableCol}>{item.day}</Text>
-                  <Text style={[styles.attendanceTableCol, { color: item.status === 'Present' ? '#4CAF50' : '#F44336', fontWeight: 'bold' }]}>{item.status}</Text>
+                  <Text style={styles.attendanceTableCol}>{new Date(item.date).toLocaleDateString('en-US', { weekday: 'long' })}</Text>
+                  <Text style={[styles.attendanceTableCol, { color: item.status === 'present' ? '#4CAF50' : '#F44336', fontWeight: 'bold' }]}>{item.status}</Text>
                 </View>
               ))}
             </ScrollView>
@@ -485,14 +416,14 @@ const ParentDashboard = ({ navigation }) => {
               nestedScrollEnabled={true}
               scrollEventThrottle={16}
             >
-              {upcomingEvents.map((item, idx) => (
+              {events.map((item, idx) => (
                 <View key={idx} style={styles.modalEventItem}>
-                  <View style={[styles.modalEventIcon, { backgroundColor: item.color }]}>
-                    <Ionicons name={item.icon} size={24} color="#fff" />
+                  <View style={[styles.modalEventIcon, { backgroundColor: item.color || '#FF9800' }]}>
+                    <Ionicons name={item.icon || 'calendar'} size={24} color="#fff" />
                   </View>
                   <View style={styles.modalEventInfo}>
                     <Text style={styles.modalEventTitle}>{item.title}</Text>
-                    <Text style={styles.modalEventDetails}>{item.date} • {item.time}</Text>
+                    <Text style={styles.modalEventDetails}>{item.event_date} • {item.event_time}</Text>
                     <Text style={styles.modalEventDescription}>{item.description}</Text>
                   </View>
                 </View>
@@ -518,15 +449,15 @@ const ParentDashboard = ({ navigation }) => {
               nestedScrollEnabled={true}
               scrollEventThrottle={16}
             >
-              {sortedExams.map((item, idx) => (
+              {exams.map((item, idx) => (
                 <View key={idx} style={styles.modalEventItem}>
-                  <View style={[styles.modalEventIcon, { backgroundColor: item.color }]}>
-                    <Ionicons name={item.icon} size={24} color="#fff" />
+                  <View style={[styles.modalEventIcon, { backgroundColor: '#9C27B0' }]}>
+                    <Ionicons name="calendar" size={24} color="#fff" />
                   </View>
                   <View style={styles.modalEventInfo}>
-                    <Text style={styles.modalEventTitle}>{item.title}</Text>
-                    <Text style={styles.modalEventDetails}>{item.date} • {item.time}</Text>
-                    <Text style={styles.modalEventDescription}>{item.description}</Text>
+                    <Text style={styles.modalEventTitle}>{item.subject_name} Exam</Text>
+                    <Text style={styles.modalEventDetails}>{item.exam_date} • {item.exam_time}</Text>
+                    <Text style={styles.modalEventDescription}>{item.description || 'Exam scheduled'}</Text>
                   </View>
                 </View>
               ))}
@@ -540,7 +471,7 @@ const ParentDashboard = ({ navigation }) => {
         <View style={styles.modalOverlay}>
           <View style={styles.modalContent}>
             <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>Recent Notifications (Last 7 Days)</Text>
+              <Text style={styles.modalTitle}>Recent Notifications</Text>
               <TouchableOpacity onPress={() => setShowNotificationsModal(false)}>
                 <Ionicons name="close" size={24} color="#666" />
               </TouchableOpacity>
@@ -551,7 +482,7 @@ const ParentDashboard = ({ navigation }) => {
               nestedScrollEnabled={true}
               scrollEventThrottle={16}
             >
-              {weekNotifications.map((item, idx) => (
+              {notifications.map((item, idx) => (
                 <View key={idx} style={styles.notificationItem}>
                   {renderNotificationItem({ item, index: idx })}
                 </View>
@@ -575,18 +506,18 @@ const ParentDashboard = ({ navigation }) => {
               <View style={{ alignItems: 'center', marginBottom: 18 }}>
                 <Image source={studentImage} style={styles.studentAvatarLarge} />
               </View>
-              <View style={styles.detailsRow}><Text style={styles.detailsLabel}>Name:</Text><Text style={styles.detailsValue}>{studentDetails.name}</Text></View>
-              <View style={styles.detailsRow}><Text style={styles.detailsLabel}>Father's Name:</Text><Text style={styles.detailsValue}>{studentDetails.fatherName}</Text></View>
-              <View style={styles.detailsRow}><Text style={styles.detailsLabel}>Mother's Name:</Text><Text style={styles.detailsValue}>{studentDetails.motherName}</Text></View>
-              <View style={styles.detailsRow}><Text style={styles.detailsLabel}>Class:</Text><Text style={styles.detailsValue}>{studentDetails.class}</Text></View>
-              <View style={styles.detailsRow}><Text style={styles.detailsLabel}>Roll No:</Text><Text style={styles.detailsValue}>{studentDetails.rollNo}</Text></View>
-              <View style={styles.detailsRow}><Text style={styles.detailsLabel}>DOB:</Text><Text style={styles.detailsValue}>{studentDetails.dob}</Text></View>
-              <View style={styles.detailsRow}><Text style={styles.detailsLabel}>Blood Group:</Text><Text style={styles.detailsValue}>{studentDetails.bloodGroup}</Text></View>
-              <View style={styles.detailsRow}><Text style={styles.detailsLabel}>Mobile:</Text><Text style={styles.detailsValue}>{studentDetails.mobile}</Text></View>
-              <View style={styles.detailsRow}><Text style={styles.detailsLabel}>Gender:</Text><Text style={styles.detailsValue}>{studentDetails.gender}</Text></View>
-              <View style={styles.detailsRow}><Text style={styles.detailsLabel}>Admission No:</Text><Text style={styles.detailsValue}>{studentDetails.admissionNo}</Text></View>
-              <View style={styles.detailsRow}><Text style={styles.detailsLabel}>Email:</Text><Text style={styles.detailsValue}>{studentDetails.email}</Text></View>
-              <View style={styles.detailsRow}><Text style={styles.detailsLabel}>Address:</Text><Text style={styles.detailsValue}>{studentDetails.address}</Text></View>
+              <View style={styles.detailsRow}><Text style={styles.detailsLabel}>Name:</Text><Text style={styles.detailsValue}>{studentData?.name}</Text></View>
+              <View style={styles.detailsRow}><Text style={styles.detailsLabel}>Father's Name:</Text><Text style={styles.detailsValue}>{studentData?.father_name}</Text></View>
+              <View style={styles.detailsRow}><Text style={styles.detailsLabel}>Mother's Name:</Text><Text style={styles.detailsValue}>{studentData?.mother_name}</Text></View>
+              <View style={styles.detailsRow}><Text style={styles.detailsLabel}>Class:</Text><Text style={styles.detailsValue}>{studentData?.class_name}</Text></View>
+              <View style={styles.detailsRow}><Text style={styles.detailsLabel}>Roll No:</Text><Text style={styles.detailsValue}>{studentData?.roll_number}</Text></View>
+              <View style={styles.detailsRow}><Text style={styles.detailsLabel}>DOB:</Text><Text style={styles.detailsValue}>{studentData?.date_of_birth}</Text></View>
+              <View style={styles.detailsRow}><Text style={styles.detailsLabel}>Blood Group:</Text><Text style={styles.detailsValue}>{studentData?.blood_group}</Text></View>
+              <View style={styles.detailsRow}><Text style={styles.detailsLabel}>Mobile:</Text><Text style={styles.detailsValue}>{studentData?.phone}</Text></View>
+              <View style={styles.detailsRow}><Text style={styles.detailsLabel}>Gender:</Text><Text style={styles.detailsValue}>{studentData?.gender}</Text></View>
+              <View style={styles.detailsRow}><Text style={styles.detailsLabel}>Admission No:</Text><Text style={styles.detailsValue}>{studentData?.admission_number}</Text></View>
+              <View style={styles.detailsRow}><Text style={styles.detailsLabel}>Email:</Text><Text style={styles.detailsValue}>{studentData?.email}</Text></View>
+              <View style={styles.detailsRow}><Text style={styles.detailsLabel}>Address:</Text><Text style={styles.detailsValue}>{studentData?.address}</Text></View>
             </ScrollView>
           </View>
         </View>
@@ -960,6 +891,41 @@ const styles = StyleSheet.create({
     fontSize: 15,
     marginLeft: 8,
     flexWrap: 'wrap',
+  },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#f5f5f5',
+  },
+  loadingText: {
+    marginTop: 10,
+    color: '#666',
+    fontSize: 16,
+  },
+  errorContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#f5f5f5',
+    padding: 20,
+  },
+  errorText: {
+    color: '#F44336',
+    fontSize: 18,
+    textAlign: 'center',
+    marginBottom: 20,
+  },
+  retryButton: {
+    backgroundColor: '#FF9800',
+    paddingVertical: 12,
+    paddingHorizontal: 25,
+    borderRadius: 8,
+  },
+  retryButtonText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: 'bold',
   },
 });
 

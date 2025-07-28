@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   View, 
   Text, 
@@ -9,118 +9,177 @@ import {
   ScrollView, 
   Alert,
   Dimensions,
-  Platform
+  Platform,
+  ActivityIndicator
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import Header from '../../components/Header';
 import * as FileSystem from 'expo-file-system';
 import * as Sharing from 'expo-sharing';
 import * as Print from 'expo-print';
+import { dbHelpers } from '../../utils/supabase';
+import { useAuth } from '../../utils/AuthContext';
 
 const { width } = Dimensions.get('window');
 
-// Dummy data for report cards
-const DUMMY_REPORT_CARDS = [
-  {
-    id: '1',
-    examName: 'Final Term Examination',
-    examDate: '2024-12-15',
-    academicYear: '2024-2025',
-    class: '5A',
-    studentName: 'Rahul Kumar',
-    rollNumber: '101',
-    subjects: [
-      { name: 'Mathematics', marksObtained: 85, maxMarks: 100, grade: 'A', remarks: 'Excellent work in algebra and geometry' },
-      { name: 'English', marksObtained: 78, maxMarks: 100, grade: 'B+', remarks: 'Good comprehension skills, needs improvement in grammar' },
-      { name: 'Science', marksObtained: 92, maxMarks: 100, grade: 'A+', remarks: 'Outstanding performance in practical work' },
-      { name: 'Social Studies', marksObtained: 88, maxMarks: 100, grade: 'A', remarks: 'Very good understanding of historical events' },
-      { name: 'Hindi', marksObtained: 82, maxMarks: 100, grade: 'A-', remarks: 'Good reading and writing skills' }
-    ],
-    totalMarks: 425,
-    maxTotalMarks: 500,
-    averagePercentage: 85,
-    overallGrade: 'A',
-    rank: 3,
-    classTeacher: 'Mrs. Sarah Johnson',
-    principal: 'Mr. David Wilson'
-  },
-  {
-    id: '2',
-    examName: 'Mid Term Examination',
-    examDate: '2024-10-20',
-    academicYear: '2024-2025',
-    class: '5A',
-    studentName: 'Rahul Kumar',
-    rollNumber: '101',
-    subjects: [
-      { name: 'Mathematics', marksObtained: 82, maxMarks: 100, grade: 'A-', remarks: 'Good progress in arithmetic' },
-      { name: 'English', marksObtained: 75, maxMarks: 100, grade: 'B+', remarks: 'Improving in vocabulary and writing' },
-      { name: 'Science', marksObtained: 88, maxMarks: 100, grade: 'A', remarks: 'Excellent in science experiments' },
-      { name: 'Social Studies', marksObtained: 85, maxMarks: 100, grade: 'A', remarks: 'Good knowledge of geography' },
-      { name: 'Hindi', marksObtained: 80, maxMarks: 100, grade: 'A-', remarks: 'Satisfactory performance' }
-    ],
-    totalMarks: 410,
-    maxTotalMarks: 500,
-    averagePercentage: 82,
-    overallGrade: 'A-',
-    rank: 5,
-    classTeacher: 'Mrs. Sarah Johnson',
-    principal: 'Mr. David Wilson'
-  },
-  {
-    id: '3',
-    examName: 'Unit Test 1',
-    examDate: '2024-09-15',
-    academicYear: '2024-2025',
-    class: '5A',
-    studentName: 'Rahul Kumar',
-    rollNumber: '101',
-    subjects: [
-      { name: 'Mathematics', marksObtained: 18, maxMarks: 25, grade: 'A-', remarks: 'Good understanding of basic concepts' },
-      { name: 'English', marksObtained: 20, maxMarks: 25, grade: 'A', remarks: 'Excellent essay writing' },
-      { name: 'Science', marksObtained: 22, maxMarks: 25, grade: 'A+', remarks: 'Outstanding in practical work' },
-      { name: 'Social Studies', marksObtained: 19, maxMarks: 25, grade: 'A-', remarks: 'Good knowledge of current affairs' },
-      { name: 'Hindi', marksObtained: 21, maxMarks: 25, grade: 'A', remarks: 'Very good reading skills' }
-    ],
-    totalMarks: 100,
-    maxTotalMarks: 125,
-    averagePercentage: 80,
-    overallGrade: 'A',
-    rank: 4,
-    classTeacher: 'Mrs. Sarah Johnson',
-    principal: 'Mr. David Wilson'
-  },
-  {
-    id: '4',
-    examName: 'Final Term Examination',
-    examDate: '2024-05-20',
-    academicYear: '2023-2024',
-    class: '4A',
-    studentName: 'Rahul Kumar',
-    rollNumber: '101',
-    subjects: [
-      { name: 'Mathematics', marksObtained: 80, maxMarks: 100, grade: 'A-', remarks: 'Good progress in mathematics' },
-      { name: 'English', marksObtained: 75, maxMarks: 100, grade: 'B+', remarks: 'Improving in language skills' },
-      { name: 'Science', marksObtained: 85, maxMarks: 100, grade: 'A', remarks: 'Good understanding of scientific concepts' },
-      { name: 'Social Studies', marksObtained: 82, maxMarks: 100, grade: 'A-', remarks: 'Satisfactory performance' },
-      { name: 'Hindi', marksObtained: 78, maxMarks: 100, grade: 'B+', remarks: 'Good reading and writing' }
-    ],
-    totalMarks: 400,
-    maxTotalMarks: 500,
-    averagePercentage: 80,
-    overallGrade: 'A-',
-    rank: 6,
-    classTeacher: 'Mrs. Priya Sharma',
-    principal: 'Mr. David Wilson'
-  }
-];
-
 const ViewReportCard = () => {
+  const { user } = useAuth();
+  const [reportCards, setReportCards] = useState([]);
   const [selectedReportCard, setSelectedReportCard] = useState(null);
   const [modalVisible, setModalVisible] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+
+  useEffect(() => {
+    const fetchReportCards = async () => {
+      setLoading(true);
+      setError(null);
+      try {
+        // Get parent's student data
+        const parentData = await dbHelpers.read('parents', { user_id: user.id });
+        if (!parentData || parentData.length === 0) {
+          throw new Error('Parent data not found');
+        }
+        const parent = parentData[0];
+        
+        // Get student details
+        const studentDetails = await dbHelpers.getStudentById(parent.student_id);
+        
+        // Get exams for student's class
+        const exams = await dbHelpers.read('exams', { class_id: studentDetails.class_id });
+        
+        // Get marks for each exam
+        const reportCardsData = [];
+        for (const exam of exams) {
+          const marks = await dbHelpers.read('marks', { 
+            student_id: parent.student_id, 
+            exam_id: exam.id 
+          });
+          
+          if (marks && marks.length > 0) {
+            // Get subject details for each mark
+            const subjectsData = [];
+            let totalMarks = 0;
+            let maxTotalMarks = 0;
+            
+            for (const mark of marks) {
+              const subject = await dbHelpers.read('subjects', { id: mark.subject_id });
+              if (subject && subject.length > 0) {
+                const subjectData = subject[0];
+                subjectsData.push({
+                  name: subjectData.name,
+                  marksObtained: mark.marks_obtained,
+                  maxMarks: mark.max_marks,
+                  grade: calculateGrade(mark.marks_obtained, mark.max_marks),
+                  remarks: mark.remarks || 'Good performance'
+                });
+                totalMarks += mark.marks_obtained;
+                maxTotalMarks += mark.max_marks;
+              }
+            }
+            
+            if (subjectsData.length > 0) {
+              const averagePercentage = Math.round((totalMarks / maxTotalMarks) * 100);
+              const overallGrade = calculateGrade(totalMarks, maxTotalMarks);
+              
+              reportCardsData.push({
+                id: exam.id,
+                examName: exam.exam_name,
+                examDate: exam.exam_date,
+                academicYear: exam.academic_year || '2024-2025',
+                class: studentDetails.class_name,
+                studentName: studentDetails.name,
+                rollNumber: studentDetails.roll_number,
+                subjects: subjectsData,
+                totalMarks: totalMarks,
+                maxTotalMarks: maxTotalMarks,
+                averagePercentage: averagePercentage,
+                overallGrade: overallGrade,
+                rank: await calculateRank(parent.student_id, exam.id, studentDetails.class_id),
+                classTeacher: await getClassTeacher(studentDetails.class_id),
+                principal: 'Mr. David Wilson' // This could be fetched from settings or admin table
+              });
+            }
+          }
+        }
+        
+        setReportCards(reportCardsData);
+      } catch (err) {
+        console.error('Error fetching report cards:', err);
+        setError(err.message);
+        Alert.alert('Error', 'Failed to load report cards');
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    if (user) {
+      fetchReportCards();
+    }
+  }, [user]);
+
+  const calculateGrade = (obtained, max) => {
+    const percentage = (obtained / max) * 100;
+    if (percentage >= 90) return 'A+';
+    if (percentage >= 80) return 'A';
+    if (percentage >= 70) return 'A-';
+    if (percentage >= 60) return 'B+';
+    if (percentage >= 50) return 'B';
+    if (percentage >= 40) return 'B-';
+    if (percentage >= 30) return 'C+';
+    if (percentage >= 20) return 'C';
+    return 'C-';
+  };
+
+  const calculateRank = async (studentId, examId, classId) => {
+    try {
+      // Get all students in the class
+      const classStudents = await dbHelpers.getStudentsByClass(classId);
+      
+      // Get marks for all students in this exam
+      const allMarks = [];
+      for (const student of classStudents) {
+        const studentMarks = await dbHelpers.read('marks', { 
+          student_id: student.id, 
+          exam_id: examId 
+        });
+        
+        if (studentMarks && studentMarks.length > 0) {
+          const totalMarks = studentMarks.reduce((sum, mark) => sum + mark.marks_obtained, 0);
+          allMarks.push({ studentId: student.id, totalMarks });
+        }
+      }
+      
+      // Sort by total marks (descending)
+      allMarks.sort((a, b) => b.totalMarks - a.totalMarks);
+      
+      // Find rank
+      const rank = allMarks.findIndex(mark => mark.studentId === studentId) + 1;
+      return rank || 1;
+    } catch (error) {
+      console.error('Error calculating rank:', error);
+      return 1;
+    }
+  };
+
+  const getClassTeacher = async (classId) => {
+    try {
+      const classData = await dbHelpers.read('classes', { id: classId });
+      if (classData && classData.length > 0) {
+        const teacher = await dbHelpers.read('teachers', { id: classData[0].teacher_id });
+        if (teacher && teacher.length > 0) {
+          return `${teacher[0].title || 'Mr.'} ${teacher[0].name}`;
+        }
+      }
+      return 'Class Teacher';
+    } catch (error) {
+      console.error('Error getting class teacher:', error);
+      return 'Class Teacher';
+    }
+  };
 
   // Group report cards by academic year
-  const groupedReportCards = DUMMY_REPORT_CARDS.reduce((groups, card) => {
+  const groupedReportCards = reportCards.reduce((groups, card) => {
     const year = card.academicYear;
     if (!groups[year]) {
       groups[year] = [];
@@ -523,6 +582,33 @@ const ViewReportCard = () => {
     </View>
   );
 
+  if (loading) {
+    return (
+      <View style={styles.container}>
+        <Header title="View Report Card" showBack={true} />
+        <View style={styles.loadingContainer}>
+          <ActivityIndicator size="large" color="#2196F3" />
+          <Text style={styles.loadingText}>Loading report cards...</Text>
+        </View>
+      </View>
+    );
+  }
+
+  if (error) {
+    return (
+      <View style={styles.container}>
+        <Header title="View Report Card" showBack={true} />
+        <View style={styles.errorContainer}>
+          <Ionicons name="alert-circle" size={48} color="#F44336" />
+          <Text style={styles.errorText}>Failed to load report cards</Text>
+          <TouchableOpacity style={styles.retryButton} onPress={() => window.location.reload()}>
+            <Text style={styles.retryButtonText}>Retry</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+    );
+  }
+
   return (
     <View style={styles.container}>
       <Header title="View Report Card" showBack={true} />
@@ -533,13 +619,21 @@ const ViewReportCard = () => {
           View and download your child's academic performance reports
         </Text>
         
-        <FlatList
-          data={sortedYears}
-          renderItem={renderYearSection}
-          keyExtractor={(item) => item}
-          showsVerticalScrollIndicator={false}
-          contentContainerStyle={styles.listContainer}
-        />
+        {reportCards.length === 0 ? (
+          <View style={styles.emptyContainer}>
+            <Ionicons name="document-text" size={64} color="#ccc" />
+            <Text style={styles.emptyText}>No report cards available</Text>
+            <Text style={styles.emptySubtext}>Report cards will appear here once exams are completed and marks are entered.</Text>
+          </View>
+        ) : (
+          <FlatList
+            data={sortedYears}
+            renderItem={renderYearSection}
+            keyExtractor={(item) => item}
+            showsVerticalScrollIndicator={false}
+            contentContainerStyle={styles.listContainer}
+          />
+        )}
       </View>
 
       {/* Report Card Detail Modal */}
@@ -986,6 +1080,61 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontWeight: '500',
     marginLeft: 8,
+  },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#f5f5f5',
+  },
+  loadingText: {
+    marginTop: 10,
+    color: '#666',
+    fontSize: 16,
+  },
+  errorContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+    backgroundColor: '#f5f5f5',
+  },
+  errorText: {
+    fontSize: 18,
+    color: '#F44336',
+    marginTop: 10,
+    textAlign: 'center',
+  },
+  retryButton: {
+    marginTop: 20,
+    paddingVertical: 10,
+    paddingHorizontal: 20,
+    backgroundColor: '#2196F3',
+    borderRadius: 8,
+  },
+  retryButtonText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '500',
+  },
+  emptyContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+    backgroundColor: '#f5f5f5',
+  },
+  emptyText: {
+    fontSize: 18,
+    color: '#666',
+    marginTop: 10,
+    textAlign: 'center',
+  },
+  emptySubtext: {
+    fontSize: 14,
+    color: '#999',
+    marginTop: 5,
+    textAlign: 'center',
   },
 });
 

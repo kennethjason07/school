@@ -1,34 +1,21 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { View, Text, StyleSheet, FlatList, TouchableOpacity, TextInput, KeyboardAvoidingView, Platform, Image } from 'react-native';
+import { View, Text, StyleSheet, FlatList, TouchableOpacity, TextInput, KeyboardAvoidingView, Platform, Image, ActivityIndicator, Alert } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import Header from '../../components/Header';
 import * as ImagePicker from 'expo-image-picker';
 import { useFocusEffect } from '@react-navigation/native';
-
-// Mock teachers assigned to the student
-const mockTeachers = [
-  { id: 't1', name: 'Mrs. Sarah Johnson', subject: 'Mathematics' },
-  { id: 't2', name: 'Mr. David Wilson', subject: 'English' },
-  { id: 't3', name: 'Ms. Emily Brown', subject: 'Science' },
-];
-
-// Mock chat history per teacher
-const mockChats = {
-  t1: [
-    { id: 'm1', sender: 'student', text: 'Hi Ma’am!', timestamp: '09:00 AM', type: 'text' },
-    { id: 'm2', sender: 'teacher', text: 'Hello! How can I help you?', timestamp: '09:01 AM', type: 'text' },
-  ],
-  t2: [
-    { id: 'm1', sender: 'teacher', text: 'Don’t forget the essay.', timestamp: '08:00 AM', type: 'text' },
-    { id: 'm2', sender: 'student', text: 'Thank you!', timestamp: '08:01 AM', type: 'text' },
-  ],
-  t3: [],
-};
+import { useAuth } from '../../utils/AuthContext';
+import { supabase, TABLES } from '../../utils/supabase';
 
 const StudentChatWithTeacher = () => {
+  const { user } = useAuth();
+  const [teachers, setTeachers] = useState([]);
   const [selectedTeacher, setSelectedTeacher] = useState(null);
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState('');
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+  const [sending, setSending] = useState(false);
   const flatListRef = useRef(null);
 
   // Reset teacher selection and messages on screen focus
@@ -36,38 +23,142 @@ const StudentChatWithTeacher = () => {
     React.useCallback(() => {
       setSelectedTeacher(null);
       setMessages([]);
+      fetchTeachers();
     }, [])
   );
 
-  // Sort teachers by most recent chat (latest message timestamp)
-  const getSortedTeachers = () => {
-    return [...mockTeachers].sort((a, b) => {
-      const aMsgs = mockChats[a.id] || [];
-      const bMsgs = mockChats[b.id] || [];
-      const aTime = aMsgs.length ? new Date('1970/01/01 ' + aMsgs[aMsgs.length - 1].timestamp) : new Date(0);
-      const bTime = bMsgs.length ? new Date('1970/01/01 ' + bMsgs[bMsgs.length - 1].timestamp) : new Date(0);
-      return bTime - aTime;
-    });
+  // Fetch teachers assigned to the student
+  const fetchTeachers = async () => {
+    try {
+      setLoading(true);
+      setError(null);
+      // Get student info
+      const { data: student, error: studentError } = await supabase
+        .from(TABLES.STUDENTS)
+        .select('id, class_id, section_id')
+        .eq('user_id', user.id)
+        .single();
+      if (studentError) throw studentError;
+      // Get teacher assignments
+      const { data: assignments, error: assignError } = await supabase
+        .from(TABLES.TEACHER_SUBJECTS)
+        .select('teacher_id, subjects(name), teachers(full_name, id)')
+        .eq('class_id', student.class_id)
+        .eq('section_id', student.section_id);
+      if (assignError) throw assignError;
+      // Unique teachers
+      const uniqueTeachers = [];
+      const seen = new Set();
+      assignments.forEach(a => {
+        if (!seen.has(a.teacher_id)) {
+          uniqueTeachers.push({
+            id: a.teachers.id,
+            name: a.teachers.full_name,
+            subject: a.subjects.name,
+          });
+          seen.add(a.teacher_id);
+        }
+      });
+      setTeachers(uniqueTeachers);
+    } catch (err) {
+      setError(err.message);
+      setTeachers([]);
+      console.error('Fetch teachers error:', err);
+    } finally {
+      setLoading(false);
+    }
   };
 
-  // Select a teacher and load chat
-  const handleSelectTeacher = (teacher) => {
-    setSelectedTeacher(teacher);
-    setMessages(mockChats[teacher.id] || []);
+  // Fetch chat messages for selected teacher
+  const fetchMessages = async (teacher) => {
+    try {
+      setLoading(true);
+      setError(null);
+      setSelectedTeacher(teacher);
+      // Get student info
+      const { data: student, error: studentError } = await supabase
+        .from(TABLES.STUDENTS)
+        .select('id')
+        .eq('user_id', user.id)
+        .single();
+      if (studentError) throw studentError;
+      // Get messages
+      const { data: msgs, error: msgError } = await supabase
+        .from(TABLES.MESSAGES)
+        .select('*')
+        .or(`(sender_id.eq.${student.id},receiver_id.eq.${teacher.id}),(sender_id.eq.${teacher.id},receiver_id.eq.${student.id})`)
+        .order('created_at', { ascending: true });
+      if (msgError) throw msgError;
+      setMessages(msgs || []);
+    } catch (err) {
+      setError(err.message);
+      setMessages([]);
+      console.error('Fetch messages error:', err);
+    } finally {
+      setLoading(false);
+    }
   };
+
+  // Real-time subscription for messages
+  useEffect(() => {
+    if (!selectedTeacher) return;
+    let subscription;
+    (async () => {
+      // Get student info
+      const { data: student } = await supabase
+        .from(TABLES.STUDENTS)
+        .select('id')
+        .eq('user_id', user.id)
+        .single();
+      subscription = supabase
+        .channel('student-chat-messages')
+        .on('postgres_changes', { event: '*', schema: 'public', table: TABLES.MESSAGES }, (payload) => {
+          // Only update if the message is for this chat
+          if (
+            (payload.new.sender_id === student.id && payload.new.receiver_id === selectedTeacher.id) ||
+            (payload.new.sender_id === selectedTeacher.id && payload.new.receiver_id === student.id)
+          ) {
+            fetchMessages(selectedTeacher);
+          }
+        })
+        .subscribe();
+    })();
+    return () => {
+      if (subscription) subscription.unsubscribe();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedTeacher]);
 
   // Send a message
-  const handleSend = () => {
-    if (!input.trim()) return;
-    const newMsg = {
-      id: 'm' + (messages.length + 1),
-      sender: 'student',
-      text: input,
-      timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-      type: 'text',
-    };
-    setMessages([...messages, newMsg]);
-    setInput('');
+  const handleSend = async () => {
+    if (!input.trim() || !selectedTeacher) return;
+    setSending(true);
+    try {
+      // Get student info
+      const { data: student } = await supabase
+        .from(TABLES.STUDENTS)
+        .select('id')
+        .eq('user_id', user.id)
+        .single();
+      const newMsg = {
+        sender_id: student.id,
+        receiver_id: selectedTeacher.id,
+        text: input,
+        type: 'text',
+        created_at: new Date().toISOString(),
+      };
+      const { error: sendError } = await supabase
+        .from(TABLES.MESSAGES)
+        .insert(newMsg);
+      if (sendError) throw sendError;
+      setInput('');
+      // fetchMessages(selectedTeacher); // Real-time will update
+    } catch (err) {
+      Alert.alert('Error', 'Failed to send message.');
+      console.error('Send message error:', err);
+    } finally {
+      setSending(false);
+    }
   };
 
   // Attachment handler
@@ -86,15 +177,24 @@ const StudentChatWithTeacher = () => {
       if (!result.canceled && result.assets && result.assets.length > 0) {
         const asset = result.assets[0];
         const isImage = asset.type && asset.type.startsWith('image');
+        // Get student info
+        const { data: student } = await supabase
+          .from(TABLES.STUDENTS)
+          .select('id')
+          .eq('user_id', user.id)
+          .single();
         const newMsg = {
-          id: 'm' + (messages.length + 1),
-          sender: 'student',
-          timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+          sender_id: student.id,
+          receiver_id: selectedTeacher.id,
           type: isImage ? 'image' : 'file',
           uri: asset.uri,
-          fileName: asset.fileName || asset.uri.split('/').pop(),
+          file_name: asset.fileName || asset.uri.split('/').pop(),
+          created_at: new Date().toISOString(),
         };
-        setMessages([...messages, newMsg]);
+        const { error: sendError } = await supabase
+          .from(TABLES.MESSAGES)
+          .insert(newMsg);
+        if (sendError) throw sendError;
       }
     } catch (e) {
       alert('Failed to pick file: ' + e.message);
@@ -114,17 +214,39 @@ const StudentChatWithTeacher = () => {
     }
   }, [messages]);
 
+  // Sort teachers by most recent chat (latest message timestamp)
+  const getSortedTeachers = () => {
+    return [...teachers].sort((a, b) => {
+      const aMsgs = messages.filter(m => m.sender_id === a.id || m.receiver_id === a.id);
+      const bMsgs = messages.filter(m => m.sender_id === b.id || m.receiver_id === b.id);
+      const aTime = aMsgs.length ? new Date(aMsgs[aMsgs.length - 1].created_at) : new Date(0);
+      const bTime = bMsgs.length ? new Date(bMsgs[bMsgs.length - 1].created_at) : new Date(0);
+      return bTime - aTime;
+    });
+  };
+
   return (
     <View style={styles.container}>
       <Header title="Chat With Teacher" showBack={true} />
-      {!selectedTeacher ? (
+      {loading ? (
+        <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
+          <ActivityIndicator size="large" color="#1976d2" />
+        </View>
+      ) : error ? (
+        <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
+          <Text style={{ color: '#d32f2f', fontSize: 16, marginBottom: 12, textAlign: 'center' }}>Error: {error}</Text>
+          <TouchableOpacity onPress={fetchTeachers} style={{ backgroundColor: '#1976d2', padding: 12, borderRadius: 8 }}>
+            <Text style={{ color: '#fff', fontWeight: 'bold' }}>Retry</Text>
+          </TouchableOpacity>
+        </View>
+      ) : !selectedTeacher ? (
         <View style={styles.teacherListContainer}>
           <Text style={styles.sectionTitle}>Your Teachers</Text>
           <FlatList
             data={getSortedTeachers()}
             keyExtractor={item => item.id}
             renderItem={({ item }) => (
-              <TouchableOpacity style={styles.teacherCard} onPress={() => handleSelectTeacher(item)}>
+              <TouchableOpacity style={styles.teacherCard} onPress={() => fetchMessages(item)}>
                 <Ionicons name="person-circle" size={36} color="#1976d2" style={{ marginRight: 12 }} />
                 <View>
                   <Text style={styles.teacherName}>{item.name}</Text>
@@ -155,30 +277,30 @@ const StudentChatWithTeacher = () => {
           <FlatList
             ref={flatListRef}
             data={[...messages]}
-            keyExtractor={item => item.id}
+            keyExtractor={item => item.id?.toString() || Math.random().toString()}
             renderItem={({ item }) => (
-              <View style={[styles.messageRow, item.sender === 'student' ? styles.messageRight : styles.messageLeft]}>
-                <View style={[styles.messageBubble, item.sender === 'student' ? styles.bubbleParent : styles.bubbleTeacher]}>
+              <View style={[styles.messageRow, item.sender_id === user.id ? styles.messageRight : styles.messageLeft]}>
+                <View style={[styles.messageBubble, item.sender_id === user.id ? styles.bubbleParent : styles.bubbleTeacher]}>
                   {item.type === 'image' && (
                     <Image source={{ uri: item.uri }} style={styles.chatImage} />
                   )}
                   {item.type === 'file' && (
                     <View style={styles.fileRow}>
                       <Ionicons name="document" size={20} color="#1976d2" style={{ marginRight: 6 }} />
-                      <Text style={styles.fileName}>{item.fileName}</Text>
+                      <Text style={styles.fileName}>{item.file_name}</Text>
                     </View>
                   )}
                   {(!item.type || item.type === 'text') && (
                     <Text style={styles.messageText}>{item.text}</Text>
                   )}
-                  <Text style={styles.messageTime}>{item.timestamp}</Text>
+                  <Text style={styles.messageTime}>{item.created_at ? new Date(item.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : ''}</Text>
                 </View>
               </View>
             )}
             contentContainerStyle={styles.chatList}
           />
           <View style={styles.inputRow}>
-            <TouchableOpacity style={styles.attachBtn} onPress={handleAttach}>
+            <TouchableOpacity style={styles.attachBtn} onPress={handleAttach} disabled={sending}>
               <Ionicons name="attach" size={22} color="#1976d2" />
             </TouchableOpacity>
             <TextInput
@@ -188,8 +310,9 @@ const StudentChatWithTeacher = () => {
               onChangeText={setInput}
               onSubmitEditing={handleSend}
               returnKeyType="send"
+              editable={!sending}
             />
-            <TouchableOpacity style={styles.sendBtn} onPress={handleSend}>
+            <TouchableOpacity style={styles.sendBtn} onPress={handleSend} disabled={sending}>
               <Ionicons name="send" size={22} color="#fff" />
             </TouchableOpacity>
           </View>

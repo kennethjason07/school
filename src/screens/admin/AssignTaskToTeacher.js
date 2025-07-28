@@ -1,107 +1,243 @@
-import React, { useState } from 'react';
-import { View, Text, StyleSheet, FlatList, TouchableOpacity, TextInput, Modal, Button, Platform } from 'react-native';
+import React, { useState, useEffect } from 'react';
+import { View, Text, StyleSheet, FlatList, TouchableOpacity, TextInput, Modal, Button, Platform, Alert } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import Header from '../../components/Header';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import DropDownPicker from 'react-native-dropdown-picker';
+import { supabase, dbHelpers } from '../../utils/supabase';
 
-// Mock teachers
-const mockTeachers = [
-  { id: 't1', name: 'Sarah Johnson' },
-  { id: 't2', name: 'David Wilson' },
-  { id: 't3', name: 'Emily Brown' },
-  { id: 't4', name: 'James Davis' },
-  { id: 't5', name: 'Lisa Anderson' },
-];
-
-// Mock priorities and statuses
+// Priorities and statuses
 const priorities = ['Low', 'Medium', 'High'];
 const statuses = ['Pending', 'In Progress', 'Completed'];
 
-const initialTasks = [
-  { id: '1', title: 'Prepare Math Quiz', description: 'Create quiz for class 6A', dueDate: '2024-07-15', priority: 'High', status: 'Pending', teachers: ['t1'] },
-  { id: '2', title: 'Update Attendance', description: 'Mark attendance for June', dueDate: '2024-07-10', priority: 'Medium', status: 'In Progress', teachers: ['t2', 't3'] },
-];
-
-// Helper to format date as DD-MM-YYYY
-function formatDateDMY(dateStr) {
-  if (!dateStr) return '';
-  const d = new Date(dateStr);
-  const day = String(d.getDate()).padStart(2, '0');
-  const month = String(d.getMonth() + 1).padStart(2, '0');
-  const year = d.getFullYear();
-  return `${day}-${month}-${year}`;
-}
-
-const AssignTaskToTeacher = () => {
-  const [tasks, setTasks] = useState(initialTasks);
+const AssignTaskToTeacher = ({ navigation }) => {
+  const [loading, setLoading] = useState(true);
+  const [tasks, setTasks] = useState([]);
+  const [teachers, setTeachers] = useState([]);
   const [modalVisible, setModalVisible] = useState(false);
   const [editTask, setEditTask] = useState(null);
-  const [form, setForm] = useState({ title: '', description: '', dueDate: '', priority: 'Medium', status: 'Pending', teachers: [] });
+  const [form, setForm] = useState({
+    title: '',
+    description: '',
+    dueDate: '',
+    priority: 'Medium',
+    status: 'Pending',
+    teacher_ids: []
+  });
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [search, setSearch] = useState('');
-  const [teacherSearch, setTeacherSearch] = useState('');
   const [filterStatus, setFilterStatus] = useState('All');
-  const [teacherDropdownOpen, setTeacherDropdownOpen] = useState(false);
-  const [teacherDropdownItems, setTeacherDropdownItems] = useState(
-    mockTeachers.map(t => ({ label: t.name, value: t.id }))
-  );
+  const [teacherSearch, setTeacherSearch] = useState('');
+  const [error, setError] = useState(null);
+
+  useEffect(() => {
+    loadAllData();
+  }, []);
+
+  const loadAllData = async () => {
+    try {
+      // Load tasks
+      const { data: tasksData, error: tasksError } = await supabase
+        .from('tasks')
+        .select('*')
+        .order('due_date', { ascending: true });
+      if (tasksError) throw tasksError;
+      setTasks(tasksData);
+
+      // Load teachers
+      const { data: teachersData, error: teachersError } = await supabase
+        .from('teachers')
+        .select('*')
+        .order('name', { ascending: true });
+      if (teachersError) throw teachersError;
+      setTeachers(teachersData);
+
+    } catch (error) {
+      console.error('Error loading data:', error);
+      setError('Failed to load tasks and teachers');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Helper to format date as DD-MM-YYYY
+  function formatDateDMY(dateStr) {
+    if (!dateStr) return '';
+    const d = new Date(dateStr);
+    const day = String(d.getDate()).padStart(2, '0');
+    const month = String(d.getMonth() + 1).padStart(2, '0');
+    const year = d.getFullYear();
+    return `${day}-${month}-${year}`;
+  }
 
   // Filtered tasks
   const filteredTasks = tasks.filter(task => {
     const matchesStatus = filterStatus === 'All' || task.status === filterStatus;
     const matchesSearch = task.title.toLowerCase().includes(search.toLowerCase()) ||
-      task.teachers.some(tid => mockTeachers.find(t => t.id === tid)?.name.toLowerCase().includes(search.toLowerCase()));
+      task.teachers.some(tid => teachers.find(t => t.id === tid)?.name.toLowerCase().includes(search.toLowerCase()));
     return matchesStatus && matchesSearch;
   });
 
   // Filtered teachers for selection
-  const filteredTeachers = mockTeachers.filter(t => t.name.toLowerCase().includes(teacherSearch.toLowerCase()));
+  const filteredTeachers = teachers.filter(t => t.name.toLowerCase().includes(teacherSearch.toLowerCase()));
 
   // Open modal for new/edit task
   const openModal = (task = null) => {
     setEditTask(task);
     if (task) {
-      setForm({ ...task });
+      setForm({ 
+        ...task,
+        teacher_ids: task.teacher_ids || [],
+        dueDate: task.due_date
+      });
     } else {
-      setForm({ title: '', description: '', dueDate: '', priority: 'Medium', status: 'Pending', teachers: [] });
+      setForm({
+        title: '',
+        description: '',
+        dueDate: '',
+        priority: 'Medium',
+        status: 'Pending',
+        teacher_ids: []
+      });
     }
     setModalVisible(true);
   };
 
   // Save (add/edit) task
-  const handleSave = () => {
-    if (!form.title.trim() || !form.dueDate || form.teachers.length === 0) {
-      alert('Please fill all required fields and select at least one teacher.');
+  const handleSave = async () => {
+    if (!form.title.trim() || !form.dueDate || form.teacher_ids.length === 0) {
+      Alert.alert('Error', 'Please fill all required fields and select at least one teacher.');
       return;
     }
-    if (editTask) {
-      setTasks(tasks.map(t => t.id === editTask.id ? { ...form, id: editTask.id } : t));
-    } else {
-      setTasks([{ ...form, id: Date.now().toString() }, ...tasks]);
+
+    try {
+      if (editTask) {
+        // Update existing task
+        const { error: updateError } = await supabase
+          .from('tasks')
+          .update({
+            title: form.title,
+            description: form.description,
+            due_date: form.dueDate,
+            priority: form.priority,
+            status: form.status,
+            teacher_ids: form.teacher_ids
+          })
+          .eq('id', editTask.id);
+
+        if (updateError) throw updateError;
+      } else {
+        // Create new task
+        const { error: insertError } = await supabase
+          .from('tasks')
+          .insert({
+            title: form.title,
+            description: form.description,
+            due_date: form.dueDate,
+            priority: form.priority,
+            status: form.status,
+            teacher_ids: form.teacher_ids
+          });
+
+        if (insertError) throw insertError;
+      }
+
+      // Refresh data
+      await loadAllData();
+      setModalVisible(false);
+      setEditTask(null);
+      setForm({
+        title: '',
+        description: '',
+        dueDate: '',
+        priority: 'Medium',
+        status: 'Pending',
+        teacher_ids: []
+      });
+
+      Alert.alert('Success', editTask ? 'Task updated successfully!' : 'Task created successfully!');
+    } catch (error) {
+      console.error('Error saving task:', error);
+      Alert.alert('Error', 'Failed to save task. Please try again.');
     }
-    setModalVisible(false);
-    setEditTask(null);
-    setForm({ title: '', description: '', dueDate: '', priority: 'Medium', status: 'Pending', teachers: [] });
-    // Simulate notification
-    alert('Teachers notified!');
   };
 
   // Delete task
-  const handleDelete = (id) => {
-    setTasks(tasks.filter(t => t.id !== id));
+  const handleDelete = async (taskId) => {
+    try {
+      Alert.alert(
+        'Delete Task',
+        'Are you sure you want to delete this task?',
+        [
+          { text: 'Cancel', style: 'cancel' },
+          {
+            text: 'Delete',
+            style: 'destructive',
+            onPress: async () => {
+              const { error } = await supabase
+                .from('tasks')
+                .delete()
+                .eq('id', taskId);
+
+              if (error) throw error;
+
+              // Refresh data
+              await loadAllData();
+              Alert.alert('Success', 'Task deleted successfully!');
+            }
+          }
+        ]
+      );
+    } catch (error) {
+      console.error('Error deleting task:', error);
+      Alert.alert('Error', 'Failed to delete task');
+    }
   };
 
   // Toggle teacher selection
-  const toggleTeacher = (tid) => {
-    setForm(f => f.teachers.includes(tid) ? { ...f, teachers: f.teachers.filter(id => id !== tid) } : { ...f, teachers: [...f.teachers, tid] });
+  const toggleTeacher = (teacherId) => {
+    setForm(f => f.teacher_ids.includes(teacherId) 
+      ? { ...f, teacher_ids: f.teacher_ids.filter(id => id !== teacherId) }
+      : { ...f, teacher_ids: [...f.teacher_ids, teacherId] }
+    );
   };
 
   // Date picker
   const handleDateChange = (event, date) => {
     setShowDatePicker(false);
-    if (date) setForm(f => ({ ...f, dueDate: date.toISOString().split('T')[0] }));
+    if (date) {
+      setForm(f => ({ ...f, dueDate: date.toISOString().split('T')[0] }));
+    }
   };
+
+  if (loading) {
+    return (
+      <View style={styles.container}>
+        <Header title="Assign Task to Teacher" showBack={true} />
+        <View style={styles.loadingContainer}>
+          <ActivityIndicator size="large" color="#2196F3" />
+          <Text style={styles.loadingText}>Loading tasks and teachers...</Text>
+        </View>
+      </View>
+    );
+  }
+
+  if (error) {
+    return (
+      <View style={styles.container}>
+        <Header title="Assign Task to Teacher" showBack={true} />
+        <View style={styles.errorContainer}>
+          <Text style={styles.errorText}>{error}</Text>
+          <TouchableOpacity
+            style={styles.retryButton}
+            onPress={loadAllData}
+          >
+            <Text style={styles.retryButtonText}>Retry</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+    );
+  }
 
   return (
     <View style={styles.container}>
@@ -151,8 +287,8 @@ const AssignTaskToTeacher = () => {
               </View>
             </View>
             <Text style={styles.taskDesc}>{item.description}</Text>
-            <Text style={styles.taskMeta}>Due: {formatDateDMY(item.dueDate)} | Priority: {item.priority} | <Text style={[styles.statusText, styles['statusText' + item.status.replace(/ /g, '')]]}>{item.status}</Text></Text>
-            <Text style={styles.taskMeta}>Teachers: {item.teachers.map(tid => mockTeachers.find(t => t.id === tid)?.name).join(', ')}</Text>
+            <Text style={styles.taskMeta}>Due: {formatDateDMY(item.due_date)} | Priority: {item.priority} | <Text style={[styles.statusText, styles['statusText' + item.status.replace(/ /g, '')]]}>{item.status}</Text></Text>
+            <Text style={styles.taskMeta}>Teachers: {item.teachers.map(tid => teachers.find(t => t.id === tid)?.name).join(', ')}</Text>
           </TouchableOpacity>
         )}
         contentContainerStyle={{ padding: 16, paddingBottom: 120 }}
@@ -217,12 +353,12 @@ const AssignTaskToTeacher = () => {
             {/* Dropdown for assigning teachers */}
             <Text style={styles.pickerLabel}>Assign to Teacher(s)</Text>
             <DropDownPicker
-              open={teacherDropdownOpen}
-              value={form.teachers}
-              items={teacherDropdownItems}
-              setOpen={setTeacherDropdownOpen}
-              setValue={vals => setForm(f => ({ ...f, teachers: vals }))}
-              setItems={setTeacherDropdownItems}
+              open={false}
+              value={form.teacher_ids}
+              items={teachers.map(t => ({ label: t.name, value: t.id }))}
+              setOpen={() => {}}
+              setValue={vals => setForm(f => ({ ...f, teacher_ids: vals }))}
+              setItems={() => {}}
               multiple={true}
               min={1}
               placeholder="Select teacher(s)"
@@ -242,33 +378,92 @@ const AssignTaskToTeacher = () => {
 };
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#f5f5f5' },
-  filterRow: { padding: 12, backgroundColor: '#fff', borderBottomWidth: 1, borderColor: '#eee' },
-  searchInput: { backgroundColor: '#f0f0f0', borderRadius: 8, paddingHorizontal: 12, paddingVertical: 8, fontSize: 15, marginBottom: 8 },
-  statusFilterRowOuter: {
+  container: {
+    flex: 1,
+    backgroundColor: '#f5f5f5',
+  },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+  },
+  loadingText: {
+    marginTop: 16,
+    fontSize: 16,
+    color: '#666',
+  },
+  errorContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+  },
+  errorText: {
+    fontSize: 16,
+    color: '#f44336',
+    textAlign: 'center',
+    marginBottom: 16,
+  },
+  retryButton: {
+    backgroundColor: '#2196F3',
+    padding: 12,
+    borderRadius: 8,
+  },
+  retryButtonText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  filterRowPolished: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 12,
-    paddingTop: 12,
+    paddingHorizontal: 16,
+    paddingVertical: 8,
     backgroundColor: '#fff',
-    borderBottomWidth: 0,
-    marginBottom: 2,
-    flexWrap: 'wrap',
-    justifyContent: 'space-between',
+  },
+  searchInputWrapper: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#f0f0f0',
+    borderRadius: 20,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+  },
+  searchInput: {
+    flex: 1,
+    fontSize: 16,
+    color: '#333',
+  },
+  searchIconRight: {
+    marginRight: 8,
+  },
+  statusFilterRowOuter: {
+    backgroundColor: '#fff',
+    paddingHorizontal: 16,
+    paddingVertical: 8,
   },
   statusFilterRowInner: {
-    flex: 1,
-    flexDirection: 'column',
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  filterLabel: {
+    fontSize: 16,
+    fontWeight: '600',
+    marginRight: 16,
+    color: '#333',
   },
   statusBtnRow: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginTop: 4,
-    marginBottom: 2,
-    gap: 8,
+    flexWrap: 'wrap',
   },
   statusBtn: {
+    padding: 8,
+    borderRadius: 16,
+    marginRight: 8,
+    marginBottom: 8,
+    backgroundColor: '#f0f0f0',
     backgroundColor: '#eee',
     borderRadius: 8,
     paddingHorizontal: 14,

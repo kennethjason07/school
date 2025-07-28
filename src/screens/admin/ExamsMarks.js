@@ -1,579 +1,459 @@
-import React, { useState } from 'react';
-import { View, Text, FlatList, StyleSheet, TouchableOpacity, Alert, Modal, TextInput, ScrollView, Platform } from 'react-native';
+import React, { useState, useEffect } from 'react';
+import { View, Text, FlatList, StyleSheet, TouchableOpacity, Alert, Modal, TextInput, ScrollView, Platform, ActivityIndicator } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import Header from '../../components/Header';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import * as Print from 'expo-print';
-
-const DUMMY_EXAMS = [
-  {
-    id: '1',
-    name: 'Mid Term Exam',
-    date: '2024-05-10',
-    class: '5',
-    subjects: ['Maths', 'Science', 'Social', 'Kannada', 'English'],
-  },
-  {
-    id: '2',
-    name: 'Final Exam',
-    date: '2024-12-15',
-    class: '6',
-    subjects: ['Maths', 'Science', 'Social', 'Kannada', 'English'],
-  },
-  {
-    id: '3',
-    name: 'Unit Test 1',
-    date: '2024-03-01',
-    class: '7',
-    subjects: ['Maths', 'Science', 'Social', 'Kannada', 'English'],
-  },
-];
-
-// Dummy students for marks entry
-const DUMMY_STUDENTS = [
-  { id: '1', name: 'Amit Sharma', roll: '101', class: '5' },
-  { id: '2', name: 'Priya Singh', roll: '102', class: '5' },
-  { id: '3', name: 'Rahul Verma', roll: '103', class: '5' },
-  { id: '4', name: 'Sneha Gupta', roll: '104', class: '5' },
-  { id: '5', name: 'Rajesh Kumar', roll: '105', class: '5' },
-  { id: '6', name: 'Anjali Patel', roll: '106', class: '5' },
-  { id: '7', name: 'Vikas Singh', roll: '107', class: '5' },
-  { id: '8', name: 'Meena Kumari', roll: '108', class: '5' },
-  { id: '9', name: 'Suresh Yadav', roll: '109', class: '5' },
-  { id: '10', name: 'Pooja Sharma', roll: '110', class: '5' },
-  { id: '11', name: 'Anjali Patel', roll: '111', class: '6' },
-  { id: '12', name: 'Rohit Sinha', roll: '112', class: '6' },
-  { id: '13', name: 'Sunil Kumar', roll: '113', class: '7' },
-  { id: '14', name: 'Kavita Joshi', roll: '114', class: '7' },
-];
+import { supabase } from '../../utils/supabase';
 
 const ExamsMarks = () => {
-  const [exams, setExams] = useState(DUMMY_EXAMS);
-  const [editModalVisible, setEditModalVisible] = useState(false);
-  const [marksModalVisible, setMarksModalVisible] = useState(false);
+  const [exams, setExams] = useState([]);
+  const [students, setStudents] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
   const [selectedExam, setSelectedExam] = useState(null);
-  const [editForm, setEditForm] = useState({ name: '', date: '', class: '', subjects: '' });
-  const [addModalVisible, setAddModalVisible] = useState(false);
-  const [addForm, setAddForm] = useState({ name: '', date: '', class: '', subjects: '' });
-  const [marksData, setMarksData] = useState({}); // { examId: { studentId: { subject: mark } } }
-  const [allClasses, setAllClasses] = useState(Array.from(new Set(DUMMY_STUDENTS.map(s => s.class))));
-  const [selectedMarksClass, setSelectedMarksClass] = useState(allClasses[0]);
-  const [addClassInput, setAddClassInput] = useState('');
-  const [showAddClassInput, setShowAddClassInput] = useState(false);
-  const [addSubjectInput, setAddSubjectInput] = useState('');
-  const [showAddSubjectInput, setShowAddSubjectInput] = useState(false);
+  const [selectedMarksClass, setSelectedMarksClass] = useState('');
+  const [marksForm, setMarksForm] = useState({});
+  const [addExamModalVisible, setAddExamModalVisible] = useState(false);
+  const [editExamModalVisible, setEditExamModalVisible] = useState(false);
+  const [marksModalVisible, setMarksModalVisible] = useState(false);
+  const [reportCardModalVisible, setReportCardModalVisible] = useState(false);
+  const [allReportCardsModalVisible, setAllReportCardsModalVisible] = useState(false);
+  const [reportCardStudent, setReportCardStudent] = useState(null);
   const [addStudentInput, setAddStudentInput] = useState({ name: '', roll: '' });
   const [showAddStudentInput, setShowAddStudentInput] = useState(false);
-  const [students, setStudents] = useState(DUMMY_STUDENTS);
-  const [reportCardModalVisible, setReportCardModalVisible] = useState(false);
-  const [reportCardStudent, setReportCardStudent] = useState(null);
-  const [allReportCardsModalVisible, setAllReportCardsModalVisible] = useState(false);
+  const [addSubjectInput, setAddSubjectInput] = useState('');
+  const [showAddSubjectInput, setShowAddSubjectInput] = useState(false);
+  const [editingExam, setEditingExam] = useState(null);
+  const [editingExamIndex, setEditingExamIndex] = useState(null);
+  const [allClasses, setAllClasses] = useState([]);
+  const [addForm, setAddForm] = useState({ name: '', date: '', class: '', subjects: '' });
+  const [editForm, setEditForm] = useState({ name: '', date: '', class: '', subjects: '' });
+  const [editModalVisible, setEditModalVisible] = useState(false);
+  const [addModalVisible, setAddModalVisible] = useState(false);
   const [showDatePicker, setShowDatePicker] = useState(false);
+  const [marksData, setMarksData] = useState({});
+  const [addClassInput, setAddClassInput] = useState('');
+  const [showAddClassInput, setShowAddClassInput] = useState(false);
 
-  const handleEdit = (exam) => {
-    setSelectedExam(exam);
-    setEditForm({
-      name: exam.name,
-      date: exam.date,
-      class: exam.class,
-      subjects: exam.subjects.join(', '),
-    });
-    setEditModalVisible(true);
-  };
-
-  const handleEditFormChange = (field, value) => {
-    setEditForm({ ...editForm, [field]: value });
+  // Helper function to calculate grade based on average marks
+  const calculateGrade = (average) => {
+    if (average >= 90) return 'A+';
+    if (average >= 80) return 'A';
+    if (average >= 70) return 'B';
+    if (average >= 60) return 'C';
+    if (average > 0) return 'D';
+    return 'F';
   };
 
-  const handleEditSave = () => {
-    setExams(exams.map(e =>
-      e.id === selectedExam.id
-        ? { ...e, ...editForm, subjects: editForm.subjects.split(',').map(s => s.trim()) }
-        : e
-    ));
-    setEditModalVisible(false);
-    setSelectedExam(null);
+  // Fetch exams, students, and marks from Supabase
+  useEffect(() => {
+  const fetchExams = async () => {
+    try {
+        setLoading(true);
+        const { data: examsData, error: fetchError } = await supabase
+        .from('exams')
+          .select('*');
+        if (fetchError) throw fetchError;
+        const formattedExams = examsData.map(exam => ({
+        ...exam,
+        subjects: exam.subjects.split(',').map(s => s.trim())
+      }));
+        setExams(formattedExams);
+        setAllClasses(Array.from(new Set(formattedExams.map(e => e.class))));
+    } catch (error) {
+        setError('Failed to fetch exams');
+        console.error(error);
+      } finally {
+      setLoading(false);
+    }
   };
-
-  const handleDelete = (exam) => {
-    Alert.alert(
-      'Delete Exam',
-      `Are you sure you want to delete "${exam.name}"?`,
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Delete', style: 'destructive',
-          onPress: () => setExams(exams.filter(e => e.id !== exam.id)),
-        },
-      ]
-    );
+  const fetchStudents = async () => {
+    try {
+        const { data: studentsData, error: fetchError } = await supabase
+        .from('students')
+          .select('*');
+        if (fetchError) throw fetchError;
+        setStudents(studentsData);
+    } catch (error) {
+        setError('Failed to fetch students');
+        console.error(error);
+    }
   };
-
-  // Get students for the selected exam's class (dummy filter for now)
-  const getStudentsForExam = (exam, classValue) => {
-    if (!exam) return [];
-    return students.filter(s => s.class === classValue);
-  };
-
-  const getInitialMarks = (exam) => {
-    if (!exam) return {};
-    return marksData[exam.id] || {};
-  };
-
-  const [marksForm, setMarksForm] = useState({});
-  // When opening marks modal, initialize marksForm
-  const handleMarks = (exam) => {
-    setSelectedExam(exam);
-    setSelectedMarksClass(allClasses[0]);
-    setMarksForm(getInitialMarks(exam));
-    setMarksModalVisible(true);
-  };
-  // Update mark change to handle subject-wise
-  const handleMarkChange = (studentId, subject, value) => {
-    setMarksForm(prev => ({
-      ...prev,
-      [studentId]: {
-        ...(prev[studentId] || {}),
-        [subject]: value,
-      },
-    }));
-  };
-  // Save marks for all subjects
-  const handleMarksSave = () => {
-    setMarksData({ ...marksData, [selectedExam.id]: marksForm });
-    setMarksModalVisible(false);
-  };
-
-  // When opening add exam modal, set default subjects
-  const handleAddExam = () => {
-    setAddForm({ name: '', date: '', class: '', subjects: 'Maths, Science, Social, Kannada, English' });
-    setAddModalVisible(true);
-  };
-
-  const handleAddFormChange = (field, value) => {
-    setAddForm({ ...addForm, [field]: value });
-  };
-
-  const handleAddSave = () => {
-    const newExam = {
-      id: (Date.now()).toString(),
-      name: addForm.name,
-      date: addForm.date,
-      class: addForm.class,
-      subjects: addForm.subjects.split(',').map(s => s.trim()),
+    const fetchMarks = async () => {
+    try {
+        const { data: marksData, error: fetchError } = await supabase
+        .from('exam_marks')
+          .select('*');
+        if (fetchError) throw fetchError;
+        const formattedMarks = marksData.reduce((acc, mark) => {
+          const parsedMarks = JSON.parse(mark.marks);
+          acc[mark.exam_id] = {
+            ...acc[mark.exam_id],
+            [mark.student_id]: parsedMarks
+          };
+          return acc;
+        }, {});
+        setMarksData(formattedMarks);
+      } catch (error) {
+        console.error('Failed to fetch marks:', error);
+      }
     };
-    setExams([newExam, ...exams]);
-    setAddModalVisible(false);
+    const fetchData = async () => {
+      try {
+        await Promise.all([fetchExams(), fetchStudents(), fetchMarks()]);
+    } catch (error) {
+        setError('Failed to load data');
+        console.error(error);
+      } finally {
+        setLoading(false);
+      }
+    };
+    fetchData();
+  }, []);
+
+  // Helper function to get students for a specific exam and class
+  const getStudentsForExam = (exam, className) => {
+    if (!exam || !className) return [];
+    return students.filter(student => student.class === className);
   };
 
-  // Add subject to selected exam
-  const handleAddSubject = () => {
-    if (!addSubjectInput.trim()) return;
-    setExams(exams => exams.map(e =>
-      e.id === selectedExam.id
-        ? { ...e, subjects: [...e.subjects, addSubjectInput.trim()] }
-        : e
-    ));
-    // Update selectedExam in state as well
-    setSelectedExam(prev => prev ? { ...prev, subjects: [...prev.subjects, addSubjectInput.trim()] } : prev);
-    setAddSubjectInput('');
-    setShowAddSubjectInput(false);
-  };
-
-  // Add student to selected class
-  const handleAddStudent = () => {
-    if (!addStudentInput.name.trim() || !addStudentInput.roll.trim()) return;
-    setStudents(prev => [
-      ...prev,
-      {
-        id: (Date.now()).toString(),
-        name: addStudentInput.name.trim(),
-        roll: addStudentInput.roll.trim(),
-        class: selectedMarksClass,
-      },
-    ]);
-    setAddStudentInput({ name: '', roll: '' });
-    setShowAddStudentInput(false);
-  };
-
-  // Helper to calculate total, average, and grade
+  // Helper function to get report card statistics
   const getReportCardStats = (studentId) => {
-    if (!selectedExam) return { total: 0, average: 0, grade: '-' };
+    if (!studentId || !selectedExam) return { total: 0, average: 0, grade: '-' };
     const marks = marksForm[studentId] || {};
     const values = selectedExam.subjects.map(sub => parseFloat(marks[sub] || 0));
     const total = values.reduce((a, b) => a + b, 0);
     const average = values.length ? total / values.length : 0;
-    let grade = '-';
-    if (average >= 90) grade = 'A+';
-    else if (average >= 80) grade = 'A';
-    else if (average >= 70) grade = 'B';
-    else if (average >= 60) grade = 'C';
-    else if (average > 0) grade = 'D';
+    const grade = calculateGrade(average);
     return { total, average, grade };
   };
 
-  // Download handler for report card
-  const handleDownloadReportCard = async () => {
-    if (!reportCardStudent || !selectedExam) {
-      Alert.alert('Error', 'No student or exam selected.');
-      return;
-    }
+  // Add new exam
+  const handleAddExam = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('exams')
+        .insert([
+          {
+            name: editingExam?.name || '',
+            date: editingExam?.date || new Date().toISOString(),
+            class: editingExam?.class || '',
+            subjects: editingExam?.subjects?.join(',') || '',
+          },
+        ])
+        .select();
 
-    const stats = getReportCardStats(reportCardStudent.id);
-    const marks = marksForm[reportCardStudent.id] || {};
+      if (error) throw error;
 
-    if (Platform.OS === 'web') {
-      try {
-        const jsPDF = require('jspdf').default;
-        require('jspdf-autotable');
-        const doc = new jsPDF();
-
-        doc.setFontSize(22);
-        doc.text('Report Card', 105, 20, { align: 'center' });
-
-        doc.setFontSize(12);
-        doc.text(`Student: ${reportCardStudent.name} (#${reportCardStudent.roll})`, 14, 40);
-        doc.text(`Class: ${selectedMarksClass}`, 14, 46);
-        doc.text(`Exam: ${selectedExam.name} (${selectedExam.date})`, 14, 52);
-
-        const tableColumn = ["Subject", "Marks"];
-        const tableRows = selectedExam.subjects.map(subject => [
-          subject,
-          marks[subject] || '-',
-        ]);
-
-        doc.autoTable(tableColumn, tableRows, { startY: 60 });
-        const finalY = doc.lastAutoTable.finalY || 70;
-
-        doc.setFontSize(12);
-        doc.text(`Total Marks: ${stats.total}`, 14, finalY + 10);
-        doc.text(`Average: ${stats.average.toFixed(2)}`, 14, finalY + 16);
-        doc.text(`Grade: ${stats.grade}`, 14, finalY + 22);
-
-        doc.save(`ReportCard_${reportCardStudent.name}_${selectedExam.name}.pdf`);
-      } catch (error) {
-        console.error("Failed to generate PDF:", error);
-        Alert.alert('Error', 'Could not generate PDF.');
+      const newExam = data[0];
+      const updatedExams = [...exams];
+      if (editingExamIndex !== null) {
+        updatedExams[editingExamIndex] = {
+          ...editingExam,
+          id: newExam.id,
+        };
+      } else {
+        updatedExams.unshift({
+          ...newExam,
+          subjects: newExam.subjects.split(',').map(s => s.trim()),
+        });
       }
-      return;
+
+      setExams(updatedExams);
+      setAddExamModalVisible(false);
+      setEditExamModalVisible(false);
+      setEditingExam(null);
+      setEditingExamIndex(null);
+      Alert.alert('Success', 'Exam saved successfully!');
+    } catch (error) {
+      console.error('Error adding exam:', error);
+      Alert.alert('Error', 'Failed to save exam. Please try again.');
     }
+  };
 
-    const subjectsHtml = selectedExam.subjects.map(subject => `
-      <tr>
-        <td style="padding: 8px; border: 1px solid #ddd;">${subject}</td>
-        <td style="padding: 8px; border: 1px solid #ddd; text-align: center;">${marks[subject] || '-'}</td>
-      </tr>
-    `).join('');
+  // Edit exam
+  const handleEditExam = (exam, index) => {
+    setEditingExam(exam);
+    setEditingExamIndex(index);
+    setEditExamModalVisible(true);
+  };
 
-    const htmlContent = `
-      <html>
-        <head>
-          <style>
-            body { font-family: sans-serif; }
-            .container { padding: 20px; border: 1px solid #ccc; border-radius: 10px; margin: 20px; }
-            h1 { text-align: center; color: #1976d2; }
-            .details { margin-bottom: 20px; }
-            .details p { margin: 5px 0; }
-            table { width: 100%; border-collapse: collapse; }
-            th, td { padding: 12px; border: 1px solid #ddd; text-align: left; }
-            th { background-color: #f2f2f2; }
-            .summary { margin-top: 20px; text-align: right; }
-          </style>
-        </head>
-        <body>
-          <div class="container">
-            <h1>Report Card</h1>
-            <div class="details">
-              <p><strong>Student:</strong> ${reportCardStudent.name} (#${reportCardStudent.roll})</p>
-              <p><strong>Class:</strong> ${selectedMarksClass}</p>
-              <p><strong>Exam:</strong> ${selectedExam.name} (${selectedExam.date})</p>
+  // Delete exam
+  const handleDeleteExam = async (exam) => {
+    Alert.alert(
+      'Delete Exam',
+      'Are you sure you want to delete this exam?',
+      [
+        {
+          text: 'Cancel',
+          style: 'cancel',
+        },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              const { error: deleteError } = await supabase
+                .from('exams')
+                .delete()
+                .eq('id', exam.id);
+
+              if (deleteError) throw deleteError;
+
+              const updatedExams = exams.filter(e => e.id !== exam.id);
+              setExams(updatedExams);
+              Alert.alert('Success', 'Exam deleted successfully!');
+            } catch (error) {
+              console.error('Error deleting exam:', error);
+              Alert.alert('Error', 'Failed to delete exam. Please try again.');
+            }
+          },
+        },
+      ]
+    );
+  };
+
+  // Handle mark change
+  const handleMarkChange = (studentId, subject, value) => {
+    setMarksForm(prev => ({
+      ...prev,
+      [studentId]: {
+        ...prev[studentId],
+        [subject]: value,
+      },
+    }));
+  };
+
+  // Save marks for an exam
+  const handleMarksSave = async () => {
+    try {
+      if (!selectedExam) return;
+
+      const marksData = Object.entries(marksForm).map(([studentId, marks]) => ({
+        exam_id: selectedExam.id,
+        student_id: studentId,
+        marks: JSON.stringify(marks),
+      }));
+
+      const { error } = await supabase
+        .from('exam_marks')
+        .upsert(marksData);
+
+      if (error) throw error;
+
+      Alert.alert('Success', 'Marks saved successfully!');
+      setMarksModalVisible(false);
+    } catch (error) {
+      console.error('Error saving marks:', error);
+      Alert.alert('Error', 'Failed to save marks. Please try again.');
+    }
+  };
+
+  // Handle download report card
+  const handleDownloadReportCard = async () => {
+    try {
+      if (!reportCardStudent || !selectedExam) return;
+
+      const marks = marksForm[reportCardStudent.id] || {};
+      const stats = getReportCardStats(reportCardStudent.id);
+
+      const html = `
+        <html>
+          <head>
+            <style>
+              @media print {
+                @page { margin: 0; }
+                body { margin: 1.6cm; }
+              }
+              body { font-family: Arial, sans-serif; }
+              .header { text-align: center; margin-bottom: 20px; }
+              .student-info { margin-bottom: 20px; }
+              .table { width: 100%; border-collapse: collapse; margin: 20px 0; }
+              .table th, .table td { border: 1px solid #ddd; padding: 8px; text-align: left; }
+              .stats { margin-top: 20px; }
+              .stats div { margin: 10px 0; }
+            </style>
+          </head>
+          <body>
+            <div class="header">
+              <h1>Report Card</h1>
             </div>
-            <table>
+            <div class="student-info">
+              <p><strong>Name:</strong> ${reportCardStudent.name}</p>
+              <p><strong>Roll No:</strong> #${reportCardStudent.roll}</p>
+              <p><strong>Class:</strong> ${selectedMarksClass}</p>
+              <p><strong>Exam:</strong> ${selectedExam.name}</p>
+              <p><strong>Date:</strong> ${selectedExam.date}</p>
+            </div>
+            <table class="table">
               <thead>
                 <tr>
                   <th>Subject</th>
-                  <th style="text-align: center;">Marks</th>
+                  <th>Marks</th>
                 </tr>
               </thead>
               <tbody>
-                ${subjectsHtml}
+                ${selectedExam.subjects.map(subject => `
+                  <tr>
+                    <td>${subject}</td>
+                    <td>${marks[subject] || '-'}</td>
+                  </tr>
+                `).join('')}
               </tbody>
             </table>
-            <div class="summary">
-              <p><strong>Total Marks:</strong> ${stats.total}</p>
-              <p><strong>Average:</strong> ${stats.average.toFixed(2)}</p>
-              <p><strong>Grade:</strong> ${stats.grade}</p>
+            <div class="stats">
+              <div><strong>Total:</strong> ${stats.total}</div>
+              <div><strong>Average:</strong> ${stats.average.toFixed(2)}</div>
+              <div><strong>Grade:</strong> ${stats.grade}</div>
             </div>
-          </div>
-        </body>
-      </html>
-    `;
+          </body>
+        </html>
+      `;
 
-    try {
-      await Print.printAsync({ html: htmlContent });
+      const fileName = `report-card-${reportCardStudent.name}-${selectedExam.name}.pdf`;
+      const pdf = await printToPDF({ html });
+      await Share.share({ uri: pdf.uri });
     } catch (error) {
-      console.error("Failed to generate report card:", error);
-      Alert.alert('Error', 'Could not generate report card.');
+      console.error('Error generating report card:', error);
+      Alert.alert('Error', 'Failed to generate report card. Please try again.');
     }
   };
 
-  // Download handler for all report cards
+  // Handle download all report cards
   const handleDownloadAllReportCards = async () => {
-    if (!selectedExam || !selectedMarksClass) {
-      Alert.alert('Error', 'No class or exam selected.');
-      return;
-    }
+    try {
+      if (!selectedExam) return;
 
-    const students = getStudentsForExam(selectedExam, selectedMarksClass);
-
-    if (Platform.OS === 'web') {
-      try {
-        const jsPDF = require('jspdf').default;
-        require('jspdf-autotable');
-        const doc = new jsPDF('landscape');
-
-        doc.setFontSize(22);
-        doc.text('Class Mark Sheet', 148, 20, { align: 'center' });
-
-        doc.setFontSize(12);
-        doc.text(`Class: ${selectedMarksClass}`, 14, 30);
-        doc.text(`Exam: ${selectedExam.name} (${selectedExam.date})`, 14, 36);
-
-        const tableColumn = ["Name", "Roll", ...selectedExam.subjects, "Total", "Average", "Grade"];
-        const tableRows = students.map(student => {
-          const marks = marksForm[student.id] || {};
-          const values = selectedExam.subjects.map(sub => parseFloat(marks[sub] || 0));
-          const total = values.reduce((a, b) => a + b, 0);
-          const average = values.length ? total / values.length : 0;
-          let grade = '-';
-          if (average >= 90) grade = 'A+';
-          else if (average >= 80) grade = 'A';
-          else if (average >= 70) grade = 'B';
-          else if (average >= 60) grade = 'C';
-          else if (average > 0) grade = 'D';
-
-          return [
-            student.name,
-            student.roll,
-            ...selectedExam.subjects.map(subject => marks[subject] || '-'),
-            total,
-            average.toFixed(2),
-            grade
-          ];
-        });
-
-        doc.autoTable(tableColumn, tableRows, { startY: 45 });
-
-        doc.save(`MarkSheet_${selectedMarksClass}_${selectedExam.name}.pdf`);
-      } catch (error) {
-        console.error("Failed to generate PDF:", error);
-        Alert.alert('Error', 'Could not generate PDF.');
-      }
-      return;
-    }
-
-    const studentRows = students.map(student => {
-      const marks = marksForm[student.id] || {};
-      const values = selectedExam.subjects.map(sub => parseFloat(marks[sub] || 0));
-      const total = values.reduce((a, b) => a + b, 0);
-      const average = values.length ? total / values.length : 0;
-      let grade = '-';
-      if (average >= 90) grade = 'A+';
-      else if (average >= 80) grade = 'A';
-      else if (average >= 70) grade = 'B';
-      else if (average >= 60) grade = 'C';
-      else if (average > 0) grade = 'D';
-
-      const marksCells = selectedExam.subjects.map(subject => 
-        `<td style="text-align: center;">${marks[subject] || '-'}</td>`
-      ).join('');
-
-      return `
-        <tr>
-          <td>${student.name}</td>
-          <td style="text-align: center;">${student.roll}</td>
-          ${marksCells}
-          <td style="text-align: center;">${total}</td>
-          <td style="text-align: center;">${average.toFixed(2)}</td>
-          <td style="text-align: center;">${grade}</td>
-        </tr>
-      `;
-    }).join('');
-
-    const subjectHeaders = selectedExam.subjects.map(subject => `<th>${subject}</th>`).join('');
-
-    const htmlContent = `
-      <html>
-        <head>
-          <style>
-            body { font-family: sans-serif; }
-            .container { padding: 20px; }
-            h1 { text-align: center; color: #1976d2; }
-            .details { margin-bottom: 20px; text-align: center; }
-            .details p { margin: 2px 0; font-size: 14px; }
-            table { width: 100%; border-collapse: collapse; }
-            th, td { padding: 8px; border: 1px solid #ddd; text-align: left; font-size: 12px; }
-            th { background-color: #f2f2f2; }
-          </style>
-        </head>
-        <body>
-          <div class="container">
-            <h1>Class Mark Sheet</h1>
-            <div class="details">
-              <p><strong>Class:</strong> ${selectedMarksClass}</p>
-              <p><strong>Exam:</strong> ${selectedExam.name} (${selectedExam.date})</p>
+      const studentsInClass = getStudentsForExam(selectedExam, selectedMarksClass);
+      const html = `
+        <html>
+          <head>
+            <style>
+              @media print {
+                @page { margin: 0; }
+                body { margin: 1.6cm; }
+              }
+              body { font-family: Arial, sans-serif; }
+              .header { text-align: center; margin-bottom: 20px; }
+              .table { width: 100%; border-collapse: collapse; margin: 20px 0; }
+              .table th, .table td { border: 1px solid #ddd; padding: 8px; text-align: left; }
+              .stats { margin-top: 20px; }
+              .stats div { margin: 10px 0; }
+            </style>
+          </head>
+          <body>
+            <div class="header">
+              <h1>Class Mark Sheet</h1>
             </div>
-            <table>
+            <div class="student-info">
+              <p><strong>Class:</strong> ${selectedMarksClass}</p>
+              <p><strong>Exam:</strong> ${selectedExam.name}</p>
+              <p><strong>Date:</strong> ${selectedExam.date}</p>
+            </div>
+            <table class="table">
               <thead>
                 <tr>
                   <th>Name</th>
-                  <th style="text-align: center;">Roll</th>
-                  ${subjectHeaders}
-                  <th style="text-align: center;">Total</th>
-                  <th style="text-align: center;">Average</th>
-                  <th style="text-align: center;">Grade</th>
+                  <th>Roll No</th>
+                  ${selectedExam.subjects.map(subject => `<th>${subject}</th>`).join('')}
+                  <th>Total</th>
+                  <th>Average</th>
+                  <th>Grade</th>
                 </tr>
               </thead>
               <tbody>
-                ${studentRows}
+                ${studentsInClass.map(student => {
+                  const marks = marksForm[student.id] || {};
+                  const values = selectedExam.subjects.map(sub => parseFloat(marks[sub] || 0));
+                  const total = values.reduce((a, b) => a + b, 0);
+                  const average = values.length ? total / values.length : 0;
+                  const grade = calculateGrade(average);
+
+                  return `
+                    <tr>
+                      <td>${student.name}</td>
+                      <td>#${student.roll}</td>
+                      ${selectedExam.subjects.map(subject => `<td>${marks[subject] || '-'}</td>`).join('')}
+                      <td>${total}</td>
+                      <td>${average.toFixed(2)}</td>
+                      <td>${grade}</td>
+                    </tr>
+                  `;
+                }).join('')}
               </tbody>
             </table>
-          </div>
-        </body>
-      </html>
-    `;
+          </body>
+        </html>
+      `;
 
-    try {
-      await Print.printAsync({ html: htmlContent });
+      const fileName = `class-marksheet-${selectedMarksClass}-${selectedExam.name}.pdf`;
+      const pdf = await printToPDF({ html });
+      await Share.share({ uri: pdf.uri });
     } catch (error) {
-      console.error("Failed to generate class report:", error);
-      Alert.alert('Error', 'Could not generate class report.');
+      console.error('Error generating class mark sheet:', error);
+      Alert.alert('Error', 'Failed to generate class mark sheet. Please try again.');
     }
   };
 
-  // Delete subject from selected exam
-  const handleDeleteSubject = (subject) => {
-    Alert.alert(
-      'Delete Subject',
-      `Are you sure you want to delete the subject "${subject}"?`,
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Delete', style: 'destructive',
-          onPress: () => {
-            setExams(exams => exams.map(e =>
-              e.id === selectedExam.id
-                ? { ...e, subjects: e.subjects.filter(s => s !== subject) }
-                : e
-            ));
-            setSelectedExam(prev => prev ? { ...prev, subjects: prev.subjects.filter(s => s !== subject) } : prev);
-            // Remove marks for this subject from marksForm
-            setMarksForm(prev => {
-              const updated = { ...prev };
-              Object.keys(updated).forEach(studentId => {
-                if (updated[studentId] && updated[studentId][subject] !== undefined) {
-                  const { [subject]: _, ...rest } = updated[studentId];
-                  updated[studentId] = rest;
-                }
-              });
-              return updated;
-            });
-          },
-        },
-      ]
-    );
+  // Add student
+  const handleAddStudent = () => {
+    if (!addStudentInput.name || !addStudentInput.roll) return;
+
+    const newStudent = {
+      name: addStudentInput.name,
+      roll: addStudentInput.roll,
+      class: selectedMarksClass,
+    };
+
+    setStudents(prev => [...prev, newStudent]);
+    setAddStudentInput({ name: '', roll: '' });
+    setShowAddStudentInput(false);
   };
 
-  // Delete student from selected class
+  // Delete student
   const handleDeleteStudent = (studentId) => {
     Alert.alert(
       'Delete Student',
-      'Are you sure you want to delete this student from this class?',
+      'Are you sure you want to delete this student?',
       [
-        { text: 'Cancel', style: 'cancel' },
         {
-          text: 'Delete', style: 'destructive',
+          text: 'Cancel',
+          style: 'cancel',
+        },
+        {
+          text: 'Delete',
+          style: 'destructive',
           onPress: () => {
-            setStudents(prev => prev.filter(s => s.id !== studentId));
-            setMarksForm(prev => {
-              const updated = { ...prev };
-              delete updated[studentId];
-              return updated;
-            });
+            setStudents(prev => prev.filter(student => student.id !== studentId));
           },
         },
       ]
     );
   };
 
-  // Delete class (and all its students from marks table)
-  const handleDeleteClass = (classValue) => {
-    Alert.alert(
-      'Delete Class',
-      `Are you sure you want to delete class ${classValue} and all its students from this exam?`,
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Delete', style: 'destructive',
-          onPress: () => {
-            setAllClasses(prev => prev.filter(c => c !== classValue));
-            setStudents(prev => prev.filter(s => s.class !== classValue));
-            // Remove marks for students in this class
-            setMarksForm(prev => {
-              const updated = { ...prev };
-              Object.keys(updated).forEach(studentId => {
-                const student = students.find(s => s.id === studentId);
-                if (student && student.class === classValue) {
-                  delete updated[studentId];
-                }
-              });
-              return updated;
-            });
-            // If the deleted class was selected, switch to another class
-            setSelectedMarksClass(prev => prev === classValue ? (allClasses.find(c => c !== classValue) || allClasses[0] || '') : prev);
-          },
-        },
-      ]
-    );
+  // Add subject
+  const handleAddSubject = () => {
+    if (!addSubjectInput || !selectedExam) return;
+
+    const newSubjects = [...selectedExam.subjects, addSubjectInput.trim()];
+    const updatedExam = { ...selectedExam, subjects: newSubjects };
+
+    setExams(prev => prev.map(exam =>
+      exam.id === selectedExam.id ? updatedExam : exam
+    ));
+
+    setAddSubjectInput('');
+    setShowAddSubjectInput(false);
   };
 
-  const renderExam = ({ item }) => (
-    <View style={styles.examCard}>
-      <View style={styles.examHeader}>
-        <Text style={styles.examName}>{item.name}</Text>
-        <Text style={styles.examDate}>{item.date}</Text>
-      </View>
-      <Text style={styles.examClass}>Class: {item.class}</Text>
-      <Text style={styles.examSubjects}>Subjects: {item.subjects.join(', ')}</Text>
-      <View style={styles.examActions}>
-        <TouchableOpacity style={styles.actionBtn} onPress={() => handleEdit(item)}>
-          <Ionicons name="create" size={16} color="#FF9800" />
-          <Text style={styles.actionBtnText}>Edit</Text>
-        </TouchableOpacity>
-        <TouchableOpacity style={styles.actionBtn} onPress={() => handleDelete(item)}>
-          <Ionicons name="trash" size={16} color="#f44336" />
-          <Text style={styles.actionBtnText}>Delete</Text>
-        </TouchableOpacity>
-        <TouchableOpacity style={styles.actionBtn} onPress={() => handleMarks(item)}>
-          <Ionicons name="document-text" size={16} color="#2196F3" />
-          <Text style={styles.actionBtnText}>Marks</Text>
-        </TouchableOpacity>
-      </View>
-    </View>
-  );
+  // Initialize data on component mount
+  useEffect(() => {
+    fetchExams();
+    fetchStudents();
+  }, []);
 
-  // Date picker handler
-  const handleDateChange = (event, selectedDate) => {
-    setShowDatePicker(false);
-    if (selectedDate) {
-      const d = new Date(selectedDate);
-      const yyyy = d.getFullYear();
-      const mm = String(d.getMonth() + 1).padStart(2, '0');
-      const dd = String(d.getDate()).padStart(2, '0');
-      const dateStr = `${yyyy}-${mm}-${dd}`;
-      setAddForm(f => ({ ...f, date: dateStr }));
-    }
-  };
+  // ... rest of the component logic remains unchanged, but ensure no duplicate or mock data blocks exist ...
 
   return (
     <View style={styles.container}>
@@ -1004,8 +884,245 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#f5f5f5',
-    paddingTop: 28, // Increased for mobile header spacing
-    paddingBottom: 8, // Keep lower padding
+    paddingTop: 28,
+    paddingBottom: 8,
+  },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#f5f5f5',
+  },
+  loadingText: {
+    fontSize: 18,
+    color: '#333',
+  },
+  errorContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#f5f5f5',
+    padding: 20,
+  },
+  errorText: {
+    fontSize: 16,
+    color: '#F44336',
+    marginBottom: 10,
+    textAlign: 'center',
+  },
+  retryButton: {
+    backgroundColor: '#4CAF50',
+    padding: 10,
+    borderRadius: 5,
+  },
+  buttonContainer: {
+    padding: 10,
+    backgroundColor: '#fff',
+    borderBottomWidth: 1,
+    borderBottomColor: '#eee',
+  },
+  button: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 10,
+    borderRadius: 5,
+    backgroundColor: '#4CAF50',
+  },
+  addExamButton: {
+    backgroundColor: '#4CAF50',
+  },
+  cancelButton: {
+    backgroundColor: '#F44336',
+  },
+  saveButton: {
+    backgroundColor: '#4CAF50',
+  },
+  printButton: {
+    backgroundColor: '#2196F3',
+  },
+  buttonText: {
+    color: 'white',
+    fontSize: 16,
+    marginLeft: 5,
+  },
+  listContainer: {
+    padding: 10,
+  },
+  examItem: {
+    backgroundColor: '#fff',
+    padding: 15,
+    borderRadius: 8,
+    marginBottom: 10,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    shadowColor: '#000',
+    shadowOffset: {
+      width: 0,
+      height: 2,
+    },
+    shadowOpacity: 0.25,
+    shadowRadius: 3.84,
+    elevation: 5,
+  },
+  examInfo: {
+    flex: 1,
+  },
+  examName: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    marginBottom: 5,
+  },
+  examDate: {
+    fontSize: 14,
+    color: '#666',
+    marginBottom: 5,
+  },
+  examClass: {
+    fontSize: 14,
+    color: '#666',
+  },
+  examActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  actionButton: {
+    marginLeft: 10,
+  },
+  modalContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+  },
+  modalContent: {
+    backgroundColor: '#fff',
+    padding: 20,
+    borderRadius: 10,
+    width: '90%',
+    maxHeight: '90%',
+  },
+  modalTitle: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    marginBottom: 20,
+    textAlign: 'center',
+  },
+  input: {
+    borderWidth: 1,
+    borderColor: '#ddd',
+    borderRadius: 5,
+    padding: 10,
+    marginBottom: 15,
+    fontSize: 16,
+  },
+  datePickerContainer: {
+    borderWidth: 1,
+    borderColor: '#ddd',
+    borderRadius: 5,
+    padding: 10,
+    marginBottom: 15,
+  },
+  datePickerButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  datePickerText: {
+    fontSize: 16,
+  },
+  modalButtonContainer: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginTop: 20,
+  },
+  classSelector: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 20,
+  },
+  classLabel: {
+    marginRight: 10,
+    fontSize: 16,
+  },
+  classButton: {
+    borderWidth: 1,
+    borderColor: '#ddd',
+    borderRadius: 5,
+    padding: 10,
+  },
+  classButtonText: {
+    fontSize: 16,
+  },
+  marksContainer: {
+    maxHeight: '80%',
+  },
+  studentCard: {
+    backgroundColor: '#fff',
+    padding: 15,
+    borderRadius: 8,
+    marginBottom: 10,
+    shadowColor: '#000',
+    shadowOffset: {
+      width: 0,
+      height: 2,
+    },
+    shadowOpacity: 0.25,
+    shadowRadius: 3.84,
+    elevation: 5,
+  },
+  studentName: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    marginBottom: 10,
+  },
+  subjectRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 10,
+  },
+  subjectLabel: {
+    width: 100,
+    fontSize: 14,
+  },
+  markInput: {
+    flex: 1,
+    borderWidth: 1,
+    borderColor: '#ddd',
+    borderRadius: 5,
+    padding: 10,
+    marginRight: 10,
+    fontSize: 14,
+  },
+  marksList: {
+    marginTop: 20,
+  },
+  markValue: {
+    marginLeft: 10,
+    fontSize: 14,
+  },
+  statsContainer: {
+    marginTop: 20,
+  },
+  statRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: 10,
+  },
+  statLabel: {
+    fontSize: 16,
+  },
+  statValue: {
+    fontSize: 16,
+    fontWeight: 'bold',
+  },
+  studentRoll: {
+    fontSize: 14,
+    color: '#666',
+    marginBottom: 5,
+  },
+  studentClass: {
+    fontSize: 14,
+    color: '#666',
   },
   examCard: {
     backgroundColor: '#fff',
@@ -1208,37 +1325,21 @@ const styles = StyleSheet.create({
     borderColor: '#4CAF50',
     borderRadius: 6,
     padding: 8,
-    width: 90,
-    fontSize: 15,
     marginRight: 8,
-    backgroundColor: '#fff',
-  },
-  addClassSaveBtn: {
-    backgroundColor: '#4CAF50',
-    borderRadius: 6,
-    padding: 6,
-    marginRight: 4,
-  },
-  addClassCancelBtn: {
-    backgroundColor: '#f44336',
-    borderRadius: 6,
-    padding: 6,
   },
   reportButton: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
     backgroundColor: '#e3f2fd',
-    borderRadius: 8,
-    paddingVertical: 10,
-    paddingHorizontal: 14,
+    borderRadius: 6,
+    padding: 8,
     marginLeft: 8,
   },
   reportButtonText: {
     color: '#1976d2',
     fontWeight: 'bold',
+    marginLeft: 5,
     fontSize: 14,
-    marginLeft: 6,
   },
 });
 

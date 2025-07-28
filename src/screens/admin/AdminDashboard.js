@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   View,
   Text,
@@ -11,6 +11,8 @@ import {
   TextInput,
   Alert,
   Platform,
+  RefreshControl,
+  FlatList,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { LineChart, BarChart, PieChart } from 'react-native-chart-kit';
@@ -19,17 +21,175 @@ import StatCard from '../../components/StatCard';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import CrossPlatformPieChart from '../../components/CrossPlatformPieChart';
 import CrossPlatformBarChart from '../../components/CrossPlatformBarChart';
+import { supabase } from '../../utils/supabase';
+import { format } from 'date-fns';
 
 const { width } = Dimensions.get('window');
 
 const AdminDashboard = ({ navigation }) => {
-  // Mock data
-  const stats = [
-    { title: 'Total Students', value: '1,247', icon: 'people', color: '#2196F3', subtitle: '+12 this month' },
-    { title: 'Total Teachers', value: '89', icon: 'person', color: '#4CAF50', subtitle: '+3 this month' },
-    { title: 'Attendance Today', value: '94.2%', icon: 'checkmark-circle', color: '#FF9800', subtitle: '1,173 present' },
-    { title: 'Fee Collection', value: '₹2.4M', icon: 'card', color: '#9C27B0', subtitle: '87% collected' },
-  ];1.
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+  const [stats, setStats] = useState([]);
+  const [refreshing, setRefreshing] = useState(false);
+  const [selectedDate, setSelectedDate] = useState(new Date());
+
+  // Load real-time data from Supabase
+  const loadDashboardData = async () => {
+    try {
+      setLoading(true);
+      setError(null);
+
+      // Load students count
+      const { data: students, error: studentError } = await supabase
+        .from('students')
+        .select('id')
+        .count();
+
+      // Load teachers count
+      const { data: teachers, error: teacherError } = await supabase
+        .from('teachers')
+        .select('id')
+        .count();
+
+      // Load today's attendance
+      const today = new Date();
+      const { data: attendance, error: attendanceError } = await supabase
+        .from('attendance')
+        .select('id')
+        .eq('date', format(today, 'yyyy-MM-dd'));
+
+      // Load fee data
+      const { data: fees, error: feeError } = await supabase
+        .from('student_fees')
+        .select('amount, status')
+        .gte('payment_date', format(new Date(), 'yyyy-MM-dd'));
+
+      // Calculate statistics
+      const totalStudents = students?.count || 0;
+      const totalTeachers = teachers?.count || 0;
+      const attendancePercentage = attendance ? Math.round((attendance.length / totalStudents) * 100) : 0;
+      const totalFees = fees?.reduce((sum, fee) => sum + (fee.amount || 0), 0) || 0;
+      const collectedFees = fees?.filter(fee => fee.status === 'Paid')?.reduce((sum, fee) => sum + (fee.amount || 0), 0) || 0;
+      const feeCollectionPercentage = Math.round((collectedFees / totalFees) * 100);
+
+      // Update stats
+      setStats([
+        { 
+          title: 'Total Students', 
+          value: totalStudents.toLocaleString(), 
+          icon: 'people', 
+          color: '#2196F3', 
+          subtitle: 'Updated now', 
+          trend: 0 
+        },
+        { 
+          title: 'Total Teachers', 
+          value: totalTeachers.toString(), 
+          icon: 'person', 
+          color: '#4CAF50', 
+          subtitle: 'Updated now', 
+          trend: 0 
+        },
+        { 
+          title: 'Attendance Today', 
+          value: `${attendancePercentage}%`, 
+          icon: 'checkmark-circle', 
+          color: '#FF9800', 
+          subtitle: `${attendance?.length || 0} present`, 
+          trend: 0 
+        },
+        { 
+          title: 'Fee Collection', 
+          value: `₹${(collectedFees / 1000000).toFixed(1)}M`, 
+          icon: 'card', 
+          color: '#9C27B0', 
+          subtitle: `${feeCollectionPercentage}% collected`, 
+          trend: 0 
+        }
+      ]);
+
+      // Load announcements
+      const { data: announcementsData, error: announcementsError } = await supabase
+        .from('announcements')
+        .select('*')
+        .order('created_at', { ascending: false })
+        .limit(5);
+
+      if (announcementsData) {
+        setAnnouncements(announcementsData.map(announcement => ({
+          message: announcement.message,
+          date: announcement.created_at,
+          icon: announcement.icon || 'megaphone',
+          color: announcement.color || '#2196F3'
+        })));
+      }
+
+      // Load events
+      const { data: eventsData, error: eventsError } = await supabase
+        .from('events')
+        .select('*')
+        .gte('date', format(new Date(), 'yyyy-MM-dd'))
+        .order('date', { ascending: true })
+        .limit(5);
+
+      if (eventsData) {
+        setEvents(eventsData.map(event => ({
+          id: event.id,
+          type: event.type,
+          title: event.title,
+          date: event.date,
+          icon: event.icon || 'trophy',
+          color: event.color || '#FF9800'
+        })));
+      }
+
+      // Load recent activities
+      const { data: activitiesData, error: activitiesError } = await supabase
+        .from('activities')
+        .select('*')
+        .order('created_at', { ascending: false })
+        .limit(5);
+
+      if (activitiesData) {
+        setActivities(activitiesData.map(activity => ({
+          text: activity.message,
+          time: format(new Date(activity.created_at), 'PPp'),
+          icon: activity.icon || 'activity'
+        })));
+      }
+
+    } catch (error) {
+      console.error('Error loading dashboard data:', error);
+      setError('Failed to load dashboard data');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    loadDashboardData();
+    // Subscribe to Supabase real-time updates
+    const subscription = supabase
+      .channel('dashboard-updates')
+      .on('postgres_changes', {
+        event: '*',
+        schema: 'public',
+        table: 'students'
+      }, () => {
+        loadDashboardData();
+      })
+      .subscribe();
+
+    return () => {
+      subscription.unsubscribe();
+    };
+  }, []);
+
+  const onRefresh = () => {
+    setRefreshing(true);
+    loadDashboardData()
+      .finally(() => setRefreshing(false));
+  };
 
   const quickActions = [
     { title: 'Manage Classes', icon: 'school', color: '#2196F3', screen: 'Classes' }, // Tab name
@@ -104,6 +264,10 @@ const AdminDashboard = ({ navigation }) => {
       strokeWidth: '2',
       stroke: '#2196F3',
     },
+    propsForLabels: {
+      fontSize: 12,
+      fontWeight: '600',
+    }
   };
 
   const [feeLoading, setFeeLoading] = useState(false);
@@ -135,21 +299,44 @@ const AdminDashboard = ({ navigation }) => {
     setIsAnnouncementModalVisible(true);
   };
 
-  const saveAnnouncement = () => {
+  const saveAnnouncement = async () => {
     if (!announcementInput.message || !announcementInput.date) {
       Alert.alert('Error', 'Please fill in all fields.');
       return;
     }
-    if (editIndex !== null) {
-      // Edit existing
-      const updated = [...announcements];
-      updated[editIndex] = announcementInput;
-      setAnnouncements(updated);
-    } else {
-      // Add new
-      setAnnouncements([{ ...announcementInput }, ...announcements]);
+
+    try {
+      if (editIndex !== null) {
+        // Update existing announcement
+        const { error } = await supabase
+          .from('announcements')
+          .update({
+            message: announcementInput.message,
+            date: announcementInput.date
+          })
+          .eq('id', announcements[editIndex].id);
+
+        if (error) throw error;
+      } else {
+        // Insert new announcement
+        const { error } = await supabase
+          .from('announcements')
+          .insert({
+            message: announcementInput.message,
+            date: announcementInput.date,
+            icon: announcementInput.icon,
+            color: announcementInput.color
+          });
+
+        if (error) throw error;
+      }
+
+      await loadDashboardData();
+      setIsAnnouncementModalVisible(false);
+    } catch (error) {
+      console.error('Error saving announcement:', error);
+      Alert.alert('Error', 'Failed to save announcement');
     }
-    setIsAnnouncementModalVisible(false);
   };
 
   const deleteAnnouncement = (idx) => {
@@ -186,21 +373,48 @@ const AdminDashboard = ({ navigation }) => {
     setIsEventModalVisible(true);
   };
 
-  const saveEvent = () => {
+  const saveEvent = async () => {
     if (!eventInput.title || !eventInput.date) {
       Alert.alert('Error', 'Please fill in all fields.');
       return;
     }
-    if (editEventIndex !== null) {
-      // Edit existing
-      const updated = [...events];
-      updated[editEventIndex] = { ...eventInput, id: events[editEventIndex].id };
-      setEvents(updated);
-    } else {
-      // Add new
-      setEvents([{ ...eventInput, id: Date.now() }, ...events]);
+
+    try {
+      if (editEventIndex !== null) {
+        // Update existing event
+        const { error } = await supabase
+          .from('events')
+          .update({
+            title: eventInput.title,
+            date: eventInput.date,
+            type: eventInput.type,
+            icon: eventInput.icon,
+            color: eventInput.color
+          })
+          .eq('id', events[editEventIndex].id);
+
+        if (error) throw error;
+      } else {
+        // Insert new event
+        const { error } = await supabase
+          .from('events')
+          .insert({
+            title: eventInput.title,
+            date: eventInput.date,
+            type: eventInput.type,
+            icon: eventInput.icon,
+            color: eventInput.color
+          });
+
+        if (error) throw error;
+      }
+
+      await loadDashboardData();
+      setIsEventModalVisible(false);
+    } catch (error) {
+      console.error('Error saving event:', error);
+      Alert.alert('Error', 'Failed to save event');
     }
-    setIsEventModalVisible(false);
   };
 
   const deleteEvent = (id) => {
@@ -564,10 +778,221 @@ const AdminDashboard = ({ navigation }) => {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#f5f5f5',
+    backgroundColor: '#f8f9fa',
   },
   scrollView: {
     flex: 1,
+    padding: 16,
+  },
+  statsGridContainer: {
+    width: '100%',
+    marginBottom: 24,
+  },
+  statsRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: 12,
+  },
+  statsCol: {
+    flex: 1,
+    marginRight: 8,
+  },
+  statsFirstCol: {
+    marginRight: 8,
+  },
+  statsSecondCol: {
+    marginLeft: 8,
+  },
+  statsColLast: {
+    marginRight: 0,
+  },
+  quickActionsContainer: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'space-between',
+    marginBottom: 24,
+  },
+  quickAction: {
+    flex: 1,
+    minWidth: '48%',
+    backgroundColor: '#ffffff',
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 12,
+    shadowColor: '#000',
+    shadowOffset: {
+      width: 0,
+      height: 2,
+    },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  quickActionIcon: {
+    fontSize: 24,
+    color: '#2196F3',
+    marginBottom: 8,
+  },
+  quickActionText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#212529',
+  },
+  chartContainer: {
+    backgroundColor: '#ffffff',
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 24,
+    shadowColor: '#000',
+    shadowOffset: {
+      width: 0,
+      height: 2,
+    },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  chartTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    marginBottom: 12,
+    color: '#212529',
+  },
+  announcementsContainer: {
+    backgroundColor: '#ffffff',
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 24,
+    shadowColor: '#000',
+    shadowOffset: {
+      width: 0,
+      height: 2,
+    },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  announcementsTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    marginBottom: 12,
+    color: '#212529',
+  },
+  announcementItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: '#e9ecef',
+  },
+  announcementIcon: {
+    fontSize: 20,
+    marginRight: 8,
+  },
+  announcementText: {
+    flex: 1,
+    fontSize: 14,
+    color: '#212529',
+  },
+  announcementDate: {
+    fontSize: 12,
+    color: '#6c757d',
+  },
+  addAnnouncementButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 8,
+    backgroundColor: '#2196F3',
+    borderRadius: 4,
+    marginTop: 12,
+  },
+  addAnnouncementButtonText: {
+    color: '#ffffff',
+    marginLeft: 4,
+  },
+  modalContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+  },
+  modalContent: {
+    backgroundColor: '#ffffff',
+    padding: 24,
+    borderRadius: 12,
+    width: '90%',
+    maxHeight: '80%',
+  },
+  modalTitle: {
+    fontSize: 18,
+    fontWeight: '600',
+    marginBottom: 20,
+    textAlign: 'center',
+    color: '#212529',
+  },
+  modalInput: {
+    borderWidth: 1,
+    borderColor: '#e9ecef',
+    borderRadius: 8,
+    padding: 12,
+    marginBottom: 16,
+    fontSize: 14,
+  },
+  modalButton: {
+    backgroundColor: '#2196F3',
+    padding: 12,
+    borderRadius: 8,
+    alignItems: 'center',
+    marginTop: 16,
+  },
+  modalButtonText: {
+    color: '#ffffff',
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  datePickerContainer: {
+    width: '100%',
+    marginTop: 16,
+  },
+  datePickerButton: {
+    backgroundColor: '#2196F3',
+    padding: 12,
+    borderRadius: 8,
+    alignItems: 'center',
+    marginTop: 16,
+  },
+  datePickerButtonText: {
+    color: '#ffffff',
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  loading: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  error: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+  },
+  errorText: {
+    textAlign: 'center',
+    color: '#dc3545',
+    marginBottom: 16,
+  },
+  retryButton: {
+    backgroundColor: '#2196F3',
+    padding: 12,
+    borderRadius: 8,
+    marginTop: 16,
+  },
+  retryButtonText: {
+    color: '#ffffff',
+    fontSize: 16,
+    fontWeight: '600',
   },
   welcomeSection: {
     padding: 20,
