@@ -469,42 +469,50 @@ const AdminDashboard = ({ navigation }) => {
         <View style={styles.statsGridContainer}>
           <View style={styles.statsRow}>
             <View style={styles.statsCol}>
-              <StatCard
-                title={stats[0].title}
-                value={stats[0].value}
-                icon={stats[0].icon}
-                color={stats[0].color}
-                subtitle={stats[0].subtitle}
-              />
+              {stats[0] && (
+                <StatCard
+                  title={stats[0].title}
+                  value={stats[0].value}
+                  icon={stats[0].icon}
+                  color={stats[0].color}
+                  subtitle={stats[0].subtitle}
+                />
+              )}
             </View>
             <View style={styles.statsCol}>
-              <StatCard
-                title={stats[1].title}
-                value={stats[1].value}
-                icon={stats[1].icon}
-                color={stats[1].color}
-                subtitle={stats[1].subtitle}
-              />
+              {stats[1] && (
+                <StatCard
+                  title={stats[1].title}
+                  value={stats[1].value}
+                  icon={stats[1].icon}
+                  color={stats[1].color}
+                  subtitle={stats[1].subtitle}
+                />
+              )}
             </View>
           </View>
           <View style={styles.statsRow}>
             <View style={styles.statsCol}>
-              <StatCard
-                title={stats[2].title}
-                value={stats[2].value}
-                icon={stats[2].icon}
-                color={stats[2].color}
-                subtitle={stats[2].subtitle}
-              />
+              {stats[2] && (
+                <StatCard
+                  title={stats[2].title}
+                  value={stats[2].value}
+                  icon={stats[2].icon}
+                  color={stats[2].color}
+                  subtitle={stats[2].subtitle}
+                />
+              )}
             </View>
             <View style={styles.statsCol}>
-              <StatCard
-                title={stats[3].title}
-                value={stats[3].value}
-                icon={stats[3].icon}
-                color={stats[3].color}
-                subtitle={stats[3].subtitle}
-              />
+              {stats[3] && (
+                <StatCard
+                  title={stats[3].title}
+                  value={stats[3].value}
+                  icon={stats[3].icon}
+                  color={stats[3].color}
+                  subtitle={stats[3].subtitle}
+                />
+              )}
             </View>
           </View>
         </View>
@@ -1131,6 +1139,38 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: '#666',
   },
+  feesContainer: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginTop: 16,
+  },
+  feeSummary: {
+    flex: 1,
+    backgroundColor: '#ffffff',
+    borderRadius: 12,
+    padding: 16,
+    marginRight: 8,
+    shadowColor: '#000',
+    shadowOffset: {
+      width: 0,
+      height: 2,
+    },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  feeSummaryTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    marginBottom: 8,
+    color: '#333',
+  },
+  feeSummaryValue: {
+    fontSize: 24,
+    fontWeight: 'bold',
+    color: '#2196F3',
+  },
   feePieWrapper: {
     marginRight: 12,
     alignItems: 'center',
@@ -1234,4 +1274,4 @@ const styles = StyleSheet.create({
   },
 });
 
-export default AdminDashboard; 
+export default AdminDashboard;
