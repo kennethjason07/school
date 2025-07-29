@@ -985,11 +985,9 @@ const FeeManagement = () => {
                     </Text>
                   </TouchableOpacity>
                 </View>
-                </View>
-              </View>
-            </Modal>
           </View>
-      )}
+        </View>
+      </Modal>
     </View>
   );
 };

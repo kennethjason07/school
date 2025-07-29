@@ -20,11 +20,19 @@ const StudentDashboard = ({ navigation }) => {
       setLoading(true);
       setError(null);
 
+      // Get user profile to find the linked student
+      const { data: userData, error: userError } = await supabase
+        .from(TABLES.USERS)
+        .select('linked_id')
+        .eq('id', user.id)
+        .single();
+      if (userError) throw userError;
+
       // Get student profile
       const { data: studentData, error: studentError } = await supabase
         .from(TABLES.STUDENTS)
         .select('*')
-        .eq('user_id', user.id)
+        .eq('id', userData.linked_id)
         .single();
       if (studentError) throw studentError;
       setStudentProfile({

@@ -224,6 +224,8 @@ CREATE TABLE public.users (
   linked_parent_of uuid,
   created_at timestamp without time zone DEFAULT CURRENT_TIMESTAMP,
   password text,
+  full_name text NOT NULL DEFAULT ''::text,
+  phone text,
   CONSTRAINT users_pkey PRIMARY KEY (id),
   CONSTRAINT users_role_id_fkey FOREIGN KEY (role_id) REFERENCES public.roles(id),
   CONSTRAINT users_linked_student_id_fkey FOREIGN KEY (linked_student_id) REFERENCES public.students(id),

@@ -9,7 +9,7 @@ const Header = ({ title, showBack = false, showProfile = true, showNotifications
   return (
     <View style={styles.header}>
       <View style={styles.leftSection}>
-        {showBack && (
+        {showBack && navigation.canGoBack() && (
           <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
             <Ionicons name="arrow-back" size={24} color="#333" />
           </TouchableOpacity>

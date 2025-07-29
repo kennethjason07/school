@@ -5,7 +5,7 @@ import Header from '../../components/Header';
 import { useRef } from 'react';
 import * as ImagePicker from 'expo-image-picker';
 import { useFocusEffect } from '@react-navigation/native';
-import { useAuth } from '../../contexts/AuthContext';
+import { useAuth } from '../../utils/AuthContext';
 import { dbHelpers } from '../../utils/supabase';
 
 const ChatWithTeacher = () => {

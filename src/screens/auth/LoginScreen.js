@@ -310,18 +310,21 @@ const styles = StyleSheet.create({
   roleButtons: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: 10,
+    justifyContent: 'space-between',
+    gap: 8,
   },
   roleButton: {
     flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'center',
     padding: 12,
     borderRadius: 10,
     backgroundColor: '#f5f5f5',
     borderWidth: 1,
     borderColor: '#ddd',
+    minWidth: '48%',
     flex: 1,
-    maxWidth: '48%',
+    marginBottom: 8,
   },
   roleButtonText: {
     fontSize: 14,
@@ -388,15 +391,11 @@ const styles = StyleSheet.create({
   signupText: {
     color: '#666',
     fontSize: 14,
-    backgroundColor: '#ccc',
   },
   signupLink: {
-    alignItems: 'center',
-    marginTop: 16,
-  },
-  signupLinkText: {
-    color: '#667eea',
-    fontSize: 16,
+    color: '#1976d2',
+    fontSize: 14,
+    fontWeight: '600',
   },
 });
 

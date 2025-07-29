@@ -37,36 +37,47 @@ const ProfileScreen = () => {
   const [selectedRole, setSelectedRole] = useState(null);
   const [roles, setRoles] = useState([]);
   const navigation = useNavigation();
-  const { signOut } = useAuth();
+  const { signOut, user: authUser } = useAuth();
 
   // Load user data
   const loadUserData = async () => {
     try {
       setLoading(true);
       
-      // Get user from auth
+      if (!authUser) {
+        console.log('No authenticated user found');
+        return;
+      }
+      
+      // Get user profile from users table
       const { data: profileData, error: profileError } = await supabase
-        .from('profiles')
+        .from('users')
         .select('*')
-        .eq('id', supabase.auth.user().id)
+        .eq('id', authUser.id)
+        .maybeSingle();
+
+      if (profileError) {
+        console.error('Profile error:', profileError);
+        throw profileError;
+      }
+
+      // Get user role name
+      const { data: roleData, error: roleError } = await supabase
+        .from('roles')
+        .select('role_name')
+        .eq('id', profileData?.role_id)
         .single();
 
-      if (profileError) throw profileError;
-
-      // Get user roles
-      const { data: rolesData, error: rolesError } = await supabase
-        .from('user_roles')
-        .select('role_name')
-        .eq('user_id', supabase.auth.user().id);
-
-      if (rolesError) throw rolesError;
+      if (roleError) {
+        console.error('Role error:', roleError);
+      }
 
       setUser(profileData);
-      setRoles(rolesData.map(r => r.role_name));
+      setRoles(roleData ? [roleData.role_name] : []);
       setForm({
-        name: profileData.name,
-        email: profileData.email,
-        contact: profileData.contact,
+        name: profileData?.full_name || '',
+        email: profileData?.email || '',
+        contact: profileData?.phone || '',
       });
     } catch (error) {
       console.error('Error loading user data:', error);
@@ -85,7 +96,7 @@ const ProfileScreen = () => {
       .on('postgres_changes', {
         event: '*',
         schema: 'public',
-        table: 'profiles'
+        table: 'users'
       }, () => {
         loadUserData();
       })
@@ -99,15 +110,20 @@ const ProfileScreen = () => {
   // Handle profile update
   const handleSave = async () => {
     try {
+      if (!authUser) {
+        Alert.alert('Error', 'No authenticated user found');
+        return;
+      }
+
       const { error } = await supabase
-        .from('profiles')
+        .from('users')
         .update({
-          name: form.name,
+          full_name: form.name,
           email: form.email,
-          contact: form.contact,
-          updated_at: new Date()
+          phone: form.contact,
+          updated_at: new Date().toISOString()
         })
-        .eq('id', supabase.auth.user().id);
+        .eq('id', authUser.id);
 
       if (error) throw error;
 
@@ -147,8 +163,13 @@ const ProfileScreen = () => {
   // Handle photo upload
   const handleUploadPhoto = async (uri) => {
     try {
+      if (!authUser) {
+        Alert.alert('Error', 'No authenticated user found');
+        return;
+      }
+
       // Upload to Supabase storage
-      const fileName = `${supabase.auth.user().id}-${Date.now()}.jpg`;
+      const fileName = `${authUser.id}-${Date.now()}.jpg`;
       const { error: uploadError } = await supabase.storage
         .from('profiles')
         .upload(fileName, uri, {
@@ -160,12 +181,12 @@ const ProfileScreen = () => {
 
       // Update profile with new photo URL
       const { error: updateError } = await supabase
-        .from('profiles')
+        .from('users')
         .update({
           photo_url: `${supabase.storage.getPublicUrl('profiles', fileName).data.publicUrl}`,
-          updated_at: new Date()
+          updated_at: new Date().toISOString()
         })
-        .eq('id', supabase.auth.user().id);
+        .eq('id', authUser.id);
 
       if (updateError) throw updateError;
 
@@ -249,6 +270,34 @@ const ProfileScreen = () => {
     }
   };
 
+  // Handle logout
+  const handleLogout = async () => {
+    try {
+      const { error } = await signOut();
+      if (error) {
+        Alert.alert('Error', 'Failed to logout');
+      } else {
+        navigation.reset({
+          index: 0,
+          routes: [{ name: 'Login' }],
+        });
+      }
+    } catch (error) {
+      console.error('Logout error:', error);
+      Alert.alert('Error', 'Failed to logout');
+    }
+  };
+
+  // Add handler for back button
+  const handleGoBack = () => {
+    // If StudentDashboard is in a nested navigator, use the correct navigation call
+    // Example: navigation.navigate('Main', { screen: 'StudentDashboard' });
+    // Replace 'Main' with your parent navigator name if needed
+
+    // If StudentDashboard is in the current navigator, use:
+    
+  };
+
   if (loading) {
     return (
       <View style={styles.loadingContainer}>
@@ -259,7 +308,16 @@ const ProfileScreen = () => {
 
   return (
     <View style={styles.container}>
-      <Header title="Profile" showBack={true} />
+      {/* Header with back button and title */}
+      <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 16, marginBottom: 8 }}>
+        <TouchableOpacity style={styles.backButton} onPress={handleGoBack}>
+          <Ionicons name="arrow-back" size={28} color="#1976d2" />
+          <Text style={styles.backButtonText}>Back</Text>
+        </TouchableOpacity>
+        <Text style={{ fontSize: 22, fontWeight: 'bold', color: '#1976d2', marginLeft: 16 }}>
+          Profile
+        </Text>
+      </View>
       <ScrollView
         contentContainerStyle={styles.scrollContent}
         refreshControl={
@@ -267,17 +325,16 @@ const ProfileScreen = () => {
         }
       >
         <View style={styles.profileHeader}>
-          {user.photo_url ? (
+          {user?.photo_url ? (
             <Image
               source={{ uri: user.photo_url }}
               style={styles.profileImage}
             />
           ) : (
             <View style={styles.imageContainer}>
-              <Image
-                source={require('../../assets/default-profile.jpg')}
-                style={styles.profileImage}
-              />
+              <View style={styles.defaultProfileImage}>
+                <Ionicons name="person" size={60} color="#999" />
+              </View>
               <TouchableOpacity
                 style={styles.imageOverlay}
                 onPress={handlePickPhoto}
@@ -286,8 +343,8 @@ const ProfileScreen = () => {
               </TouchableOpacity>
             </View>
           )}
-          <Text style={styles.name}>{user.name}</Text>
-          <Text style={styles.email}>{user.email}</Text>
+          <Text style={styles.name}>{user?.full_name || 'No Name'}</Text>
+          <Text style={styles.email}>{user?.email || 'No Email'}</Text>
         </View>
         <View style={styles.rolesContainer}>
           {roles.map(role => (
@@ -321,11 +378,12 @@ const ProfileScreen = () => {
             keyboardType="phone-pad"
           />
           <TouchableOpacity
-            style={styles.saveButton}
-            onPress={handleSave}
-            disabled={!editing}
+            style={[styles.saveButton, !editing && styles.disabledButton]}
+            onPress={editing ? handleSave : () => setEditing(true)}
           >
-            <Text style={styles.buttonText}>Save Changes</Text>
+            <Text style={styles.buttonText}>
+              {editing ? 'Save Changes' : 'Edit Profile'}
+            </Text>
           </TouchableOpacity>
         </View>
         <View style={styles.passwordSection}>
@@ -368,6 +426,9 @@ const styles = StyleSheet.create({
     backgroundColor: '#f5f7fa',
     padding: 16,
   },
+  scrollContent: {
+    paddingBottom: 20,
+  },
   loadingContainer: {
     flex: 1,
     justifyContent: 'center',
@@ -385,6 +446,15 @@ const styles = StyleSheet.create({
   },
   imageContainer: {
     position: 'relative',
+  },
+  defaultProfileImage: {
+    width: 120,
+    height: 120,
+    borderRadius: 60,
+    backgroundColor: '#f0f0f0',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 16,
   },
   imageOverlay: {
     position: 'absolute',
@@ -410,8 +480,24 @@ const styles = StyleSheet.create({
   rolesContainer: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: 8,
+    justifyContent: 'center',
     marginBottom: 24,
+  },
+  roleTag: {
+    backgroundColor: '#e3f2fd',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: '#1976d2',
+    marginHorizontal: 4,
+    marginVertical: 2,
+  },
+  roleText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#1976d2',
+    textTransform: 'uppercase',
   },
   form: {
     backgroundColor: 'white',
@@ -462,6 +548,9 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.1,
     shadowRadius: 4,
     elevation: 3,
+  },
+  disabledButton: {
+    backgroundColor: '#28a745',
   },
   buttonText: {
     color: 'white',
@@ -534,6 +623,17 @@ const styles = StyleSheet.create({
     shadowRadius: 4,
     elevation: 3,
   },
+  backButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    // marginBottom: 8, // Remove marginBottom so it aligns with title
+  },
+  backButtonText: {
+    color: '#1976d2',
+    fontSize: 16,
+    marginLeft: 4,
+    fontWeight: 'bold',
+  },
 });
 
-export default ProfileScreen; 
+export default ProfileScreen;

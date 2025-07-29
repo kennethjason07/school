@@ -93,7 +93,7 @@ function AdminTabNavigator() {
         tabBarInactiveTintColor: 'gray',
       })}
     >
-      <Tab.Screen name="Dashboard" component={AdminDashboard} />
+      <Tab.Screen name="AdminDashboard" component={AdminDashboard} />
       <Tab.Screen name="Classes" component={ManageClasses} />
       <Tab.Screen name="Students" component={ManageStudents} />
       <Tab.Screen name="Teachers" component={ManageTeachers} options={{ tabBarLabel: 'Manage Teachers' }} />
@@ -127,7 +127,7 @@ function TeacherTabNavigator() {
         tabBarInactiveTintColor: 'gray',
       })}
     >
-      <Tab.Screen name="Dashboard" component={TeacherDashboard} />
+      <Tab.Screen name="TeacherDashboard" component={TeacherDashboard} />
       <Tab.Screen name="Attendance" component={TakeAttendance} />
       <Tab.Screen name="Marks" component={MarksEntry} />
       <Tab.Screen name="Homework" component={UploadHomework} />
@@ -160,7 +160,7 @@ function ParentTabNavigator() {
         tabBarInactiveTintColor: 'gray',
       })}
     >
-      <Tab.Screen name="Dashboard" component={ParentDashboard} />
+      <Tab.Screen name="ParentDashboard" component={ParentDashboard} />
       <Tab.Screen name="Report Card" component={ViewReportCard} />
       <Tab.Screen name="Attendance" component={AttendanceSummary} />
       <Tab.Screen name="Fees" component={FeePayment} />
@@ -193,7 +193,7 @@ function StudentTabNavigator() {
         tabBarInactiveTintColor: 'gray',
       })}
     >
-      <Tab.Screen name="Dashboard" component={StudentDashboard} />
+      <Tab.Screen name="StudentDashboard" component={StudentDashboard} />
       <Tab.Screen name="Assignments" component={ViewAssignments} />
       <Tab.Screen name="Marks" component={StudentAttendanceMarks} />
       <Tab.Screen name="Notifications" component={StudentNotifications} />
@@ -251,7 +251,7 @@ export default function AppNavigator() {
               </>
             )}
             {userType === 'student' && (
-              <Stack.Screen name="StudentTabs" component={StudentTabNavigator} />
+              <Stack.Screen name="StudentDashboard" component={StudentTabNavigator} />
             )}
             
             {/* Universal Screens */}

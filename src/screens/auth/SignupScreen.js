@@ -22,20 +22,52 @@ const SignupScreen = ({ navigation }) => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
-  const [role, setRole] = useState('student');
-  const [linkedId, setLinkedId] = useState('');
+  const [roleId, setRoleId] = useState(null);
+  const [fullName, setFullName] = useState('');
+  const [phone, setPhone] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [emailError, setEmailError] = useState('');
   const [passwordError, setPasswordError] = useState('');
   const [confirmPasswordError, setConfirmPasswordError] = useState('');
+  const [fullNameError, setFullNameError] = useState('');
+  const [phoneError, setPhoneError] = useState('');
   const { signUp } = useAuth();
 
   const roles = [
-    { key: 'admin', label: 'Admin', icon: 'school', color: '#1976d2' },
-    { key: 'teacher', label: 'Teacher', icon: 'person', color: '#4CAF50' },
-    { key: 'parent', label: 'Parent', icon: 'people', color: '#FF9800' },
-    { key: 'student', label: 'Student', icon: 'person-circle', color: '#9C27B0' },
+    { key: 1, label: 'Admin', icon: 'school', color: '#1976d2' },
+    { key: 2, label: 'Teacher', icon: 'person', color: '#4CAF50' },
+    { key: 3, label: 'Parent', icon: 'people', color: '#FF9800' },
+    { key: 4, label: 'Student', icon: 'person-circle', color: '#9C27B0' },
   ];
+
+  // Validate full name
+  const validateFullName = (name) => {
+    if (!name) {
+      setFullNameError('Full name is required');
+      return false;
+    }
+    if (name.length < 2) {
+      setFullNameError('Full name must be at least 2 characters');
+      return false;
+    }
+    setFullNameError('');
+    return true;
+  };
+
+  // Validate phone
+  const validatePhone = (phone) => {
+    if (!phone) {
+      setPhoneError('Phone number is required');
+      return false;
+    }
+    const phoneRegex = /^\+?[1-9]\d{1,14}$/;
+    if (!phoneRegex.test(phone)) {
+      setPhoneError('Please enter a valid phone number');
+      return false;
+    }
+    setPhoneError('');
+    return true;
+  };
 
   // Validate email
   const validateEmail = (email) => {
@@ -80,22 +112,31 @@ const SignupScreen = ({ navigation }) => {
     return true;
   };
 
-  // Check if role exists in Supabase
-  const validateRole = async (role) => {
+  // Get role ID from Supabase
+  const getRoleId = async (roleName) => {
     try {
       const { data, error } = await supabase
         .from('roles')
-        .select('role_name')
-        .eq('role_name', role)
+        .select('id')
+        .eq('role_name', roleName)
         .single();
 
       if (error) throw error;
-      return true;
+      return data.id;
     } catch (error) {
-      console.error('Role validation error:', error);
+      console.error('Role ID retrieval error:', error);
       Alert.alert('Error', 'Invalid role selected');
+      return null;
+    }
+  };
+
+  // Validate role selection
+  const validateRole = async () => {
+    if (!roleId) {
+      Alert.alert('Error', 'Please select a role');
       return false;
     }
+    return true;
   };
 
   const handleSignUp = async () => {
@@ -104,7 +145,9 @@ const SignupScreen = ({ navigation }) => {
     isValid = validateEmail(email) && isValid;
     isValid = validatePassword(password) && isValid;
     isValid = validateConfirmPassword(password, confirmPassword) && isValid;
-    isValid = await validateRole(role) && isValid;
+    isValid = validateFullName(fullName) && isValid;
+    isValid = validatePhone(phone) && isValid;
+    isValid = await validateRole() && isValid;
 
     if (!isValid) return;
 
@@ -112,8 +155,9 @@ const SignupScreen = ({ navigation }) => {
     
     try {
       const userData = {
-        role,
-        linked_id: linkedId || null,
+        role_id: roleId,
+        full_name: fullName,
+        phone: phone,
       };
 
       const { data, error } = await signUp(email, password, userData);
@@ -171,19 +215,19 @@ const SignupScreen = ({ navigation }) => {
                     key={r.key}
                     style={[
                       styles.roleButton,
-                      role === r.key && { backgroundColor: r.color }
+                      roleId === r.key && { backgroundColor: r.color }
                     ]}
-                    onPress={() => setRole(r.key)}
+                    onPress={() => setRoleId(4)}
                   >
                     <Ionicons
                       name={r.icon}
                       size={24}
-                      color={role === r.key ? '#fff' : '#666'}
+                      color={roleId === r.key ? '#fff' : '#666'}
                     />
                     <Text
                       style={[
                         styles.roleButtonText,
-                        role === r.key && { color: '#fff' }
+                        roleId === r.key && { color: '#fff' }
                       ]}
                     >
                       {r.label}
@@ -191,6 +235,35 @@ const SignupScreen = ({ navigation }) => {
                   </TouchableOpacity>
                 ))}
               </View>
+            </View>
+
+            {/* Full Name Input */}
+            <View style={styles.inputContainer}>
+              <Ionicons name="person" size={24} color="#666" />
+              <TextInput
+                style={styles.input}
+                placeholder="Full Name"
+                placeholderTextColor="#666"
+                value={fullName}
+                onChangeText={setFullName}
+                onBlur={() => validateFullName(fullName)}
+              />
+              {fullNameError && <Text style={styles.errorText}>{fullNameError}</Text>}
+            </View>
+
+            {/* Phone Input */}
+            <View style={styles.inputContainer}>
+              <Ionicons name="call" size={24} color="#666" />
+              <TextInput
+                style={styles.input}
+                placeholder="Phone Number"
+                placeholderTextColor="#666"
+                value={phone}
+                onChangeText={setPhone}
+                keyboardType="phone-pad"
+                onBlur={() => validatePhone(phone)}
+              />
+              {phoneError && <Text style={styles.errorText}>{phoneError}</Text>}
             </View>
 
             {/* Email Input */}
@@ -259,8 +332,8 @@ const SignupScreen = ({ navigation }) => {
                 style={styles.input}
                 placeholder="Linked ID (Optional)"
                 placeholderTextColor="#666"
-                value={linkedId}
-                onChangeText={setLinkedId}
+                value=""
+                onChangeText={() => {}}
               />
             </View>
 

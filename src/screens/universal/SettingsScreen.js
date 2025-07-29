@@ -25,28 +25,37 @@ const SettingsScreen = ({ navigation }) => {
     language: 'en'
   });
   const [appVersion, setAppVersion] = useState('1.0.0');
-  const { signOut } = useAuth();
+  const { signOut, user: authUser } = useAuth();
 
   // Load settings from Supabase
   const loadSettings = async () => {
     try {
       setLoading(true);
       
+      if (!authUser) {
+        console.log('No authenticated user found');
+        return;
+      }
+
       // Get user settings
       const { data: settingsData, error: settingsError } = await supabase
         .from('user_settings')
         .select('*')
-        .eq('user_id', supabase.auth.user().id)
-        .single();
+        .eq('user_id', authUser.id)
+        .maybeSingle();
 
-      if (settingsError) throw settingsError;
+      if (settingsError && settingsError.code !== 'PGRST116') {
+        throw settingsError;
+      }
 
-      setSettings({
-        notifications: settingsData.notifications || true,
-        darkMode: settingsData.dark_mode || false,
-        biometric: settingsData.biometric || false,
-        language: settingsData.language || 'en',
-      });
+      if (settingsData) {
+        setSettings({
+          notifications: settingsData.notifications || true,
+          darkMode: settingsData.dark_mode || false,
+          biometric: settingsData.biometric || false,
+          language: settingsData.language || 'en',
+        });
+      }
 
       // Get app version
       const { data: versionData, error: versionError } = await supabase
@@ -54,10 +63,14 @@ const SettingsScreen = ({ navigation }) => {
         .select('version')
         .order('created_at', { ascending: false })
         .limit(1)
-        .single();
+        .maybeSingle();
 
-      if (versionError) throw versionError;
-      setAppVersion(versionData.version);
+      if (versionError && versionError.code !== 'PGRST116') {
+        throw versionError;
+      }
+      if (versionData) {
+        setAppVersion(versionData.version);
+      }
     } catch (error) {
       console.error('Error loading settings:', error);
       Alert.alert('Error', 'Failed to load settings. Using default values.');
@@ -86,25 +99,6 @@ const SettingsScreen = ({ navigation }) => {
     };
   }, []);
 
-  // Save setting to Supabase
-  const saveSetting = async (key, value) => {
-    try {
-      const { error } = await supabase
-        .from('user_settings')
-        .upsert([
-          {
-            user_id: supabase.auth.user().id,
-            [key]: value,
-            updated_at: new Date()
-          }
-        ]);
-
-      if (error) throw error;
-    } catch (error) {
-      console.error('Error saving setting:', error);
-      Alert.alert('Error', 'Failed to save setting');
-    }
-  };
 
   const handleLogout = async () => {
     try {
@@ -152,7 +146,6 @@ const SettingsScreen = ({ navigation }) => {
           value={switchValue}
           onValueChange={(value) => {
             onSwitchChange(value);
-            saveSetting(title.toLowerCase().replace(' ', '_'), value);
           }}
           trackColor={{ false: '#767577', true: '#81b0ff' }}
           thumbColor={switchValue ? '#1976d2' : '#f4f3f4'}
@@ -192,14 +185,14 @@ const SettingsScreen = ({ navigation }) => {
           <Text style={styles.sectionTitle}>Account</Text>
           {renderSettingItem('person-outline', 'Profile', 'Manage your profile information', () => navigation.navigate('Profile'))}
           {renderSettingItem('lock-closed-outline', 'Change Password', 'Update your password', () => navigation.navigate('ChangePassword'))}
-          {renderSettingItem('finger-print-outline', 'Biometric Login', 'Use fingerprint or face ID', null, true, settings.biometric, (value) => setSettings(prev => ({ ...prev, biometric: value }))}
+          {renderSettingItem('finger-print-outline', 'Biometric Login', 'Use fingerprint or face ID', null, true, settings.biometric, (value) => setSettings(prev => ({ ...prev, biometric: value })))}
         </View>
 
         {/* App Settings */}
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>App Settings</Text>
-          {renderSettingItem('notifications-outline', 'Notifications', 'Manage notification preferences', null, true, settings.notifications, (value) => setSettings(prev => ({ ...prev, notifications: value }))}
-          {renderSettingItem('moon-outline', 'Dark Mode', 'Switch to dark theme', null, true, settings.darkMode, (value) => setSettings(prev => ({ ...prev, darkMode: value }))}
+          {renderSettingItem('notifications-outline', 'Notifications', 'Manage notification preferences', null, true, settings.notifications, (value) => setSettings(prev => ({ ...prev, notifications: value })))}
+          {renderSettingItem('moon-outline', 'Dark Mode', 'Switch to dark theme', null, true, settings.darkMode, (value) => setSettings(prev => ({ ...prev, darkMode: value })))}
           {renderSettingItem('language-outline', 'Language', settings.language.toUpperCase(), () => navigation.navigate('LanguageSettings'))}
         </View>
 

@@ -35,4 +35,4 @@ export default function App() {
       <AppNavigator />
     </ErrorBoundary>
   );
-} 
+}

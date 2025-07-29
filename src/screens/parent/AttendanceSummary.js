@@ -17,7 +17,7 @@ import { LineChart, BarChart } from 'react-native-chart-kit';
 import * as Print from 'expo-print';
 import * as Sharing from 'expo-sharing';
 import Header from '../../components/Header';
-import { useAuth } from '../../contexts/AuthContext';
+import { useAuth } from '../../utils/AuthContext';
 import { dbHelpers } from '../../utils/supabase';
 
 const { width } = Dimensions.get('window');
