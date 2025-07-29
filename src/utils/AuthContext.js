@@ -210,6 +210,7 @@ export const AuthProvider = ({ children }) => {
         role_id: userData.role_id,
         full_name: userData.full_name || '',
         phone: userData.phone || '',
+        linked_student_id: userData.linked_student_id || null,
         created_at: new Date().toISOString()
       };
 
@@ -232,6 +233,18 @@ export const AuthProvider = ({ children }) => {
         return { data: null, error: { message: 'Failed to create user profile. Please try again.' } };
       }
 
+      const { data: roleData, error: roleError } = await supabase
+        .from('roles')
+        .select('role_name')
+        .eq('id', userData.role_id)
+        .single();
+
+      if (roleError) {
+        console.error('Role retrieval error:', roleError);
+        await supabase.auth.signOut();
+        return { data: null, error: { message: 'Failed to retrieve user role.' } };
+      }
+
       const completeUserData = {
         id: user.id,
         email: user.email,
@@ -240,7 +253,7 @@ export const AuthProvider = ({ children }) => {
       };
 
       setUser(completeUserData);
-      setUserType(userData.role);
+      setUserType(roleData.role_name);
       
       return { data: completeUserData, error: null };
     } catch (error) {

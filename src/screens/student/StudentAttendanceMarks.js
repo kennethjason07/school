@@ -65,26 +65,42 @@ export default function StudentAttendanceMarks() {
     try {
       setLoading(true);
       setError(null);
+
+      // Get student id from user context
+      const { data: userData, error: userError } = await supabase
+        .from(TABLES.USERS)
+        .select('linked_student_id')
+        .eq('id', user.id)
+        .single();
+
+      if (userError) throw userError;
+      if (!userData?.linked_student_id) throw new Error('Student profile not linked to this user.');
+
+      const studentId = userData.linked_student_id;
+
       // Get student profile
       const { data: student, error: studentError } = await supabase
         .from(TABLES.STUDENTS)
         .select('*')
-        .eq('user_id', user.id)
+        .eq('id', studentId)
         .single();
       if (studentError) throw studentError;
+
       setStudentInfo({
-        name: student.full_name,
-        class: student.class_name || student.class_id,
+        name: student.name,
+        class: student.class_id,
         rollNo: student.roll_no,
-        section: student.section_name || student.section_id,
+        section: student.section || '',
         profilePicUrl: '',
       });
+
       // Get attendance records
       const { data: attendance, error: attendanceError } = await supabase
         .from(TABLES.STUDENT_ATTENDANCE)
         .select('*')
-        .eq('student_id', student.id);
+        .eq('student_id', studentId);
       if (attendanceError) throw attendanceError;
+
       // Group attendance by date string
       const attendanceMap = {};
       attendance.forEach(a => {
@@ -97,13 +113,15 @@ export default function StudentAttendanceMarks() {
         attendanceMap[dateStr] = status;
       });
       setAttendanceData(attendanceMap);
+
       // Get marks records
       const { data: marks, error: marksError } = await supabase
         .from(TABLES.MARKS)
         .select('*')
-        .eq('student_id', student.id);
+        .eq('student_id', studentId);
       if (marksError) throw marksError;
       setMarksData(marks);
+
     } catch (err) {
       setError(err.message);
       console.error('StudentAttendanceMarks error:', err);
@@ -646,7 +664,7 @@ export default function StudentAttendanceMarks() {
                 const subjects = Array.from(new Set(marksData.map(m => m.subject_name)));
                 const groupedBarChartHtml = `
                   <div style='margin:18px 0 8px 0;'>
-                    <div style='display:flex;align-items:flex-end;height:120px;'>
+                    <div style='display:flex;align-items:flex-end;height:100px;'>
                       ${exams.map(exam => `
                         <div style='flex:1;display:flex;flex-direction:column;align-items:center;margin:0 8px;'>
                           <div style='display:flex;align-items:flex-end;height:100px;'>
@@ -821,4 +839,4 @@ const styles = StyleSheet.create({
   noDataDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: '#bbb', marginTop: 2 },
   attendanceIconCircle: { width: 22, height: 22, borderRadius: 11, alignItems: 'center', justifyContent: 'center', marginTop: 2, alignSelf: 'center' },
   statNumber: { fontSize: 26, fontWeight: 'bold', color: '#1976d2', marginTop: 4 },
-}); 
+});

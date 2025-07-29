@@ -31,7 +31,7 @@ const SignupScreen = ({ navigation }) => {
   const [confirmPasswordError, setConfirmPasswordError] = useState('');
   const [fullNameError, setFullNameError] = useState('');
   const [phoneError, setPhoneError] = useState('');
-  const { signUp } = useAuth();
+  const [linkedId, setLinkedId] = useState('');
 
   const roles = [
     { key: 1, label: 'Admin', icon: 'school', color: '#1976d2' },
@@ -158,6 +158,7 @@ const SignupScreen = ({ navigation }) => {
         role_id: roleId,
         full_name: fullName,
         phone: phone,
+        linked_student_id: linkedId,
       };
 
       const { data, error } = await signUp(email, password, userData);
@@ -217,7 +218,7 @@ const SignupScreen = ({ navigation }) => {
                       styles.roleButton,
                       roleId === r.key && { backgroundColor: r.color }
                     ]}
-                    onPress={() => setRoleId(4)}
+                    onPress={() => setRoleId(r.key)}
                   >
                     <Ionicons
                       name={r.icon}
@@ -332,8 +333,8 @@ const SignupScreen = ({ navigation }) => {
                 style={styles.input}
                 placeholder="Linked ID (Optional)"
                 placeholderTextColor="#666"
-                value=""
-                onChangeText={() => {}}
+                value={linkedId}
+                onChangeText={setLinkedId}
               />
             </View>
 
