@@ -83,8 +83,7 @@ function groupAndSortSchedule(schedule) {
         .from(TABLES.TEACHER_SUBJECTS)
         .select(`
           *,
-          classes(class_name),
-          sections(section_name),
+          classes(class_name, section),
           subjects(name)
         `)
         .eq('teacher_id', teacher.id);
@@ -94,7 +93,7 @@ function groupAndSortSchedule(schedule) {
       // Process assigned classes
       const classMap = {};
       assignedSubjects.forEach(subject => {
-        const className = subject.classes?.class_name;
+        const className = `${subject.classes?.class_name} - ${subject.classes?.section}`;
         if (className) {
           if (!classMap[className]) classMap[className] = [];
           classMap[className].push(subject.subjects?.name || 'Unknown Subject');

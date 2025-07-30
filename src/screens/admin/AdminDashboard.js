@@ -40,16 +40,14 @@ const AdminDashboard = ({ navigation }) => {
       setError(null);
 
       // Load students count
-      const { data: students, error: studentError } = await supabase
+      const { data: students, error: studentError, count: studentCount } = await supabase
         .from('students')
-        .select('id')
-        .count();
+        .select('id', { count: 'exact' });
 
       // Load teachers count
-      const { data: teachers, error: teacherError } = await supabase
+      const { data: teachers, error: teacherError, count: teacherCount } = await supabase
         .from('teachers')
-        .select('id')
-        .count();
+        .select('id', { count: 'exact' });
 
       // Load today's attendance
       const today = new Date();
@@ -65,8 +63,8 @@ const AdminDashboard = ({ navigation }) => {
         .gte('payment_date', format(new Date(), 'yyyy-MM-dd'));
 
       // Calculate statistics
-      const totalStudents = students?.count || 0;
-      const totalTeachers = teachers?.count || 0;
+      const totalStudents = studentCount || 0;
+      const totalTeachers = teacherCount || 0;
       const attendancePercentage = attendance ? Math.round((attendance.length / totalStudents) * 100) : 0;
       const totalFees = fees?.reduce((sum, fee) => sum + (fee.amount || 0), 0) || 0;
       const collectedFees = fees?.filter(fee => fee.status === 'Paid')?.reduce((sum, fee) => sum + (fee.amount || 0), 0) || 0;

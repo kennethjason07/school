@@ -32,7 +32,7 @@ const StudentList = ({ route, navigation }) => {
       <View style={styles.avatar}><Ionicons name="person" size={28} color="#2196F3" /></View>
       <View style={styles.info}>
         <Text style={styles.name}>{item.name}</Text>
-        <Text style={styles.detail}>Roll No: {item.roll_no}</Text>
+        <Text style={styles.detail}>Roll No: {item.roll_no || 'N/A'}</Text>
         <Text style={styles.detail}>Attendance: -</Text>
         <Text style={styles.detail}>Fee: -</Text>
       </View>

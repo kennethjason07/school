@@ -43,15 +43,14 @@ const ViewStudentInfo = () => {
         .from(TABLES.TEACHER_SUBJECTS)
         .select(`
           *,
-          classes(id, class_name),
-          sections(id, section_name)
+          classes(id, class_name, section)
         `)
         .eq('teacher_id', teacherData.id);
 
       if (assignedError) throw assignedError;
 
       // Get unique classes
-      const uniqueClasses = [...new Set(assignedData.map(a => a.classes.class_name))];
+      const uniqueClasses = [...new Set(assignedData.map(a => `${a.classes.class_name} - ${a.classes.section}`))];
       setClasses(['All', ...uniqueClasses]);
 
       // Get students from assigned classes
@@ -67,12 +66,10 @@ const ViewStudentInfo = () => {
             address,
             date_of_birth,
             gender,
-            classes(class_name),
-            sections(section_name),
+            classes(class_name, section),
             parents(full_name, phone, email)
           `)
           .eq('class_id', assignment.classes.id)
-          .eq('section_id', assignment.sections.id)
           .order('roll_no')
       );
 
@@ -81,13 +78,13 @@ const ViewStudentInfo = () => {
 
       studentResults.forEach((result, index) => {
         if (result.data) {
-          const classSection = `${assignedData[index].classes.class_name}-${assignedData[index].sections.section_name}`;
+          const classSection = `${assignedData[index].classes.class_name} - ${assignedData[index].classes.section}`;
           result.data.forEach(student => {
             allStudents.push({
               ...student,
               classSection,
               className: assignedData[index].classes.class_name,
-              sectionName: assignedData[index].sections.section_name
+              sectionName: assignedData[index].classes.section
             });
           });
         }
@@ -197,12 +194,11 @@ const ViewStudentInfo = () => {
   const handleExportCSV = async () => {
     try {
       const csvData = [
-        ['Name', 'Roll No', 'Class', 'Section', 'Email', 'Phone', 'Attendance %', 'Average Marks'],
+        ['Name', 'Roll No', 'Class', 'Email', 'Phone', 'Attendance %', 'Average Marks'],
         ...filteredStudents.map(student => [
           student.full_name,
           student.roll_no,
-          student.className,
-          student.sectionName,
+          `${student.className} - ${student.sectionName}`,
           student.email || '',
           student.phone || '',
           student.attendance || 0,
@@ -275,7 +271,7 @@ const ViewStudentInfo = () => {
         <View style={styles.studentInfo}>
           <Text style={styles.studentName}>{item.full_name}</Text>
           <Text style={styles.studentDetails}>
-            Roll: {item.roll_no} | {item.classSection}
+            Roll: {item.roll_no} | ${item.classSection}
           </Text>
         </View>
         <Ionicons name="chevron-forward" size={20} color="#666" />
