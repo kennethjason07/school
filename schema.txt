@@ -154,7 +154,7 @@ CREATE TABLE public.students (
   created_at timestamp without time zone DEFAULT CURRENT_TIMESTAMP,
   CONSTRAINT students_pkey PRIMARY KEY (id),
   CONSTRAINT students_class_id_fkey FOREIGN KEY (class_id) REFERENCES public.classes(id),
-  CONSTRAINT students_parent_id_fkey FOREIGN KEY (parent_id) REFERENCES public.students(id)
+  CONSTRAINT students_parent_id_fkey FOREIGN KEY (parent_id) REFERENCES public.users(id)
 );
 CREATE TABLE public.subjects (
   id uuid NOT NULL DEFAULT gen_random_uuid(),

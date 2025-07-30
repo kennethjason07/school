@@ -42,7 +42,7 @@ const StudentChatWithTeacher = () => {
       // Get teacher assignments
       const { data: assignments, error: assignError } = await supabase
         .from(TABLES.TEACHER_SUBJECTS)
-        .select('teacher_id, subjects(name), teachers(full_name, id)')
+        .select('teacher_id, subjects(name), teachers(name, id)')
         .eq('class_id', student.class_id)
         .eq('section_id', student.section_id);
       if (assignError) throw assignError;

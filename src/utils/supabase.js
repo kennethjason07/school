@@ -242,7 +242,7 @@ export const dbHelpers = {
       const { data, error } = await supabase
         .from(TABLES.TEACHERS)
         .select('*')
-        .order('full_name');
+        .order('name');
       return { data, error };
     } catch (error) {
       return { data: null, error };
@@ -255,9 +255,7 @@ export const dbHelpers = {
         .from(TABLES.TEACHER_SUBJECTS)
         .select(`
           *,
-          subjects(name),
-          classes(class_name),
-          sections(section_name)
+          subjects(id, name, class_id)
         `)
         .eq('teacher_id', teacherId);
       return { data, error };

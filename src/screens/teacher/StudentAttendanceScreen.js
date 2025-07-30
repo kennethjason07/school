@@ -147,7 +147,7 @@ const StudentAttendanceScreen = ({ navigation, route }) => {
 
   return (
     <View style={styles.container}>
-      <Header title={`${student.full_name}'s Attendance`} showBack={true} />
+      <Header title={`${student.name}'s Attendance`} showBack={true} />
       
       {loading ? (
         <View style={styles.loadingContainer}>

@@ -446,7 +446,7 @@ const UploadHomework = () => {
                       ]}
                       onPress={() => handleStudentSelection(student.id)}
                     >
-                      <Text style={styles.studentName}>{student.full_name}</Text>
+                      <Text style={styles.studentName}>{student.name}</Text>
                       <Text style={styles.studentRoll}>Roll: {student.roll_no}</Text>
                     </TouchableOpacity>
                   ))}

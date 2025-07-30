@@ -26,7 +26,7 @@ const ManageTeachers = ({ navigation }) => {
   const [isModalVisible, setIsModalVisible] = useState(false);
   const [modalMode, setModalMode] = useState('add'); // 'add' or 'edit'
   const [selectedTeacher, setSelectedTeacher] = useState(null);
-  const [form, setForm] = useState({ full_name: '', subjects: [], classes: [], salary: '', qualification: '' });
+  const [form, setForm] = useState({ name: '', subjects: [], classes: [], salary: '', qualification: '' });
   const [searchVisible, setSearchVisible] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   
@@ -43,7 +43,10 @@ const ManageTeachers = ({ navigation }) => {
     try {
       // Load teachers
       const { data: teachersData, error: teachersError } = await dbHelpers.getTeachers();
-      if (teachersError) throw new Error('Failed to load teachers');
+      if (teachersError) {
+        console.error("Supabase error loading teachers:", teachersError);
+        throw new Error('Failed to load teachers');
+      }
       
       // Load classes
       const { data: classesData, error: classesError } = await dbHelpers.getClasses();
@@ -62,8 +65,14 @@ const ManageTeachers = ({ navigation }) => {
         if (subjectsError) console.error('Error loading teacher subjects:', subjectsError);
         
         // Extract subject names and class names
-        const subjects = teacherSubjects?.map(ts => ts.subjects?.name || '') || [];
-        const classes = teacherSubjects?.map(ts => ts.classes?.class_name || '') || [];
+        const subjects = teacherSubjects?.map(ts => ts.subjects?.id || '') || [];
+        const classIdsFromSubjects = new Set();
+        teacherSubjects?.forEach(ts => {
+            if (ts.subjects?.class_id) {
+                classIdsFromSubjects.add(ts.subjects.class_id);
+            }
+        });
+        const classes = Array.from(classIdsFromSubjects);
         
         return {
           ...teacher,
@@ -74,8 +83,8 @@ const ManageTeachers = ({ navigation }) => {
       
       // Update state with loaded data
       setTeachers(processedTeachers);
-      setClasses(classesData.map(c => c.class_name));
-      setSubjects(subjectsData.map(s => s.name));
+      setClasses(classesData);
+      setSubjects(subjectsData);
       
     } catch (err) {
       console.error('Error loading data:', err);
@@ -90,14 +99,14 @@ const ManageTeachers = ({ navigation }) => {
 
   const openAddModal = () => {
     setModalMode('add');
-    setForm({ full_name: '', subjects: [], classes: [], salary: '', qualification: '' });
+    setForm({ name: '', subjects: [], classes: [], salary: '', qualification: '' });
     setIsModalVisible(true);
   };
   const openEditModal = (teacher) => {
     setModalMode('edit');
     setSelectedTeacher(teacher);
     setForm({ 
-      full_name: teacher.full_name, 
+      name: teacher.name, 
       subjects: teacher.subjects, 
       classes: teacher.classes, 
       salary: teacher.salary_amount, 
@@ -110,7 +119,7 @@ const ManageTeachers = ({ navigation }) => {
     setSelectedTeacher(null);
   };
   const handleSave = async () => {
-    if (!form.full_name.trim() || form.subjects.length === 0 || form.classes.length === 0) {
+    if (!form.name.trim() || form.subjects.length === 0 || form.classes.length === 0) {
       Alert.alert('Error', 'Please fill all fields and select at least one subject and class.');
       return;
     }
@@ -121,7 +130,7 @@ const ManageTeachers = ({ navigation }) => {
       if (modalMode === 'add') {
         // Create new teacher in Supabase
         const teacherData = {
-          full_name: form.full_name.trim(),
+          name: form.name.trim(),
           qualification: form.qualification,
           salary_amount: parseFloat(form.salary) || 0,
           salary_type: 'monthly', // Default value
@@ -144,7 +153,7 @@ const ManageTeachers = ({ navigation }) => {
       } else if (modalMode === 'edit' && selectedTeacher) {
         // Update teacher in Supabase
         const teacherData = {
-          full_name: form.full_name.trim(),
+          name: form.name.trim(),
           qualification: form.qualification,
           salary_amount: parseFloat(form.salary) || 0,
         };
@@ -196,31 +205,15 @@ const ManageTeachers = ({ navigation }) => {
       // Create new assignments based on form data
       const assignments = [];
       
-      // For each subject, find matching subject ID
-      for (const subjectName of form.subjects) {
-        const { data: subjectData } = await supabase
-          .from(TABLES.SUBJECTS)
-          .select('id')
-          .eq('name', subjectName)
-          .single();
-          
-        if (subjectData) {
-          // For each class, find matching class ID
-          for (const className of form.classes) {
-            const { data: classData } = await supabase
-              .from(TABLES.CLASSES)
-              .select('id')
-              .eq('class_name', className)
-              .single();
-              
-            if (classData) {
-              assignments.push({
-                teacher_id: teacherId,
-                subject_id: subjectData.id,
-                class_id: classData.id,
-              });
-            }
-          }
+      // For each subject ID
+      for (const subjectId of form.subjects) {
+        // For each class ID
+        for (const classId of form.classes) {
+          assignments.push({
+            teacher_id: teacherId,
+            subject_id: subjectId,
+            class_id: classId,
+          });
         }
       }
       
@@ -240,7 +233,7 @@ const ManageTeachers = ({ navigation }) => {
   const handleDelete = async (teacher) => {
     Alert.alert(
       'Confirm Delete',
-      `Are you sure you want to delete ${teacher.full_name}?`,
+      `Are you sure you want to delete ${teacher.name}?`,
       [
         { text: 'Cancel', style: 'cancel' },
         { 
@@ -281,8 +274,8 @@ const ManageTeachers = ({ navigation }) => {
 
   // Filtered and sorted teachers
   const filteredTeachers = teachers
-    .filter(t => t.full_name.toLowerCase().includes(searchQuery.toLowerCase()))
-    .sort((a, b) => a.full_name.localeCompare(b.full_name));
+    .filter(t => t.name.toLowerCase().includes(searchQuery.toLowerCase()))
+    .sort((a, b) => a.name.localeCompare(b.name));
 
   const renderTeacherItem = ({ item }) => (
     <View style={styles.teacherCard}>
@@ -291,9 +284,9 @@ const ManageTeachers = ({ navigation }) => {
           <Ionicons name="person" size={24} color="#4CAF50" />
         </View>
         <View style={styles.teacherDetails}>
-          <Text style={styles.teacherName}>{item.full_name}</Text>
-          <Text style={styles.teacherSubject}>{item.subjects.join(', ')}</Text>
-          <Text style={styles.teacherClass}>{item.classes.join(', ')}</Text>
+          <Text style={styles.teacherName}>{item.name}</Text>
+          <Text style={styles.teacherSubject}>{item.subjects.map(s => subjects.find(sub => sub.id === s)?.name || '').join(', ')}</Text>
+          <Text style={styles.teacherClass}>{item.classes.map(c => classes.find(cls => cls.id === c)?.class_name || '').join(', ')}</Text>
           {/* Salary and Education */}
           <Text style={styles.teacherSalary}>
             Salary: {item.salary_amount ? `₹${parseFloat(item.salary_amount).toFixed(2)}` : 'N/A'}
@@ -407,8 +400,8 @@ const ManageTeachers = ({ navigation }) => {
             <Text style={{ fontSize: 18, fontWeight: 'bold', marginBottom: 12 }}>{modalMode === 'add' ? 'Add Teacher' : 'Edit Teacher'}</Text>
             <TextInput
               placeholder="Teacher Name"
-              value={form.full_name}
-              onChangeText={text => setForm({ ...form, full_name: text })}
+              value={form.name}
+              onChangeText={text => setForm({ ...form, name: text })}
               style={{ borderWidth: 1, borderColor: '#e0e0e0', borderRadius: 8, padding: 10, marginBottom: 12, fontSize: 15, backgroundColor: '#fafafa' }}
             />
             <TextInput
@@ -428,18 +421,17 @@ const ManageTeachers = ({ navigation }) => {
             <View style={{ flexDirection: 'row', flexWrap: 'wrap', marginBottom: 12 }}>
               {subjects.map(subject => (
                 <TouchableOpacity
-                  key={subject}
+                  key={subject.id}
                   style={{
-                    backgroundColor: form.subjects.includes(subject) ? '#4CAF50' : (form.subjects.length > 0 ? '#e0e0e0' : '#f0f0f0'),
+                    backgroundColor: form.subjects.includes(subject.id) ? '#4CAF50' : (form.subjects.length > 0 ? '#e0e0e0' : '#f0f0f0'),
                     borderRadius: 16,
                     paddingVertical: 6,
                     paddingHorizontal: 14,
                     margin: 4,
                   }}
-                  onPress={() => setForm({ ...form, subjects: form.subjects[0] === subject ? [] : [subject] })}
-                  disabled={form.subjects.length > 0 && form.subjects[0] !== subject}
+                  onPress={() => setForm({ ...form, subjects: toggleSelect(form.subjects, subject.id) })}
                 >
-                  <Text style={{ color: form.subjects.includes(subject) ? '#fff' : (form.subjects.length > 0 ? '#aaa' : '#333'), fontWeight: '600' }}>{subject}</Text>
+                  <Text style={{ color: form.subjects.includes(subject.id) ? '#fff' : (form.subjects.length > 0 ? '#aaa' : '#333'), fontWeight: '600' }}>{subject.name}</Text>
                 </TouchableOpacity>
               ))}
             </View>
@@ -447,17 +439,17 @@ const ManageTeachers = ({ navigation }) => {
             <View style={{ flexDirection: 'row', flexWrap: 'wrap', marginBottom: 12 }}>
               {classes.map(cls => (
                 <TouchableOpacity
-                  key={cls}
+                  key={cls.id}
                   style={{
-                    backgroundColor: form.classes.includes(cls) ? '#2196F3' : '#f0f0f0',
+                    backgroundColor: form.classes.includes(cls.id) ? '#2196F3' : '#f0f0f0',
                     borderRadius: 16,
                     paddingVertical: 6,
                     paddingHorizontal: 14,
                     margin: 4,
                   }}
-                  onPress={() => setForm({ ...form, classes: toggleSelect(form.classes, cls) })}
+                  onPress={() => setForm({ ...form, classes: toggleSelect(form.classes, cls.id) })}
                 >
-                  <Text style={{ color: form.classes.includes(cls) ? '#fff' : '#333', fontWeight: '600' }}>{cls}</Text>
+                  <Text style={{ color: form.classes.includes(cls.id) ? '#fff' : '#333', fontWeight: '600' }}>{cls.class_name}</Text>
                 </TouchableOpacity>
               ))}
             </View>

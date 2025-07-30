@@ -436,7 +436,7 @@ const ViewStudentInfo = () => {
                   <Text style={styles.detailTitle}>Parent Information</Text>
                   <View style={styles.detailRow}>
                     <Text style={styles.detailLabel}>Name:</Text>
-                    <Text style={styles.detailValue}>{selectedStudent.parents?.full_name || 'N/A'}</Text>
+                    <Text style={styles.detailValue}>{selectedStudent.parents?.name || 'N/A'}</Text>
                   </View>
                   <View style={styles.detailRow}>
                     <Text style={styles.detailLabel}>Phone:</Text>

@@ -208,7 +208,7 @@ export const AuthProvider = ({ children }) => {
       const newUserData = {
         email,
         role_id: userData.role_id,
-        full_name: userData.full_name || '',
+        name: userData.name || '',
         phone: userData.phone || '',
         linked_student_id: userData.linked_student_id || null,
         created_at: new Date().toISOString()

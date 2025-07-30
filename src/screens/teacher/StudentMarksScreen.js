@@ -124,7 +124,7 @@ const StudentMarksScreen = ({ navigation, route }) => {
 
   return (
     <View style={styles.container}>
-      <Header title={`${student.full_name}'s Marks`} showBack={true} />
+      <Header title={`${student.name}'s Marks`} showBack={true} />
       
       {loading ? (
         <View style={styles.loadingContainer}>

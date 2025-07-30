@@ -36,7 +36,7 @@ const StudentDashboard = ({ navigation }) => {
         .single();
       if (studentError) throw studentError;
       setStudentProfile({
-        name: studentData.full_name,
+        name: studentData.name,
         class: studentData.class_name || studentData.class_id,
         roll: studentData.roll_no,
         avatarColor: '#9C27B0',

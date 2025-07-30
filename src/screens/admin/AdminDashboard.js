@@ -339,11 +339,23 @@ const AdminDashboard = ({ navigation }) => {
     }
   };
 
-  const deleteAnnouncement = (idx) => {
+  const deleteAnnouncement = (id) => {
     Alert.alert('Delete Announcement', 'Are you sure you want to delete this announcement?', [
       { text: 'Cancel', style: 'cancel' },
-      { text: 'Delete', style: 'destructive', onPress: () => {
-        setAnnouncements(announcements.filter((_, i) => i !== idx));
+      { text: 'Delete', style: 'destructive', onPress: async () => {
+        try {
+          const { error } = await supabase
+            .from('announcements')
+            .delete()
+            .eq('id', id);
+
+          if (error) throw error;
+          await loadDashboardData();
+          Alert.alert('Success', 'Announcement deleted successfully!');
+        } catch (error) {
+          console.error('Error deleting announcement:', error);
+          Alert.alert('Error', 'Failed to delete announcement');
+        }
       }},
     ]);
   };
@@ -420,8 +432,20 @@ const AdminDashboard = ({ navigation }) => {
   const deleteEvent = (id) => {
     Alert.alert('Delete Event', 'Are you sure you want to delete this event?', [
       { text: 'Cancel', style: 'cancel' },
-      { text: 'Delete', style: 'destructive', onPress: () => {
-        setEvents(events.filter((e) => e.id !== id));
+      { text: 'Delete', style: 'destructive', onPress: async () => {
+        try {
+          const { error } = await supabase
+            .from('events')
+            .delete()
+            .eq('id', id);
+
+          if (error) throw error;
+          await loadDashboardData();
+          Alert.alert('Success', 'Event deleted successfully!');
+        } catch (error) {
+          console.error('Error deleting event:', error);
+          Alert.alert('Error', 'Failed to delete event');
+        }
       }},
     ]);
   };

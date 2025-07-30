@@ -235,7 +235,7 @@ export default function MarksEntryStudentsScreen({ navigation, route }) {
               </View>
               {students.map(student => (
                 <View key={student.id} style={styles.tableRow}>
-                  <Text style={[styles.tableCell, { flex: 2 }]}>{student.full_name}</Text>
+                  <Text style={[styles.tableCell, { flex: 2 }]}>{student.name}</Text>
                   <Text style={styles.tableCell}>{student.roll_no}</Text>
                   <Text style={styles.tableCell}>{student.classSection}</Text>
                   <TextInput

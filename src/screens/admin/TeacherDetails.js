@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, Platform, Dimensions, TouchableOpacity, ActivityIndicator } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, Platform, Dimensions, TouchableOpacity } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { ActivityIndicator as PaperActivityIndicator } from 'react-native-paper';
 import Header from '../../components/Header';
 import { dbHelpers } from '../../utils/supabase';
 
@@ -20,6 +21,8 @@ const TeacherDetails = ({ route, navigation }) => {
         // Fetch teacher details (get all, then filter by id)
         const { data: teachers, error: teacherError } = await dbHelpers.getTeachers();
         if (teacherError) throw teacherError;
+        // Use correct column names from schema.txt
+        // teachers table: id, name, qualification, age, salary_type, salary_amount, address, is_class_teacher, assigned_class_id
         const t = teachers.find(t => t.id === teacher.id);
         setTeacherData(t);
         // Fetch teacher subjects/classes
@@ -40,7 +43,7 @@ const TeacherDetails = ({ route, navigation }) => {
     return (
       <View style={styles.container}>
         <Header title="Teacher Details" showBack={true} />
-        <ActivityIndicator size="large" color="#2196F3" style={{ marginTop: 40 }} />
+        <PaperActivityIndicator animating={true} size="large" color="#2196F3" style={{ marginTop: 40 }} />
       </View>
     );
   }
@@ -64,12 +67,12 @@ const TeacherDetails = ({ route, navigation }) => {
       </View>
       <ScrollView contentContainerStyle={styles.content}>
         <Text style={styles.label}>Name:</Text>
-        <Text style={styles.value}>{teacherData.name}</Text>
+        <Text style={styles.value}>{teacherData?.name || 'N/A'}</Text>
         {/* Salary and Education */}
         <Text style={styles.label}>Salary:</Text>
-        <Text style={styles.value}>{teacherData.salary_amount ? `₹${parseFloat(teacherData.salary_amount).toFixed(2)}` : 'N/A'}</Text>
+        <Text style={styles.value}>{teacherData?.salary_amount ? `₹${parseFloat(teacherData.salary_amount).toFixed(2)}` : 'N/A'}</Text>
         <Text style={styles.label}>Education:</Text>
-        <Text style={styles.value}>{teacherData.qualification || 'N/A'}</Text>
+        <Text style={styles.value}>{teacherData?.qualification || 'N/A'}</Text>
         <Text style={styles.label}>Subjects Assigned for Classes:</Text>
         {classes.length > 0 ? classes.map((cls, idx) => (
           <View key={cls + idx} style={styles.classRow}>
@@ -142,4 +145,4 @@ const styles = StyleSheet.create({
   },
 });
 
-export default TeacherDetails; 
+export default TeacherDetails;

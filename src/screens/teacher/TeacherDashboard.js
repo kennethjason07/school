@@ -234,7 +234,7 @@ function groupAndSortSchedule(schedule) {
             class: className, 
             avgMarks, 
             attendance: attendancePct, 
-            topStudent: studentsData[0]?.full_name || 'N/A' 
+            topStudent: studentsData[0]?.name || 'N/A' 
           });
           
           marksTrendObj[className] = { labels: trendLabels, data: trendData };

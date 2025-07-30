@@ -204,7 +204,7 @@ const ManageStudents = () => {
       const { error } = await supabase
         .from('students')
         .insert({
-          full_name: form.name,
+          name: form.name,
           roll_no: parseInt(form.roll),
           class_id: form.class,
           section_id: form.section,
@@ -263,7 +263,7 @@ const ManageStudents = () => {
       const { error } = await supabase
         .from('students')
         .update({
-          full_name: editForm.name,
+          name: editForm.name,
           roll_no: parseInt(editForm.roll),
           class_id: editForm.class,
           section_id: editForm.section,
@@ -567,8 +567,8 @@ const ManageStudents = () => {
                   style={styles.picker}
                   onValueChange={(itemValue) => handleFormChange('section', itemValue)}
                 >
-                  {sectionOptions.filter(opt => opt !== 'All').map(opt => (
-                    <Picker.Item key={opt} label={opt} value={opt} />
+                  {sections.map(section => (
+                    <Picker.Item key={section.id} label={section.section_name} value={section.id} />
                   ))}
                 </Picker>
               </View>
@@ -688,8 +688,8 @@ const ManageStudents = () => {
                   style={styles.picker}
                   onValueChange={(itemValue) => handleEditFormChange('section', itemValue)}
                 >
-                  {sectionOptions.filter(opt => opt !== 'All').map(opt => (
-                    <Picker.Item key={opt} label={opt} value={opt} />
+                  {sections.map(section => (
+                    <Picker.Item key={section.id} label={section.section_name} value={section.id} />
                   ))}
                 </Picker>
               </View>

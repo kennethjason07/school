@@ -156,7 +156,7 @@ const SignupScreen = ({ navigation }) => {
     try {
       const userData = {
         role_id: roleId,
-        full_name: fullName,
+        name: fullName,
         phone: phone,
         linked_student_id: linkedId,
       };

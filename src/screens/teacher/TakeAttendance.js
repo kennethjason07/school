@@ -127,7 +127,7 @@ const TakeAttendance = () => {
         .from(TABLES.STUDENTS)
         .select(`
           id,
-          full_name,
+          name,
           roll_no,
           classes(class_name),
           sections(section_name)
@@ -304,7 +304,7 @@ const TakeAttendance = () => {
       // Get students for the view class and section
       const { data: viewStudents } = await supabase
         .from(TABLES.STUDENTS)
-        .select('id, full_name, roll_no')
+        .select('id, name, roll_no')
         .eq('class_id', classData.id)
         .eq('section_id', sectionData.id);
 
@@ -318,7 +318,7 @@ const TakeAttendance = () => {
         .from(TABLES.STUDENT_ATTENDANCE)
         .select(`
           *,
-          students(full_name, roll_no)
+          students(name, roll_no)
         `)
         .eq('date', viewDate)
         .in('student_id', viewStudents.map(s => s.id));
@@ -330,7 +330,7 @@ const TakeAttendance = () => {
         const attendance = attendanceData.find(a => a.student_id === student.id);
         return {
           student_id: student.id,
-          student_name: student.full_name,
+          student_name: student.name,
           roll_number: student.roll_no,
           date: viewDate,
           status: attendance ? attendance.status : 'Not Marked'
@@ -522,7 +522,7 @@ const TakeAttendance = () => {
               {students.map(student => (
                 <View key={student.id} style={styles.studentRow}>
                   <Text style={styles.studentCell}>{student.roll_no}</Text>
-                  <Text style={styles.studentCell}>{student.full_name}</Text>
+                  <Text style={styles.studentCell}>{student.name}</Text>
                   <TouchableOpacity 
                     style={styles.attendanceButton} 
                     onPress={() => setAttendanceMark({ ...attendanceMark, [student.id]: 'Present' })}

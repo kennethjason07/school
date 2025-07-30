@@ -788,7 +788,7 @@ const FeeManagement = () => {
           )}
           {paymentModal ? (
             <View>
-              <Text style={styles.studentInfo}>Student: {selectedStudent?.full_name}</Text>
+              <Text style={styles.studentInfo}>Student: {selectedStudent?.name}</Text>
               <Text style={styles.studentInfo}>Fee: {selectedFee?.type}</Text>
               <Text style={styles.studentInfo}>Amount: {formatCurrency(paymentAmount)}</Text>
               <Text style={styles.studentInfo}>Payment Date: {format(paymentDate, 'MMM dd, yyyy')}</Text>

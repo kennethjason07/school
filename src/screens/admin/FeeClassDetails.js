@@ -224,7 +224,7 @@ export default function FeeClassDetails() {
                 
                 return (
                   <View style={styles.studentRow}>
-                    <Text style={styles.studentName}>{item.full_name}</Text>
+                    <Text style={styles.studentName}>{item.name}</Text>
                     <Text 
                       style={[styles.studentStatus, 
                         status === 'Paid' ? {color: '#4CAF50'} : 
