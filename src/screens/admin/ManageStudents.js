@@ -11,15 +11,12 @@ import * as Print from 'expo-print';
 const ManageStudents = () => {
   const [students, setStudents] = useState([]);
   const [classes, setClasses] = useState([]);
-  const [sections, setSections] = useState([]);
-  const [academicYears, setAcademicYears] = useState([]);
   const [attendanceHistory, setAttendanceHistory] = useState([]);
   const [marksHistory, setMarksHistory] = useState([]);
   const [documents, setDocuments] = useState([]);
   const [achievements, setAchievements] = useState([]);
   const [communicationHistory, setCommunicationHistory] = useState([]);
   const classOptions = ['All', ...classes.map(cls => cls.class_name)];
-  const sectionOptions = ['All', ...sections.map(section => section.section_name)];
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [modalVisible, setModalVisible] = useState(false);
@@ -27,12 +24,10 @@ const ManageStudents = () => {
     roll: '', 
     name: '', 
     class: '', 
-    section: '', 
     parent: '', 
     contact: '', 
     marks: '', 
     fees: '',
-    academic_year: '',
     behavior: 'Good',
     achievements: []
   });
@@ -43,19 +38,16 @@ const ManageStudents = () => {
     roll: '', 
     name: '', 
     class: '', 
-    section: '', 
     parent: '', 
     contact: '', 
     marks: '', 
     fees: '',
-    academic_year: '',
     behavior: 'Good',
     achievements: []
   });
   const [scoreModalVisible, setScoreModalVisible] = useState(false);
   const [scoreStudent, setScoreStudent] = useState(null);
   const [selectedClass, setSelectedClass] = useState('All');
-  const [selectedSection, setSelectedSection] = useState('All');
   const [selectedAcademicYear, setSelectedAcademicYear] = useState('Current');
   const [showAnalysis, setShowAnalysis] = useState(false);
   const [showDocumentModal, setShowDocumentModal] = useState(false);
@@ -64,7 +56,6 @@ const ManageStudents = () => {
   useEffect(() => {
     loadStudents();
     loadClassesAndSections();
-    loadAcademicYears();
   }, []);
 
   useEffect(() => {
@@ -83,7 +74,6 @@ const ManageStudents = () => {
         roll: student.roll_no,
         name: student.full_name,
         class: student.class_id,
-        section: student.section_id,
         parent: student.parent_id,
         contact: student.phone,
         attendance: '0%', // This would need to be calculated from attendance records
@@ -102,17 +92,7 @@ const ManageStudents = () => {
     }
   };
 
-  const loadAcademicYears = async () => {
-    try {
-      const { data, error } = await supabase
-        .from('academic_years')
-        .select('*');
-      if (error) throw error;
-      setAcademicYears(['Current', ...data.map(year => year.year)]);
-    } catch (error) {
-      console.error('Error loading academic years:', error);
-    }
-  };
+  
 
   const loadStudentDetails = async (studentId) => {
     try {
@@ -169,11 +149,7 @@ const ManageStudents = () => {
       const { data: classData, error: classError } = await dbHelpers.getClasses();
       if (classError) throw classError;
 
-      const { data: sectionData, error: sectionError } = await dbHelpers.getSectionsByClass(null);
-      if (sectionError) throw sectionError;
-
       setClasses(classData || []);
-      setSections(sectionData || []);
     } catch (error) {
       console.error('Error loading classes and sections:', error);
     }
@@ -199,7 +175,7 @@ const ManageStudents = () => {
 
   const handleSubmit = async () => {
     try {
-      if (!form.roll || !form.name || !form.class || !form.section || !form.parent || !form.contact) return;
+      if (!form.roll || !form.name || !form.class || !form.parent || !form.contact) return;
 
       const { error } = await supabase
         .from('students')
@@ -207,7 +183,6 @@ const ManageStudents = () => {
           full_name: form.name,
           roll_no: parseInt(form.roll),
           class_id: form.class,
-          section_id: form.section,
           parent_id: form.parent,
           phone: form.contact
         });
@@ -243,7 +218,6 @@ const ManageStudents = () => {
       roll: student.roll,
       name: student.name,
       class: student.class,
-      section: student.section,
       parent: student.parent,
       contact: student.contact,
       marks: student.marks,
@@ -258,7 +232,7 @@ const ManageStudents = () => {
 
   const handleEditSave = async () => {
     try {
-      if (!editForm.roll || !editForm.name || !editForm.class || !editForm.section || !editForm.parent || !editForm.contact) return;
+      if (!editForm.roll || !editForm.name || !editForm.class || !editForm.parent || !editForm.contact) return;
 
       const { error } = await supabase
         .from('students')
@@ -266,7 +240,6 @@ const ManageStudents = () => {
           full_name: editForm.name,
           roll_no: parseInt(editForm.roll),
           class_id: editForm.class,
-          section_id: editForm.section,
           parent_id: editForm.parent,
           phone: editForm.contact
         })
@@ -297,7 +270,7 @@ const ManageStudents = () => {
       const html = `
         <h2 style="text-align:center;">Student Profile - ${selectedStudent.name}</h2>
         <h3 style="text-align:center;">Roll No: ${selectedStudent.roll}</h3>
-        <h3 style="text-align:center;">Class: ${selectedStudent.class} - Section: ${selectedStudent.section}</h3>
+        <h3 style="text-align:center;">Class: ${selectedStudent.class}</h3>
         
         <div style="margin:20px 0;">
           <h3>Basic Information</h3>
@@ -404,7 +377,6 @@ const ManageStudents = () => {
   const filteredStudents = students.filter(
     s =>
       (selectedClass === 'All' || s.class === selectedClass) &&
-      (selectedSection === 'All' || s.section === selectedSection) &&
       (s.name.toLowerCase().includes(search.toLowerCase()) ||
         s.roll.toLowerCase().includes(search.toLowerCase()))
   );
@@ -430,7 +402,6 @@ const ManageStudents = () => {
             <View style={styles.classRow}>
               <Ionicons name="school" size={26} color="#2196F3" style={{ marginRight: 6 }} />
               <Text style={styles.classBigValue}>Class {item.class}</Text>
-              <Text style={styles.sectionBigValue}>  | Section {item.section}</Text>
             </View>
             <Text style={styles.teacherParent}>Parent: {item.parent}</Text>
             <Text style={styles.teacherContact}>Contact: {item.contact}</Text>
@@ -492,21 +463,6 @@ const ManageStudents = () => {
             </Picker>
           </View>
         </View>
-        <View style={styles.filterCol}>
-          <Text style={styles.filterLabel}>Section</Text>
-          <View style={styles.filterBox}>
-            <Picker
-              selectedValue={selectedSection}
-              onValueChange={setSelectedSection}
-              style={styles.picker}
-            >
-              <Picker.Item key="All" label="All Sections" value="All" />
-              {sections.map(section => (
-                <Picker.Item key={section.id} label={section.section_name} value={section.id} />
-              ))}
-            </Picker>
-          </View>
-        </View>
       </View>
       <View style={styles.searchBarContainer}>
         <Ionicons name="search" size={24} color="#2196F3" style={{ marginRight: 10 }} />
@@ -557,18 +513,6 @@ const ManageStudents = () => {
                 >
                   {classOptions.filter(opt => opt !== 'All').map(opt => (
                     <Picker.Item key={opt} label={`Class ${opt}`} value={opt} />
-                  ))}
-                </Picker>
-              </View>
-              <Text style={styles.inputLabel}>Section</Text>
-              <View style={styles.pickerContainer}>
-                <Picker
-                  selectedValue={form.section}
-                  style={styles.picker}
-                  onValueChange={(itemValue) => handleFormChange('section', itemValue)}
-                >
-                  {sectionOptions.filter(opt => opt !== 'All').map(opt => (
-                    <Picker.Item key={opt} label={opt} value={opt} />
                   ))}
                 </Picker>
               </View>
@@ -629,7 +573,6 @@ const ManageStudents = () => {
                 <Text style={styles.profileField}><Text style={styles.profileLabel}>Name:</Text> {selectedStudent.name}</Text>
                 <Text style={styles.profileField}><Text style={styles.profileLabel}>Roll Number:</Text> {selectedStudent.roll}</Text>
                 <Text style={styles.profileField}><Text style={styles.profileLabel}>Class:</Text> {selectedStudent.class}</Text>
-                <Text style={styles.profileField}><Text style={styles.profileLabel}>Section:</Text> {selectedStudent.section}</Text>
                 <Text style={styles.profileField}><Text style={styles.profileLabel}>Parent:</Text> {selectedStudent.parent}</Text>
                 <Text style={styles.profileField}><Text style={styles.profileLabel}>Contact:</Text> {selectedStudent.contact}</Text>
                 <Text style={styles.profileField}><Text style={styles.profileLabel}>Marks:</Text> <Text style={styles.marksBigValue}>{selectedStudent.marks}</Text></Text>
@@ -678,18 +621,6 @@ const ManageStudents = () => {
                 >
                   {classOptions.filter(opt => opt !== 'All').map(opt => (
                     <Picker.Item key={opt} label={`Class ${opt}`} value={opt} />
-                  ))}
-                </Picker>
-              </View>
-              <Text style={styles.inputLabel}>Section</Text>
-              <View style={styles.pickerContainer}>
-                <Picker
-                  selectedValue={editForm.section}
-                  style={styles.picker}
-                  onValueChange={(itemValue) => handleEditFormChange('section', itemValue)}
-                >
-                  {sectionOptions.filter(opt => opt !== 'All').map(opt => (
-                    <Picker.Item key={opt} label={opt} value={opt} />
                   ))}
                 </Picker>
               </View>

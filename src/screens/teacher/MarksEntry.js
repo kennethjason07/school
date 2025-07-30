@@ -56,7 +56,6 @@ export default function MarksEntry({ navigation }) {
         .select(`
           *,
           classes(id, class_name),
-          sections(id, section_name),
           subjects(id, name)
         `)
         .eq('teacher_id', teacherData.id);
@@ -67,14 +66,13 @@ export default function MarksEntry({ navigation }) {
       const classMap = new Map();
       
       assignedData.forEach(assignment => {
-        const classKey = `${assignment.classes.class_name}-${assignment.sections.section_name}`;
+        const classKey = assignment.classes.id;
         
         if (!classMap.has(classKey)) {
           classMap.set(classKey, {
-            id: `${assignment.classes.id}-${assignment.sections.id}`,
-            name: classKey,
+            id: assignment.classes.id,
+            name: `${assignment.classes.class_name} - ${assignment.classes.section}`,
             classId: assignment.classes.id,
-            sectionId: assignment.sections.id,
             subjects: [],
             students: []
           });
@@ -97,11 +95,9 @@ export default function MarksEntry({ navigation }) {
             id,
             full_name,
             roll_no,
-            classes(class_name),
-            sections(section_name)
+            classes(class_name, section)
           `)
           .eq('class_id', classData.classId)
-          .eq('section_id', classData.sectionId)
           .order('roll_no');
 
         if (studentsError) throw studentsError;

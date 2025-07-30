@@ -25,10 +25,10 @@ const ManageClasses = ({ navigation }) => {
   const [isEditModalVisible, setIsEditModalVisible] = useState(false);
   const [selectedClass, setSelectedClass] = useState(null);
   const [newClass, setNewClass] = useState({
-    name: '',
+    class_name: '',
     academic_year: '2024-25',
     section: '',
-    teacher_id: '',
+    class_teacher_id: '',
   });
 
   useEffect(() => {
@@ -40,10 +40,14 @@ const ManageClasses = ({ navigation }) => {
       // Load classes
       const { data: classData, error: classError } = await supabase
         .from('classes')
-        .select('*')
-        .order('name', { ascending: true });
+        .select('*, students(count)')
+        .order('class_name', { ascending: true });
       if (classError) throw classError;
-      setClasses(classData);
+
+      const classesWithCounts = classData.map(c => ({ ...c, students_count: c.students[0].count }));
+
+      console.log('Fetched classes:', classesWithCounts);
+      setClasses(classesWithCounts);
 
       // Load teachers
       const { data: teacherData, error: teacherError } = await supabase
@@ -62,7 +66,7 @@ const ManageClasses = ({ navigation }) => {
 
   const handleAddClass = async () => {
     try {
-      if (!newClass.name || !newClass.section || !newClass.teacher_id) {
+      if (!newClass.class_name || !newClass.section || !newClass.class_teacher_id) {
         Alert.alert('Error', 'Please fill in all fields');
         return;
       }
@@ -70,10 +74,10 @@ const ManageClasses = ({ navigation }) => {
       const { error } = await supabase
         .from('classes')
         .insert({
-          name: newClass.name,
+          class_name: newClass.class_name,
           academic_year: newClass.academic_year,
           section: newClass.section,
-          teacher_id: newClass.teacher_id,
+          class_teacher_id: newClass.class_teacher_id,
         });
 
       if (error) throw error;
@@ -91,7 +95,7 @@ const ManageClasses = ({ navigation }) => {
 
   const handleEditClass = async () => {
     try {
-      if (!selectedClass.name || !selectedClass.section || !selectedClass.teacher_id) {
+      if (!selectedClass.class_name || !selectedClass.section || !selectedClass.class_teacher_id) {
         Alert.alert('Error', 'Please fill in all fields');
         return;
       }
@@ -99,10 +103,10 @@ const ManageClasses = ({ navigation }) => {
       const { error } = await supabase
         .from('classes')
         .update({
-          name: selectedClass.name,
+          class_name: selectedClass.class_name,
           academic_year: selectedClass.academic_year,
           section: selectedClass.section,
-          teacher_id: selectedClass.teacher_id,
+          class_teacher_id: selectedClass.class_teacher_id,
         })
         .eq('id', selectedClass.id);
 
@@ -152,7 +156,7 @@ const ManageClasses = ({ navigation }) => {
 
   const openEditModal = (classItem) => {
     // Find teacher name for display
-    const teacher = teachers.find(t => t.id === classItem.teacher_id);
+    const teacher = teachers.find(t => t.id === classItem.class_teacher_id);
     setSelectedClass({ 
       ...classItem,
       teacher_name: teacher?.name || 'Unknown'
@@ -173,21 +177,23 @@ const ManageClasses = ({ navigation }) => {
       <View style={styles.classCard}>
         <View style={styles.classHeader}>
           <View style={styles.classInfo}>
-            <Text style={styles.className}>{item.name}</Text>
+            <Text style={styles.className}>{item.class_name}</Text>
             <Text style={styles.classDetails}>
               Section {item.section} • {item.academic_year}
             </Text>
             <Text style={styles.classTeacher}>Teacher: {item.teacher_name || 'Unknown'}</Text>
           </View>
           <View style={styles.classStats}>
+            <View style={styles.classStats}>
             <View style={styles.statItem}>
-              <Text style={styles.statValue}>{item.students_count || 0}</Text>
+              <Text style={styles.statValue}>{item.students ? item.students[0].count : 0}</Text>
               <Text style={styles.statLabel}>Students</Text>
             </View>
             <View style={styles.statItem}>
               <Text style={styles.statValue}>{item.subjects_count || 0}</Text>
               <Text style={styles.statLabel}>Subjects</Text>
             </View>
+          </View>
           </View>
         </View>
         
@@ -251,11 +257,11 @@ const ManageClasses = ({ navigation }) => {
               <Text style={styles.inputLabel}>Class Name</Text>
               <TextInput
                 style={styles.input}
-                value={isEdit ? selectedClass?.name : newClass.name}
+                value={isEdit ? selectedClass?.class_name : newClass.class_name}
                 onChangeText={(text) => 
                   isEdit 
-                    ? setSelectedClass({ ...selectedClass, name: text })
-                    : setNewClass({ ...newClass, name: text })
+                    ? setSelectedClass({ ...selectedClass, class_name: text })
+                    : setNewClass({ ...newClass, class_name: text })
                 }
                 placeholder="e.g., Class 1A"
               />
@@ -294,11 +300,11 @@ const ManageClasses = ({ navigation }) => {
             <View style={styles.inputGroup}>
               <Text style={styles.inputLabel}>Teacher</Text>
               <Picker
-                selectedValue={isEdit ? selectedClass?.teacher_id : newClass.teacher_id}
+                selectedValue={isEdit ? selectedClass?.class_teacher_id : newClass.class_teacher_id}
                 onValueChange={(itemValue) => 
                   isEdit 
-                    ? setSelectedClass({ ...selectedClass, teacher_id: itemValue })
-                    : setNewClass({ ...newClass, teacher_id: itemValue })
+                    ? setSelectedClass({ ...selectedClass, class_teacher_id: itemValue })
+                    : setNewClass({ ...newClass, class_teacher_id: itemValue })
                 }
               >
                 {teachers.map((teacher) => (

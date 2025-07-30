@@ -17,16 +17,13 @@ function formatDateDMY(dateStr) {
 const TakeAttendance = () => {
   const today = new Date();
   const [classes, setClasses] = useState([]);
-  const [sections, setSections] = useState([]);
   const [students, setStudents] = useState([]);
   const [selectedClass, setSelectedClass] = useState('');
-  const [selectedSection, setSelectedSection] = useState('');
   const [selectedDate, setSelectedDate] = useState(`${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`);
   const [attendanceMark, setAttendanceMark] = useState({});
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [viewModalVisible, setViewModalVisible] = useState(false);
   const [viewClass, setViewClass] = useState('');
-  const [viewSection, setViewSection] = useState('');
   const [viewDate, setViewDate] = useState(selectedDate);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -54,35 +51,32 @@ const TakeAttendance = () => {
         .from(TABLES.TEACHER_SUBJECTS)
         .select(`
           *,
-          classes(class_name, id),
-          sections(section_name, id)
+          classes(class_name, id, section)
         `)
         .eq('teacher_id', teacherData.id);
 
       if (subjectsError) throw subjectsError;
 
-      // Extract unique classes and sections
+      // Extract unique classes
       const classMap = new Map();
-      const sectionMap = new Map();
       
       assignedSubjects.forEach(subject => {
         if (subject.classes) {
-          classMap.set(subject.classes.id, subject.classes.class_name);
-        }
-        if (subject.sections) {
-          sectionMap.set(subject.sections.id, subject.sections.section_name);
+          classMap.set(subject.classes.id, { 
+            id: subject.classes.id, 
+            class_name: subject.classes.class_name, 
+            section: subject.classes.section 
+          });
         }
       });
 
       const classList = Array.from(classMap.values());
-      const sectionList = Array.from(sectionMap.values());
       
       setClasses(classList);
-      setSections(sectionList);
       
       if (classList.length > 0) {
-        setSelectedClass(classList[0]);
-        setViewClass(classList[0]);
+        setSelectedClass(classList[0].id);
+        setViewClass(classList[0].id);
       }
       if (sectionList.length > 0) {
         setSelectedSection(sectionList[0]);
@@ -99,41 +93,21 @@ const TakeAttendance = () => {
 
   // Fetch students when class or section changes
   const fetchStudents = async () => {
-    if (!selectedClass || !selectedSection) return;
+    if (!selectedClass) return;
     
     try {
       setLoading(true);
       
-      // Get class and section IDs
-      const { data: classData } = await supabase
-        .from(TABLES.CLASSES)
-        .select('id')
-        .eq('class_name', selectedClass)
-        .single();
-
-      const { data: sectionData } = await supabase
-        .from(TABLES.SECTIONS)
-        .select('id')
-        .eq('section_name', selectedSection)
-        .single();
-
-      if (!classData || !sectionData) {
-        setStudents([]);
-        return;
-      }
-
-      // Get students for the selected class and section
+      // Get students for the selected class
       const { data: studentsData, error: studentsError } = await supabase
         .from(TABLES.STUDENTS)
         .select(`
           id,
           full_name,
           roll_no,
-          classes(class_name),
-          sections(section_name)
+          classes(class_name, section)
         `)
-        .eq('class_id', classData.id)
-        .eq('section_id', sectionData.id)
+        .eq('class_id', selectedClass)
         .order('roll_no');
 
       if (studentsError) throw studentsError;
@@ -149,29 +123,15 @@ const TakeAttendance = () => {
 
   // Fetch existing attendance for selected class, section and date
   const fetchExistingAttendance = async () => {
-    if (!selectedClass || !selectedSection || !selectedDate || students.length === 0) return;
+    if (!selectedClass || !selectedDate || students.length === 0) return;
     
     try {
-      // Get class and section IDs
-      const { data: classData } = await supabase
-        .from(TABLES.CLASSES)
-        .select('id')
-        .eq('class_name', selectedClass)
-        .single();
-
-      const { data: sectionData } = await supabase
-        .from(TABLES.SECTIONS)
-        .select('id')
-        .eq('section_name', selectedSection)
-        .single();
-
-      if (!classData || !sectionData) return;
-
       // Get existing attendance records
       const { data: attendanceData, error: attendanceError } = await supabase
         .from(TABLES.STUDENT_ATTENDANCE)
         .select('*')
         .eq('date', selectedDate)
+        .eq('class_id', selectedClass)
         .in('student_id', students.map(s => s.id));
 
       if (attendanceError) throw attendanceError;
@@ -223,7 +183,7 @@ const TakeAttendance = () => {
         table: TABLES.STUDENTS
       }, (payload) => {
         // Refresh students when student data changes
-        if (selectedClass && selectedSection) {
+        if (selectedClass) {
           fetchStudents();
         }
       })
@@ -232,7 +192,7 @@ const TakeAttendance = () => {
     return () => {
       studentSubscription.unsubscribe();
     };
-  }, [selectedClass, selectedSection]);
+  }, [selectedClass]);
 
   useEffect(() => {
     fetchExistingAttendance();
@@ -280,33 +240,19 @@ const TakeAttendance = () => {
   const [viewAttendance, setViewAttendance] = useState([]);
   
   const fetchViewAttendance = async () => {
-    if (!viewClass || !viewSection || !viewDate) return;
+    if (!viewClass || !viewDate) return;
     
     try {
-      // Get class and section IDs
-      const { data: classData } = await supabase
-        .from(TABLES.CLASSES)
-        .select('id')
-        .eq('class_name', viewClass)
-        .single();
-
-      const { data: sectionData } = await supabase
-        .from(TABLES.SECTIONS)
-        .select('id')
-        .eq('section_name', viewSection)
-        .single();
-
-      if (!classData || !sectionData) {
-        setViewAttendance([]);
-        return;
-      }
-
-      // Get students for the view class and section
+      // Get students for the view class
       const { data: viewStudents } = await supabase
         .from(TABLES.STUDENTS)
         .select('id, full_name, roll_no')
-        .eq('class_id', classData.id)
-        .eq('section_id', sectionData.id);
+        .eq('class_id', viewClass);
+
+      if (!viewStudents || viewStudents.length === 0) {
+        setViewAttendance([]);
+        return;
+      }
 
       if (!viewStudents || viewStudents.length === 0) {
         setViewAttendance([]);
@@ -349,7 +295,7 @@ const TakeAttendance = () => {
     if (viewModalVisible) {
       fetchViewAttendance();
     }
-  }, [viewClass, viewSection, viewDate, viewModalVisible]);
+  }, [viewClass, viewDate, viewModalVisible]);
 
   const exportToPDF = async () => {
     try {
@@ -359,7 +305,7 @@ const TakeAttendance = () => {
       
       let html = `
         <h2 style="text-align:center;">Attendance Report</h2>
-        <h3 style="text-align:center;">Class: ${viewClass} | Section: ${viewSection} | Date: ${formatDateDMY(viewDate)}</h3>
+        <h3 style="text-align:center;">Class: ${viewClass} | Date: ${formatDateDMY(viewDate)}</h3>
         
         <h4 style="text-align:center; color: #4CAF50;">Present Students (${present.length})</h4>
         <table border="1" style="border-collapse:collapse;width:100%;margin-bottom:20px;">
@@ -436,7 +382,7 @@ const TakeAttendance = () => {
                   onChange={e => setSelectedClass(e.target.value)} 
                   style={styles.webSelect}
                 >
-                  {classes.map(cls => <option key={cls} value={cls}>{cls}</option>)}
+                  {classes.map(cls => <option key={cls.id} value={cls.id}>{cls.class_name} - {cls.section}</option>)}
                 </select>
               ) : (
                 <Picker 
@@ -444,28 +390,7 @@ const TakeAttendance = () => {
                   onValueChange={setSelectedClass} 
                   style={styles.picker}
                 >
-                  {classes.map(cls => <Picker.Item key={cls} label={cls} value={cls} />)}
-                </Picker>
-              )}
-            </View>
-
-            <View style={styles.pickerContainer}>
-              <Text style={styles.pickerLabel}>Section:</Text>
-              {Platform.OS === 'web' ? (
-                <select 
-                  value={selectedSection} 
-                  onChange={e => setSelectedSection(e.target.value)} 
-                  style={styles.webSelect}
-                >
-                  {sections.map(sec => <option key={sec} value={sec}>{sec}</option>)}
-                </select>
-              ) : (
-                <Picker 
-                  selectedValue={selectedSection} 
-                  onValueChange={setSelectedSection} 
-                  style={styles.picker}
-                >
-                  {sections.map(sec => <Picker.Item key={sec} label={sec} value={sec} />)}
+                  {classes.map(cls => <Picker.Item key={cls.id} label={`${cls.class_name} - ${cls.section}`} value={cls.id} />)}
                 </Picker>
               )}
             </View>
@@ -604,7 +529,7 @@ const TakeAttendance = () => {
                     onChange={e => setViewClass(e.target.value)} 
                     style={styles.webSelect}
                   >
-                    {classes.map(cls => <option key={cls} value={cls}>{cls}</option>)}
+                    {classes.map(cls => <option key={cls.id} value={cls.id}>{cls.class_name} - {cls.section}</option>)}
                   </select>
                 ) : (
                   <Picker 
@@ -612,28 +537,7 @@ const TakeAttendance = () => {
                     onValueChange={setViewClass} 
                     style={styles.modalPicker}
                   >
-                    {classes.map(cls => <Picker.Item key={cls} label={cls} value={cls} />)}
-                  </Picker>
-                )}
-              </View>
-              
-              <View style={styles.modalPickerContainer}>
-                <Text style={styles.modalPickerLabel}>Section:</Text>
-                {Platform.OS === 'web' ? (
-                  <select 
-                    value={viewSection} 
-                    onChange={e => setViewSection(e.target.value)} 
-                    style={styles.webSelect}
-                  >
-                    {sections.map(sec => <option key={sec} value={sec}>{sec}</option>)}
-                  </select>
-                ) : (
-                  <Picker 
-                    selectedValue={viewSection} 
-                    onValueChange={setViewSection} 
-                    style={styles.modalPicker}
-                  >
-                    {sections.map(sec => <Picker.Item key={sec} label={sec} value={sec} />)}
+                    {classes.map(cls => <Picker.Item key={cls.id} label={`${cls.class_name} - ${cls.section}`} value={cls.id} />)}
                   </Picker>
                 )}
               </View>

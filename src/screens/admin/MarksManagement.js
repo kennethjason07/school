@@ -10,7 +10,6 @@ import CrossPlatformPieChart from '../../components/CrossPlatformPieChart';
 const MarksManagement = () => {
   const [loading, setLoading] = useState(true);
   const [classes, setClasses] = useState([]);
-  const [sections, setSections] = useState([]);
   const [subjects, setSubjects] = useState([]);
   const [examTypes, setExamTypes] = useState(['Unit Test', 'Term Exam', 'Final Exam']);
   const [students, setStudents] = useState([]);
@@ -46,10 +45,9 @@ const MarksManagement = () => {
       if (classError) throw classError;
       setClasses(classData);
 
-      // Load sections
-      const { data: sectionData, error: sectionError } = await dbHelpers.getSections();
-      if (sectionError) throw sectionError;
-      setSections(sectionData);
+      // Extract unique sections from classData
+      const uniqueSections = [...new Set(classData.map(cls => cls.section))];
+      setSections(uniqueSections.map(s => ({ id: s, section_name: s }))); // Format for Picker
 
       // Load subjects
       const { data: subjectData, error: subjectError } = await supabase
@@ -155,7 +153,7 @@ const MarksManagement = () => {
     try {
       const html = `
         <h2 style="text-align:center;">${selectedSubject} Marks - ${selectedExamType}</h2>
-        <h3 style="text-align:center;">Class: ${selectedClass} - ${selectedSection}</h3>
+        <h3 style="text-align:center;">Class: ${classes.find(c => c.id === selectedClass)?.class_name} - ${selectedSection}</h3>
         <h3 style="text-align:center;">Exam Date: ${formatDateDMY(examDate)}</h3>
         <table border="1" style="border-collapse:collapse;width:100%;margin-top:20px;">
           <tr>
@@ -265,7 +263,7 @@ const MarksManagement = () => {
               >
                 <Picker.Item label="Select Class" value="" />
                 {classes.map(cls => (
-                  <Picker.Item key={cls.id} label={cls.name} value={cls.id} />
+                  <Picker.Item key={cls.id} label={cls.class_name} value={cls.id} />
                 ))}
               </Picker>
             </View>
@@ -280,7 +278,7 @@ const MarksManagement = () => {
                 }}
                 enabled={!!selectedClass}
               >
-                <Picker.Item label="Select Section" value="" />
+                <Picker.Item label="Select Section" value={null} />
                 {sections.map(section => (
                   <Picker.Item key={section} label={section} value={section} />
                 ))}

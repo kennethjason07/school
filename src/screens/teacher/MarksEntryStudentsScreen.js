@@ -34,8 +34,7 @@ export default function MarksEntryStudentsScreen({ navigation, route }) {
         .from(TABLES.TEACHER_SUBJECTS)
         .select(`
           *,
-          classes(id, class_name),
-          sections(id, section_name)
+          classes(id, class_name, section)
         `)
         .eq('teacher_id', teacherData.id)
         .eq('subject_id', subjectId);
@@ -47,7 +46,7 @@ export default function MarksEntryStudentsScreen({ navigation, route }) {
         return;
       }
 
-      // Get all students from assigned classes and sections
+      // Get all students from assigned classes
       const studentPromises = teacherAssignments.map(assignment => 
         supabase
           .from(TABLES.STUDENTS)
@@ -55,11 +54,9 @@ export default function MarksEntryStudentsScreen({ navigation, route }) {
             id,
             full_name,
             roll_no,
-            classes(class_name),
-            sections(section_name)
+            classes(class_name, section)
           `)
           .eq('class_id', assignment.classes.id)
-          .eq('section_id', assignment.sections.id)
           .order('roll_no')
       );
 
@@ -68,7 +65,7 @@ export default function MarksEntryStudentsScreen({ navigation, route }) {
 
       studentResults.forEach((result, index) => {
         if (result.data) {
-          const classSection = `${teacherAssignments[index].classes.class_name}-${teacherAssignments[index].sections.section_name}`;
+          const classSection = `${teacherAssignments[index].classes.class_name} - ${teacherAssignments[index].classes.section}`;
           result.data.forEach(student => {
             allStudents.push({
               ...student,

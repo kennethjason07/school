@@ -29,6 +29,42 @@ const AttendanceManagement = () => {
   const [sections, setSections] = useState([]);
   const [students, setStudents] = useState([]);
   const [teachers, setTeachers] = useState([]);
+
+  const loadAllData = async () => {
+    try {
+      setLoading(true);
+
+      // Load classes
+      const { data: classData, error: classError } = await dbHelpers.getClasses();
+      if (classError) throw classError;
+      setClasses(classData || []);
+
+      // Extract unique sections from classData
+      const uniqueSections = [...new Set(classData.map(cls => cls.section))];
+      setSections(uniqueSections.map(s => ({ id: s, section_name: s }))); // Format for Picker
+
+      // Load students
+      const { data: studentsData, error: studentsError } = await supabase
+        .from(TABLES.STUDENTS)
+        .select(`
+          *,
+          classes(class_name, section)
+        `);
+      if (studentsError) throw studentsError;
+      setStudents(studentsData || []);
+
+      // Load teachers
+      const { data: teachersData, error: teachersError } = await dbHelpers.getTeachers();
+      if (teachersError) throw teachersError;
+      setTeachers(teachersData || []);
+
+    } catch (error) {
+      console.error('Error loading data:', error);
+      Alert.alert('Error', 'Failed to load data');
+    } finally {
+      setLoading(false);
+    }
+  };
   const [attendanceRecords, setAttendanceRecords] = useState({});
   const [teacherAttendanceRecords, setTeacherAttendanceRecords] = useState({});
   const [teacherAttendanceMark, setTeacherAttendanceMark] = useState({});
@@ -53,7 +89,7 @@ const AttendanceManagement = () => {
   useEffect(() => {
     if (selectedClass && selectedSection) {
       const filteredStudents = students.filter(student => 
-        student.class_id === selectedClass && student.section === selectedSection
+        student.class_id === selectedClass && student.classes.section === selectedSection
       );
       setStudentsForClass(filteredStudents);
     }
@@ -392,9 +428,9 @@ const AttendanceManagement = () => {
                         onValueChange={(itemValue) => setSelectedClass(itemValue)}
                         style={styles.picker}
                       >
-                        <Picker.Item label="Select Section" value="" />
-                        {sections.map(section => (
-                          <Picker.Item key={section.id} label={section.section_name} value={section.section_name} />
+                        <Picker.Item label="Select Class" value="" />
+                        {classes.map(cls => (
+                          <Picker.Item key={cls.id} label={cls.class_name} value={cls.id} />
                         ))}
                       </Picker>
                     </View>
@@ -405,9 +441,9 @@ const AttendanceManagement = () => {
                         onValueChange={(itemValue) => setSelectedSection(itemValue)}
                         style={styles.picker}
                       >
-                        <Picker.Item label="Select Section" value="" />
-                        {sections.map(section => (
-                          <Picker.Item key={section.id} label={section.section_name} value={section.section_name} />
+                        <Picker.Item label="Select Class" value="" />
+                        {classes.map(cls => (
+                          <Picker.Item key={cls.id} label={cls.class_name} value={cls.id} />
                         ))}
                       </Picker>
                     </View>

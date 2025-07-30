@@ -33,7 +33,7 @@ const getFileIcon = (fileType) => {
 };
 
 const ViewAssignments = () => {
-  const { user } = useAuth();
+  const { user, loading: authLoading } = useAuth(); // Destructure loading state
   const [assignments, setAssignments] = useState([]);
   const [selectedAssignment, setSelectedAssignment] = useState(null);
   const [uploadedFiles, setUploadedFiles] = useState([]);
@@ -41,44 +41,77 @@ const ViewAssignments = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
-  // Fetch assignments for the student
+  useEffect(() => {
+    if (authLoading) {
+      return; // Wait for auth to finish loading
+    }
+    if (user) {
+      fetchAssignments();
+    }
+
+    // Real-time subscription
+    const assignmentsSub = supabase
+      .channel('student-assignments')
+      .on('postgres_changes', { event: '*', schema: 'public', table: TABLES.ASSIGNMENTS }, fetchAssignments)
+      .subscribe();
+
+    const subSub = supabase
+      .channel('student-assignments-submissions')
+      .on('postgres_changes', { event: '*', schema: 'public', table: TABLES.SUBMISSIONS }, fetchAssignments)
+      .subscribe();
+
+    return () => {
+      assignmentsSub.unsubscribe();
+      subSub.unsubscribe();
+    };
+  }, [authLoading, user]); // Re-run when authLoading or user changes
+
   const fetchAssignments = async () => {
     try {
       setLoading(true);
       setError(null);
       // Get student info
+      if (!user || !user.linked_student_id) {
+        throw new Error('The current user is not linked to a student profile.');
+      }
       const { data: student, error: studentError } = await supabase
         .from(TABLES.STUDENTS)
-        .select('id')
-        .eq('user_id', user.id)
+        .select('id, class_id')
+        .eq('id', user.linked_student_id)
         .single();
+
       if (studentError) throw studentError;
-      // Get assignments (homework) assigned to this student
-      const { data: homework, error: hwError } = await supabase
-        .from(TABLES.HOMEWORK)
-        .select('*')
-        .contains('assigned_students', [student.id])
+
+      // Get assignments for the student's class
+      const { data: assignmentsData, error: assignmentsError } = await supabase
+        .from(TABLES.ASSIGNMENTS)
+        .select('*, subjects(name), teachers(name)')
+        .eq('class_id', student.class_id)
         .order('due_date', { ascending: true });
-      if (hwError) throw hwError;
+
+      if (assignmentsError) throw assignmentsError;
+
       // Get submissions for this student
       const { data: submissions, error: subError } = await supabase
         .from(TABLES.SUBMISSIONS)
         .select('*')
         .eq('student_id', student.id);
+
       if (subError) throw subError;
-      // Merge homework and submission status
-      const assignmentsList = (homework || []).map(hw => {
-        const submission = submissions.find(s => s.assignment_id === hw.id);
+
+      // Merge assignments and submission status
+      const assignmentsList = (assignmentsData || []).map(assignment => {
+        const submission = submissions.find(s => s.assignment_id === assignment.id);
         let status = 'not_submitted';
         if (submission) status = submission.status;
         if (submission && submission.grade) status = 'graded';
         return {
-          id: hw.id,
-          subject: hw.subjects?.name || hw.subject_id,
-          title: hw.title,
-          description: hw.description,
-          dueDate: hw.due_date,
-          files: hw.files || [],
+          id: assignment.id,
+          subject: assignment.subjects?.name || 'Unknown Subject',
+          title: assignment.title,
+          description: assignment.description,
+          dueDate: assignment.due_date,
+          files: assignment.file_url ? [{ id: assignment.id, name: 'Assignment File', url: assignment.file_url }] : [],
           status,
           submissionId: submission?.id,
           uploadedFiles: submission?.files || [],
@@ -95,23 +128,6 @@ const ViewAssignments = () => {
       setLoading(false);
     }
   };
-
-  useEffect(() => {
-    fetchAssignments();
-    // Real-time subscription
-    const hwSub = supabase
-      .channel('student-assignments-homework')
-      .on('postgres_changes', { event: '*', schema: 'public', table: TABLES.HOMEWORK }, fetchAssignments)
-      .subscribe();
-    const subSub = supabase
-      .channel('student-assignments-submissions')
-      .on('postgres_changes', { event: '*', schema: 'public', table: TABLES.SUBMISSIONS }, fetchAssignments)
-      .subscribe();
-    return () => {
-      hwSub.unsubscribe();
-      subSub.unsubscribe();
-    };
-  }, []);
 
   // Group assignments by subject
   const groupBySubject = (assignments) => {

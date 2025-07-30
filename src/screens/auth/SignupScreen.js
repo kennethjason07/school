@@ -139,6 +139,8 @@ const SignupScreen = ({ navigation }) => {
     return true;
   };
 
+  const { signUp } = useAuth();
+
   const handleSignUp = async () => {
     // Validate all inputs
     let isValid = true;

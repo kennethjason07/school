@@ -11,7 +11,6 @@ export const supabase = createClient(supabaseUrl, supabaseAnonKey);
 export const TABLES = {
   USERS: 'users',
   CLASSES: 'classes',
-  SECTIONS: 'sections',
   PARENTS: 'parents',
   STUDENTS: 'students',
   TEACHERS: 'teachers',
@@ -24,6 +23,8 @@ export const TABLES = {
   EXAMS: 'exams',
   MARKS: 'marks',
   HOMEWORKS: 'homeworks',
+  ASSIGNMENTS: 'assignments',
+  ASSIGNMENTS: 'assignments',
   TIMETABLE: 'timetable',
   NOTIFICATIONS: 'notifications',
 };
@@ -181,14 +182,22 @@ export const dbHelpers = {
     }
   },
 
-  async getSectionsByClass(classId) {
+  async getSectionsByClass(classId = null) {
     try {
-      const { data, error } = await supabase
-        .from(TABLES.SECTIONS)
-        .select('*')
-        .eq('class_id', classId)
-        .order('section_name');
-      return { data, error };
+      let query = supabase
+        .from(TABLES.CLASSES)
+        .select('section');
+      
+      if (classId) {
+        query = query.eq('id', classId);
+      }
+
+      const { data, error } = await query;
+      if (error) throw error;
+
+      // Extract unique sections
+      const uniqueSections = [...new Set(data.map(item => item.section))];
+      return { data: uniqueSections.map(s => ({ section_name: s })), error: null };
     } catch (error) {
       return { data: null, error };
     }
@@ -201,14 +210,13 @@ export const dbHelpers = {
         .from(TABLES.STUDENTS)
         .select(`
           *,
-          classes(class_name),
-          sections(section_name),
+          classes(class_name, section),
           parents(full_name, phone, email)
         `)
         .eq('class_id', classId);
       
       if (sectionId) {
-        query = query.eq('section_id', sectionId);
+        query = query.eq('classes.section', sectionId);
       }
       
       const { data, error } = await query.order('roll_no');
@@ -224,8 +232,7 @@ export const dbHelpers = {
         .from(TABLES.STUDENTS)
         .select(`
           *,
-          classes(class_name),
-          sections(section_name),
+          classes(class_name, section),
           parents(full_name, phone, email)
         `)
         .eq('id', studentId)
@@ -256,8 +263,7 @@ export const dbHelpers = {
         .select(`
           *,
           subjects(name),
-          classes(class_name),
-          sections(section_name)
+          classes(class_name, section)
         `)
         .eq('teacher_id', teacherId);
       return { data, error };
@@ -276,8 +282,7 @@ export const dbHelpers = {
           students(
             full_name,
             roll_no,
-            classes(class_name),
-            sections(section_name)
+            classes(class_name, section)
           )
         `)
         .eq('date', date);
@@ -287,7 +292,7 @@ export const dbHelpers = {
       }
       
       if (sectionId) {
-        query = query.eq('students.section_id', sectionId);
+        query = query.eq('students.classes.section', sectionId);
       }
       
       const { data, error } = await query;
@@ -382,12 +387,13 @@ export const dbHelpers = {
         .select(`
           *,
           subjects(name),
-          teachers(full_name)
+          teachers(full_name),
+          classes(section)
         `)
         .eq('class_id', classId);
       
       if (sectionId) {
-        query = query.eq('section_id', sectionId);
+        query = query.eq('classes.section', sectionId);
       }
       
       const { data, error } = await query.order('due_date');
@@ -405,10 +411,11 @@ export const dbHelpers = {
         .select(`
           *,
           subjects(name),
-          teachers(full_name)
+          teachers(full_name),
+          classes(section)
         `)
         .eq('class_id', classId)
-        .eq('section_id', sectionId)
+        .eq('classes.section', sectionId)
         .order('day_of_week, start_time');
       return { data, error };
     } catch (error) {

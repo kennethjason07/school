@@ -184,13 +184,7 @@ export const AuthProvider = ({ children }) => {
       }
       
       // Use Supabase Auth for signup
-      const { data: { user, session }, error: authError } = await supabase.auth.signUp({
-        email,
-        password,
-        options: {
-          data: userData
-        }
-      });
+      const { data: { user, session }, error: authError } = await authHelpers.signUp(email, password, userData);
       
       if (authError) {
         // Handle specific auth errors

@@ -51,8 +51,7 @@ const UploadHomework = () => {
         .from(TABLES.TEACHER_SUBJECTS)
         .select(`
           *,
-          classes(id, class_name),
-          sections(id, section_name),
+          classes(id, class_name, section),
           subjects(id, name)
         `)
         .eq('teacher_id', teacherData.id);
@@ -63,14 +62,14 @@ const UploadHomework = () => {
       const classMap = new Map();
       
       assignedData.forEach(assignment => {
-        const classKey = `${assignment.classes.class_name}-${assignment.sections.section_name}`;
+        const classKey = assignment.classes.id;
         
         if (!classMap.has(classKey)) {
           classMap.set(classKey, {
-            id: `${assignment.classes.id}-${assignment.sections.id}`,
-            name: classKey,
+            id: assignment.classes.id,
+            name: `${assignment.classes.class_name} - ${assignment.classes.section}`,
             classId: assignment.classes.id,
-            sectionId: assignment.sections.id,
+            section: assignment.classes.section,
             subjects: [],
             students: []
           });
@@ -95,7 +94,6 @@ const UploadHomework = () => {
             roll_no
           `)
           .eq('class_id', classData.classId)
-          .eq('section_id', classData.sectionId)
           .order('roll_no');
 
         if (studentsError) throw studentsError;
@@ -119,8 +117,7 @@ const UploadHomework = () => {
         .from(TABLES.HOMEWORK)
         .select(`
           *,
-          classes(class_name),
-          sections(section_name),
+          classes(class_name, section),
           subjects(name)
         `)
         .order('created_at', { ascending: false });
@@ -242,17 +239,20 @@ const UploadHomework = () => {
     }
 
     try {
-      const [classId, sectionId] = selectedClass.split('-');
-      const [subjectId] = selectedSubject.split('-');
+      const selectedClassData = classes.find(c => c.id === selectedClass);
+      if (!selectedClassData) {
+        Alert.alert('Error', 'Selected class not found.');
+        return;
+      }
 
       const homeworkData = {
         title: homeworkTitle,
         description: homeworkDescription,
         instructions: homeworkInstructions,
         due_date: dueDate.toISOString().split('T')[0],
-        class_id: classId,
-        section_id: sectionId,
-        subject_id: subjectId,
+        class_id: selectedClassData.id,
+        section: selectedClassData.section,
+        subject_id: selectedSubject,
         teacher_id: user.id,
         assigned_students: selectedStudents,
         files: uploadedFiles,
@@ -479,7 +479,7 @@ const UploadHomework = () => {
                       </View>
                     </View>
                     <Text style={styles.homeworkDetails}>
-                      {hw.classes?.class_name}-{hw.sections?.section_name} | {hw.subjects?.name}
+                      {hw.classes?.class_name} - {hw.classes?.section} | {hw.subjects?.name}
                     </Text>
                     <Text style={styles.homeworkDescription}>{hw.description}</Text>
                     <Text style={styles.homeworkDueDate}>Due: {hw.due_date}</Text>
