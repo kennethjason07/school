@@ -280,10 +280,10 @@ const ManageStudents = () => {
     try {
       // Load attendance history
       const { data: attendanceData, error: attendanceError } = await supabase
-        .from('attendance')
+        .from(TABLES.STUDENT_ATTENDANCE)
         .select('*')
         .eq('student_id', studentId)
-        .order('attendance_date', { ascending: false });
+        .order('date', { ascending: false });
       if (attendanceError) throw attendanceError;
       setAttendanceHistory(attendanceData || []);
 

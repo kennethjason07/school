@@ -67,7 +67,7 @@ const ViewStudentInfo = () => {
             date_of_birth,
             gender,
             classes(class_name, section),
-            parents(full_name, phone, email)
+            users!students_parent_id_fkey(full_name, phone, email)
           `)
           .eq('class_id', assignment.classes.id)
           .order('roll_no')

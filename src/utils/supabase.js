@@ -212,14 +212,14 @@ export const dbHelpers = {
         .select(`
           *,
           classes(class_name, section),
-          parents(full_name, phone, email)
+          users!students_parent_id_fkey(full_name, phone, email)
         `)
         .eq('class_id', classId);
-      
+
       if (sectionId) {
         query = query.eq('classes.section', sectionId);
       }
-      
+
       const { data, error } = await query.order('roll_no');
       return { data, error };
     } catch (error) {
@@ -234,7 +234,7 @@ export const dbHelpers = {
         .select(`
           *,
           classes(class_name, section),
-          parents(full_name, phone, email)
+          users!students_parent_id_fkey(full_name, phone, email)
         `)
         .eq('id', studentId)
         .single();

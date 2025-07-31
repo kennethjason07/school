@@ -293,6 +293,12 @@ const FeeManagement = () => {
       Alert.alert('Error', 'Missing required payment information');
       return;
     }
+
+    // Validate payment date
+    if (!isValidDate(paymentDate)) {
+      Alert.alert('Error', 'Invalid payment date selected. Please select a valid date.');
+      return;
+    }
     
     try {
       setPaymentLoading(true);
@@ -408,10 +414,17 @@ const FeeManagement = () => {
     }
   };
 
+  // Helper function to validate date
+  const isValidDate = (date) => {
+    if (!date) return false;
+    const d = new Date(date);
+    return d instanceof Date && !isNaN(d) && d.toString() !== 'Invalid Date';
+  };
+
   // Handle date change
   const handleDateChange = (event, selectedDate) => {
     setShowDatePicker(false);
-    if (selectedDate) {
+    if (selectedDate && isValidDate(selectedDate)) {
       if (paymentModal) {
         setPaymentDate(selectedDate);
       } else if (feeModal.visible) {
@@ -428,6 +441,8 @@ const FeeManagement = () => {
           dueDate: selectedDate.toISOString()
         }));
       }
+    } else if (selectedDate && !isValidDate(selectedDate)) {
+      Alert.alert('Error', 'Invalid date selected. Please select a valid date.');
     }
   };
 
