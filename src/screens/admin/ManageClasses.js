@@ -14,7 +14,7 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import Header from '../../components/Header';
 import { Picker } from '@react-native-picker/picker';
-import { supabase, dbHelpers } from '../../utils/supabase';
+import { supabase } from '../../utils/supabase';
 
 const ManageClasses = ({ navigation }) => {
   const [loading, setLoading] = useState(true);
@@ -37,28 +37,45 @@ const ManageClasses = ({ navigation }) => {
 
   const loadAllData = async () => {
     try {
-      // Load classes
+      setLoading(true);
+      
+      // Get all classes - as specified in easy.txt
       const { data: classData, error: classError } = await supabase
         .from('classes')
-        .select('*, students(count)')
+        .select('*')
         .order('class_name', { ascending: true });
+      
       if (classError) throw classError;
 
-      const classesWithCounts = classData.map(c => ({ ...c, students_count: c.students[0].count }));
+      // Get student count for each class
+      const classesWithCounts = await Promise.all(
+        classData.map(async (cls) => {
+          const { count } = await supabase
+            .from('students')
+            .select('*', { count: 'exact', head: true })
+            .eq('class_id', cls.id);
+          
+          return {
+            ...cls,
+            students_count: count || 0
+          };
+        })
+      );
 
       console.log('Fetched classes:', classesWithCounts);
       setClasses(classesWithCounts);
 
-      // Load teachers
+      // Get all teachers - as specified in easy.txt
       const { data: teacherData, error: teacherError } = await supabase
         .from('teachers')
         .select('*')
         .order('name', { ascending: true });
+      
       if (teacherError) throw teacherError;
       setTeachers(teacherData);
     } catch (error) {
       console.error('Error loading data:', error);
-      Alert.alert('Error', 'Failed to load classes');
+      Alert.alert('Error', 'Failed to load classes and teachers');
     } finally {
       setLoading(false);
     }
@@ -71,6 +88,7 @@ const ManageClasses = ({ navigation }) => {
         return;
       }
 
+      // Insert a new class - as specified in easy.txt
       const { error } = await supabase
         .from('classes')
         .insert({
@@ -84,7 +102,12 @@ const ManageClasses = ({ navigation }) => {
 
       // Refresh data
       await loadAllData();
-      setNewClass({ name: '', academic_year: '2024-25', section: '', teacher_id: '' });
+      setNewClass({ 
+        class_name: '', 
+        academic_year: '2024-25', 
+        section: '', 
+        class_teacher_id: '' 
+      });
       setIsAddModalVisible(false);
       Alert.alert('Success', 'Class added successfully!');
     } catch (error) {
@@ -100,6 +123,7 @@ const ManageClasses = ({ navigation }) => {
         return;
       }
 
+      // Update a class - as specified in easy.txt
       const { error } = await supabase
         .from('classes')
         .update({
@@ -126,7 +150,7 @@ const ManageClasses = ({ navigation }) => {
   const handleDeleteClass = async (classId) => {
     Alert.alert(
       'Delete Class',
-      'Are you sure you want to delete this class? This action cannot be undone.',
+      'Are you sure you want to delete this class? Students will remain in the system but will no longer be assigned to this class.',
       [
         { text: 'Cancel', style: 'cancel' },
         {
@@ -134,19 +158,25 @@ const ManageClasses = ({ navigation }) => {
           style: 'destructive',
           onPress: async () => {
             try {
-              const { error } = await supabase
+              // 1. Set class_id to null for all students in this class
+              const { error: updateError } = await supabase
+                .from('students')
+                .update({ class_id: null })
+                .eq('class_id', classId);
+              if (updateError) throw updateError;
+
+              // 2. Delete the class
+              const { error: classDeleteError } = await supabase
                 .from('classes')
                 .delete()
                 .eq('id', classId);
+              if (classDeleteError) throw classDeleteError;
 
-              if (error) throw error;
-
-              // Refresh data
               await loadAllData();
-              Alert.alert('Success', 'Class deleted successfully!');
+              Alert.alert('Success', 'Class deleted. Students remain in the system.');
             } catch (error) {
               console.error('Error deleting class:', error);
-              Alert.alert('Error', 'Failed to delete class');
+              Alert.alert('Error', `Failed to delete class: ${error.message}`);
             }
           },
         },
@@ -173,6 +203,9 @@ const ManageClasses = ({ navigation }) => {
       );
     }
 
+    // Find teacher name for display
+    const teacher = teachers.find(t => t.id === item.class_teacher_id);
+
     return (
       <View style={styles.classCard}>
         <View style={styles.classHeader}>
@@ -181,19 +214,19 @@ const ManageClasses = ({ navigation }) => {
             <Text style={styles.classDetails}>
               Section {item.section} • {item.academic_year}
             </Text>
-            <Text style={styles.classTeacher}>Teacher: {item.teacher_name || 'Unknown'}</Text>
+            <Text style={styles.classTeacher}>
+              Teacher: {teacher?.name || 'Unknown'}
+            </Text>
           </View>
           <View style={styles.classStats}>
-            <View style={styles.classStats}>
             <View style={styles.statItem}>
-              <Text style={styles.statValue}>{item.students ? item.students[0].count : 0}</Text>
+              <Text style={styles.statValue}>{item.students_count || 0}</Text>
               <Text style={styles.statLabel}>Students</Text>
             </View>
             <View style={styles.statItem}>
               <Text style={styles.statValue}>{item.subjects_count || 0}</Text>
               <Text style={styles.statLabel}>Subjects</Text>
             </View>
-          </View>
           </View>
         </View>
         
@@ -238,90 +271,100 @@ const ManageClasses = ({ navigation }) => {
     >
       <View style={styles.modalOverlay}>
         <View style={styles.modalContent}>
-          <View style={styles.modalHeader}>
-            <Text style={styles.modalTitle}>
-              {isEdit ? 'Edit Class' : 'Add New Class'}
-            </Text>
-            <TouchableOpacity
-              onPress={() => {
-                setIsAddModalVisible(false);
-                setIsEditModalVisible(false);
-              }}
-            >
-              <Ionicons name="close" size={24} color="#666" />
-            </TouchableOpacity>
-          </View>
-
-          <View style={styles.formContainer}>
-            <View style={styles.inputGroup}>
-              <Text style={styles.inputLabel}>Class Name</Text>
-              <TextInput
-                style={styles.input}
-                value={isEdit ? selectedClass?.class_name : newClass.class_name}
-                onChangeText={(text) => 
-                  isEdit 
-                    ? setSelectedClass({ ...selectedClass, class_name: text })
-                    : setNewClass({ ...newClass, class_name: text })
-                }
-                placeholder="e.g., Class 1A"
-              />
-            </View>
-
-            <View style={styles.inputGroup}>
-              <Text style={styles.inputLabel}>Academic Year</Text>
-              <TextInput
-                style={styles.input}
-                value={isEdit ? selectedClass?.academic_year : newClass.academic_year}
-                onChangeText={(text) => 
-                  isEdit 
-                    ? setSelectedClass({ ...selectedClass, academic_year: text })
-                    : setNewClass({ ...newClass, academic_year: text })
-                }
-                placeholder="e.g., 2024-25"
-              />
-            </View>
-
-            <View style={styles.inputGroup}>
-              <Text style={styles.inputLabel}>Section</Text>
-              <Picker
-                selectedValue={isEdit ? selectedClass?.section : newClass.section}
-                onValueChange={(itemValue) => 
-                  isEdit 
-                    ? setSelectedClass({ ...selectedClass, section: itemValue })
-                    : setNewClass({ ...newClass, section: itemValue })
-                }
-              >
-                {sections.map((section) => (
-                  <Picker.Item key={section} label={section} value={section} />
-                ))}
-              </Picker>
-            </View>
-
-            <View style={styles.inputGroup}>
-              <Text style={styles.inputLabel}>Teacher</Text>
-              <Picker
-                selectedValue={isEdit ? selectedClass?.class_teacher_id : newClass.class_teacher_id}
-                onValueChange={(itemValue) => 
-                  isEdit 
-                    ? setSelectedClass({ ...selectedClass, class_teacher_id: itemValue })
-                    : setNewClass({ ...newClass, class_teacher_id: itemValue })
-                }
-              >
-                {teachers.map((teacher) => (
-                  <Picker.Item key={teacher.id} label={teacher.name} value={teacher.id} />
-                ))}
-              </Picker>
-            </View>
-
-            <TouchableOpacity
-              style={styles.submitButton}
-              onPress={isEdit ? handleEditClass : handleAddClass}
-            >
-              <Text style={styles.submitButtonText}>
-                {isEdit ? 'Update Class' : 'Add Class'}
+          <ScrollView contentContainerStyle={{ flexGrow: 1 }}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>
+                {isEdit ? 'Edit Class' : 'Add New Class'}
               </Text>
-            </TouchableOpacity>
-          </View>
+              <TouchableOpacity
+                onPress={() => {
+                  setIsAddModalVisible(false);
+                  setIsEditModalVisible(false);
+                }}
+              >
+                <Ionicons name="close" size={24} color="#666" />
+              </TouchableOpacity>
+            </View>
+
+            <View style={styles.formContainer}>
+              <View style={styles.inputGroup}>
+                <Text style={styles.inputLabel}>Class Name</Text>
+                <TextInput
+                  style={styles.input}
+                  value={isEdit ? selectedClass?.class_name : newClass.class_name}
+                  onChangeText={(text) => 
+                    isEdit 
+                      ? setSelectedClass({ ...selectedClass, class_name: text })
+                      : setNewClass({ ...newClass, class_name: text })
+                  }
+                  placeholder="e.g., Class 1A"
+                />
+              </View>
+
+              <View style={styles.inputGroup}>
+                <Text style={styles.inputLabel}>Academic Year</Text>
+                <TextInput
+                  style={styles.input}
+                  value={isEdit ? selectedClass?.academic_year : newClass.academic_year}
+                  onChangeText={(text) => 
+                    isEdit 
+                      ? setSelectedClass({ ...selectedClass, academic_year: text })
+                      : setNewClass({ ...newClass, academic_year: text })
+                  }
+                  placeholder="e.g., 2024-25"
+                />
+              </View>
+
+              <View style={styles.inputGroup}>
+                <Text style={styles.inputLabel}>Section</Text>
+                <View style={styles.pickerDropdownContainer}>
+                  <Picker
+                    selectedValue={isEdit ? selectedClass?.section : newClass.section}
+                    onValueChange={(itemValue) => 
+                      isEdit 
+                        ? setSelectedClass({ ...selectedClass, section: itemValue })
+                        : setNewClass({ ...newClass, section: itemValue })
+                    }
+                    style={styles.pickerDropdown}
+                  >
+                    <Picker.Item label="Select Section" value="" />
+                    {sections.map((section) => (
+                      <Picker.Item key={section} label={section} value={section} />
+                    ))}
+                  </Picker>
+                </View>
+              </View>
+
+              <View style={styles.inputGroup}>
+                <Text style={styles.inputLabel}>Teacher</Text>
+                <View style={styles.pickerDropdownContainer}>
+                  <Picker
+                    selectedValue={isEdit ? selectedClass?.class_teacher_id : newClass.class_teacher_id}
+                    onValueChange={(itemValue) => 
+                      isEdit 
+                        ? setSelectedClass({ ...selectedClass, class_teacher_id: itemValue })
+                        : setNewClass({ ...newClass, class_teacher_id: itemValue })
+                    }
+                    style={styles.pickerDropdown}
+                  >
+                    <Picker.Item label="Select Teacher" value="" />
+                    {teachers.map((teacher) => (
+                      <Picker.Item key={teacher.id} label={teacher.name} value={teacher.id} />
+                    ))}
+                  </Picker>
+                </View>
+              </View>
+
+              <TouchableOpacity
+                style={styles.submitButton}
+                onPress={isEdit ? handleEditClass : handleAddClass}
+              >
+                <Text style={styles.submitButtonText}>
+                  {isEdit ? 'Update Class' : 'Add Class'}
+                </Text>
+              </TouchableOpacity>
+            </View>
+          </ScrollView>
         </View>
       </View>
     </Modal>
@@ -344,13 +387,27 @@ const ManageClasses = ({ navigation }) => {
         </TouchableOpacity>
       </View>
 
-      <FlatList
-        data={classes}
-        renderItem={renderClassItem}
-        keyExtractor={(item) => item.id.toString()}
-        contentContainerStyle={styles.listContainer}
-        showsVerticalScrollIndicator={false}
-      />
+      {loading ? (
+        <View style={styles.loadingContainer}>
+          <ActivityIndicator size="large" color="#2196F3" />
+          <Text style={styles.loadingText}>Loading classes...</Text>
+        </View>
+      ) : (
+        <FlatList
+          data={classes}
+          renderItem={renderClassItem}
+          keyExtractor={(item) => item.id.toString()}
+          contentContainerStyle={styles.listContainer}
+          showsVerticalScrollIndicator={false}
+          ListEmptyComponent={
+            <View style={styles.emptyContainer}>
+              <Ionicons name="school" size={64} color="#ccc" />
+              <Text style={styles.emptyText}>No classes found</Text>
+              <Text style={styles.emptySubtext}>Add your first class to get started</Text>
+            </View>
+          }
+        />
+      )}
 
       {renderModal(isAddModalVisible, false)}
       {renderModal(isEditModalVisible, true)}
@@ -395,6 +452,33 @@ const styles = StyleSheet.create({
   },
   listContainer: {
     padding: 16,
+  },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  loadingText: {
+    marginTop: 16,
+    fontSize: 16,
+    color: '#666',
+  },
+  emptyContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingVertical: 60,
+  },
+  emptyText: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#666',
+    marginTop: 16,
+  },
+  emptySubtext: {
+    fontSize: 14,
+    color: '#999',
+    marginTop: 8,
   },
   classCard: {
     backgroundColor: '#fff',
@@ -504,7 +588,7 @@ const styles = StyleSheet.create({
     padding: 20,
     width: '90%',
     maxHeight: '80%',
-    overflow: 'hidden', // fix: prevent overflow
+    overflow: 'hidden',
   },
   modalHeader: {
     flexDirection: 'row',
@@ -539,86 +623,33 @@ const styles = StyleSheet.create({
     color: '#333',
     backgroundColor: '#f9f9f9',
   },
-  pickerContainer: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-  },
-  pickerOption: {
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    borderRadius: 10,
-    borderWidth: 1,
-    borderColor: '#e0e0e0',
-    marginRight: 8,
-    marginBottom: 8,
-  },
-  pickerOptionSelected: {
-    backgroundColor: '#2196F3',
-    borderColor: '#2196F3',
-  },
-  pickerOptionText: {
-    fontSize: 14,
-    color: '#666',
-  },
-  pickerOptionTextSelected: {
-    color: '#fff',
-    fontWeight: '600',
-  },
-  modalActions: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    width: '100%',
-    flexWrap: 'wrap', // allow vertical stacking if needed
-    gap: 8, // add gap between buttons
-  },
-  cancelButton: {
-    flex: 1,
-    minWidth: 0, // fix: allow flex shrink
-    paddingVertical: 12,
-    paddingHorizontal: 16,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: '#e0e0e0',
-    marginRight: 8,
-    alignItems: 'center',
-  },
-  cancelButtonText: {
-    color: '#666',
-    fontSize: 16,
-    fontWeight: '600',
-  },
-  saveButton: {
-    flex: 1,
-    minWidth: 0, // fix: allow flex shrink
-    backgroundColor: '#2196F3',
-    paddingVertical: 12,
-    paddingHorizontal: 16,
-    borderRadius: 8,
-    marginLeft: 8,
-    alignItems: 'center',
-  },
-  saveButtonText: {
-    color: '#fff',
-    fontSize: 16,
-    fontWeight: '600',
-  },
   pickerDropdownContainer: {
     borderWidth: 1,
     borderColor: '#e0e0e0',
-    borderRadius: 10,
+    borderRadius: 8,
     backgroundColor: '#f9f9f9',
     marginBottom: 8,
     justifyContent: 'center',
     minHeight: 44,
-    borderWidth: 1, // ensure enough height for Picker text
   },
   pickerDropdown: {
     width: '100%',
-    backgroundColor: '#fff',
-    color: '#222',
+    backgroundColor: 'transparent',
+    color: '#333',
     fontSize: 16,
-    textAlignVertical: 'center',
-    // removed height and paddingHorizontal for best compatibility
+  },
+  submitButton: {
+    backgroundColor: '#2196F3',
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    borderRadius: 8,
+    alignItems: 'center',
+    marginTop: 16,
+  },
+  submitButtonText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '600',
   },
 });
 
