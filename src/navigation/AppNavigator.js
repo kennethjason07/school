@@ -76,7 +76,7 @@ function AdminTabNavigator() {
       screenOptions={({ route }) => ({
         tabBarIcon: ({ focused, color, size }) => {
           let iconName;
-          if (route.name === 'Dashboard') {
+          if (route.name === 'AdminDashboard') {
             iconName = focused ? 'home' : 'home-outline';
           } else if (route.name === 'Classes') {
             iconName = focused ? 'school' : 'school-outline';
@@ -91,14 +91,22 @@ function AdminTabNavigator() {
         },
         tabBarActiveTintColor: '#2196F3',
         tabBarInactiveTintColor: 'gray',
+        headerShown: false,
       })}
     >
-      <Tab.Screen name="AdminDashboard" component={AdminDashboard} />
+      <Tab.Screen
+        name="AdminDashboard"
+        component={AdminDashboard}
+        options={{ tabBarLabel: 'Dashboard' }}
+      />
       <Tab.Screen name="Classes" component={ManageClasses} />
       <Tab.Screen name="Students" component={ManageStudents} />
-      <Tab.Screen name="Teachers" component={ManageTeachers} options={{ tabBarLabel: 'Manage Teachers' }} />
+      <Tab.Screen
+        name="Teachers"
+        component={ManageTeachers}
+        options={{ tabBarLabel: 'Teachers' }}
+      />
       <Tab.Screen name="Reports" component={AnalyticsReports} />
-      {/* Removed StudentDetails and StudentList from Tab.Navigator */}
     </Tab.Navigator>
   );
 }
@@ -110,7 +118,7 @@ function TeacherTabNavigator() {
       screenOptions={({ route }) => ({
         tabBarIcon: ({ focused, color, size }) => {
           let iconName;
-          if (route.name === 'Dashboard') {
+          if (route.name === 'TeacherDashboard') {
             iconName = focused ? 'home' : 'home-outline';
           } else if (route.name === 'Attendance') {
             iconName = focused ? 'checkmark-circle' : 'checkmark-circle-outline';
@@ -125,9 +133,14 @@ function TeacherTabNavigator() {
         },
         tabBarActiveTintColor: '#4CAF50',
         tabBarInactiveTintColor: 'gray',
+        headerShown: false,
       })}
     >
-      <Tab.Screen name="TeacherDashboard" component={TeacherDashboard} />
+      <Tab.Screen
+        name="TeacherDashboard"
+        component={TeacherDashboard}
+        options={{ tabBarLabel: 'Dashboard' }}
+      />
       <Tab.Screen name="Attendance" component={TakeAttendance} />
       <Tab.Screen name="Marks" component={MarksEntry} />
       <Tab.Screen name="Homework" component={UploadHomework} />
@@ -143,7 +156,7 @@ function ParentTabNavigator() {
       screenOptions={({ route }) => ({
         tabBarIcon: ({ focused, color, size }) => {
           let iconName;
-          if (route.name === 'Dashboard') {
+          if (route.name === 'ParentDashboard') {
             iconName = focused ? 'home' : 'home-outline';
           } else if (route.name === 'Report Card') {
             iconName = focused ? 'document-text' : 'document-text-outline';
@@ -158,9 +171,14 @@ function ParentTabNavigator() {
         },
         tabBarActiveTintColor: '#FF9800',
         tabBarInactiveTintColor: 'gray',
+        headerShown: false,
       })}
     >
-      <Tab.Screen name="ParentDashboard" component={ParentDashboard} />
+      <Tab.Screen
+        name="ParentDashboard"
+        component={ParentDashboard}
+        options={{ tabBarLabel: 'Dashboard' }}
+      />
       <Tab.Screen name="Report Card" component={ViewReportCard} />
       <Tab.Screen name="Attendance" component={AttendanceSummary} />
       <Tab.Screen name="Fees" component={FeePayment} />
@@ -176,7 +194,7 @@ function StudentTabNavigator() {
       screenOptions={({ route }) => ({
         tabBarIcon: ({ focused, color, size }) => {
           let iconName;
-          if (route.name === 'Dashboard') {
+          if (route.name === 'StudentDashboard') {
             iconName = focused ? 'home' : 'home-outline';
           } else if (route.name === 'Assignments') {
             iconName = focused ? 'library' : 'library-outline';
@@ -191,9 +209,14 @@ function StudentTabNavigator() {
         },
         tabBarActiveTintColor: '#9C27B0',
         tabBarInactiveTintColor: 'gray',
+        headerShown: false,
       })}
     >
-      <Tab.Screen name="StudentDashboard" component={StudentDashboard} />
+      <Tab.Screen
+        name="StudentDashboard"
+        component={StudentDashboard}
+        options={{ tabBarLabel: 'Dashboard' }}
+      />
       <Tab.Screen name="Assignments" component={ViewAssignments} />
       <Tab.Screen name="Marks" component={StudentAttendanceMarks} />
       <Tab.Screen name="Notifications" component={StudentNotifications} />

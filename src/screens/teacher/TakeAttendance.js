@@ -9,9 +9,15 @@ import { useAuth } from '../../utils/AuthContext';
 import { supabase, dbHelpers, TABLES } from '../../utils/supabase';
 
 function formatDateDMY(dateStr) {
-  if (!dateStr) return '';
-  const [y, m, d] = dateStr.split('-');
-  return `${d}-${m}-${y}`;
+  if (!dateStr || typeof dateStr !== 'string') return '';
+  try {
+    const [y, m, d] = dateStr.split('-');
+    if (!y || !m || !d) return '';
+    return `${d}-${m}-${y}`;
+  } catch (error) {
+    console.error('Error formatting date:', error);
+    return '';
+  }
 }
 
 const TakeAttendance = () => {

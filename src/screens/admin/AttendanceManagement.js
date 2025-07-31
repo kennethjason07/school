@@ -101,9 +101,15 @@ const AttendanceManagement = () => {
 
   // Helper function to format date as dd-mm-yyyy
   const formatDateDMY = (dateStr) => {
-    if (!dateStr) return '';
-    const [y, m, d] = dateStr.split('-');
-    return `${d}-${m}-${y}`;
+    if (!dateStr || typeof dateStr !== 'string') return '';
+    try {
+      const [y, m, d] = dateStr.split('-');
+      if (!y || !m || !d) return '';
+      return `${d}-${m}-${y}`;
+    } catch (error) {
+      console.error('Error formatting date:', error);
+      return '';
+    }
   };
 
   // When selectedClass or selectedDate changes, load attendanceMark from attendanceRecords

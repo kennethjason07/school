@@ -33,128 +33,191 @@ const AdminDashboard = ({ navigation }) => {
   const [refreshing, setRefreshing] = useState(false);
   const [selectedDate, setSelectedDate] = useState(new Date());
 
-  // Load real-time data from Supabase
+  // Load real-time data from Supabase using actual schema
   const loadDashboardData = async () => {
     try {
       setLoading(true);
       setError(null);
 
-      // Load students count
-      const { data: students, error: studentError, count: studentCount } = await supabase
+      // Load students count with gender breakdown
+      const { data: studentsData, error: studentError, count: studentCount } = await supabase
         .from('students')
-        .select('id', { count: 'exact' });
+        .select('id, gender', { count: 'exact' });
+
+      if (studentError) {
+        console.error('Error loading students:', studentError);
+      }
 
       // Load teachers count
-      const { data: teachers, error: teacherError, count: teacherCount } = await supabase
+      const { data: teachersData, error: teacherError, count: teacherCount } = await supabase
         .from('teachers')
         .select('id', { count: 'exact' });
 
-      // Load today's attendance
-      const today = new Date();
-      const { data: attendance, error: attendanceError } = await supabase
-        .from('attendance')
-        .select('id')
-        .eq('date', format(today, 'yyyy-MM-dd'));
+      if (teacherError) {
+        console.error('Error loading teachers:', teacherError);
+      }
 
-      // Load fee data
-      const { data: fees, error: feeError } = await supabase
+      // Load today's student attendance
+      const today = format(new Date(), 'yyyy-MM-dd');
+      const { data: studentAttendance, error: attendanceError } = await supabase
+        .from('student_attendance')
+        .select('id, status')
+        .eq('date', today);
+
+      if (attendanceError) {
+        console.error('Error loading attendance:', attendanceError);
+      }
+
+      // Load classes count
+      const { data: classesData, error: classesError, count: classesCount } = await supabase
+        .from('classes')
+        .select('id', { count: 'exact' });
+
+      if (classesError) {
+        console.error('Error loading classes:', classesError);
+      }
+
+      // Load fee collection data for current month
+      const currentMonth = format(new Date(), 'yyyy-MM');
+      const { data: feeData, error: feeError } = await supabase
         .from('student_fees')
-        .select('amount, status')
-        .gte('payment_date', format(new Date(), 'yyyy-MM-dd'));
+        .select('amount_paid')
+        .gte('payment_date', `${currentMonth}-01`)
+        .lt('payment_date', `${currentMonth}-32`);
+
+      if (feeError) {
+        console.error('Error loading fees:', feeError);
+      }
 
       // Calculate statistics
       const totalStudents = studentCount || 0;
       const totalTeachers = teacherCount || 0;
-      const attendancePercentage = attendance ? Math.round((attendance.length / totalStudents) * 100) : 0;
-      const totalFees = fees?.reduce((sum, fee) => sum + (fee.amount || 0), 0) || 0;
-      const collectedFees = fees?.filter(fee => fee.status === 'Paid')?.reduce((sum, fee) => sum + (fee.amount || 0), 0) || 0;
-      const feeCollectionPercentage = Math.round((collectedFees / totalFees) * 100);
+      const totalClasses = classesCount || 0;
+
+      // Calculate attendance percentage
+      const presentToday = studentAttendance?.filter(att => att.status === 'Present').length || 0;
+      const attendancePercentage = totalStudents > 0 ? Math.round((presentToday / totalStudents) * 100) : 0;
+
+      // Calculate fee collection for current month
+      const monthlyFeeCollection = feeData?.reduce((sum, fee) => sum + (fee.amount_paid || 0), 0) || 0;
 
       // Update stats
       setStats([
-        { 
-          title: 'Total Students', 
-          value: totalStudents.toLocaleString(), 
-          icon: 'people', 
-          color: '#2196F3', 
-          subtitle: 'Updated now', 
-          trend: 0 
+        {
+          title: 'Total Students',
+          value: totalStudents.toLocaleString(),
+          icon: 'people',
+          color: '#2196F3',
+          subtitle: `${studentsData?.filter(s => s.gender === 'Male').length || 0} Male, ${studentsData?.filter(s => s.gender === 'Female').length || 0} Female`,
+          trend: 0
         },
-        { 
-          title: 'Total Teachers', 
-          value: totalTeachers.toString(), 
-          icon: 'person', 
-          color: '#4CAF50', 
-          subtitle: 'Updated now', 
-          trend: 0 
+        {
+          title: 'Total Teachers',
+          value: totalTeachers.toString(),
+          icon: 'person',
+          color: '#4CAF50',
+          subtitle: `${totalClasses} Classes`,
+          trend: 0
         },
-        { 
-          title: 'Attendance Today', 
-          value: `${attendancePercentage}%`, 
-          icon: 'checkmark-circle', 
-          color: '#FF9800', 
-          subtitle: `${attendance?.length || 0} present`, 
-          trend: 0 
+        {
+          title: 'Attendance Today',
+          value: `${attendancePercentage}%`,
+          icon: 'checkmark-circle',
+          color: '#FF9800',
+          subtitle: `${presentToday} of ${totalStudents} present`,
+          trend: 0
         },
-        { 
-          title: 'Fee Collection', 
-          value: `₹${(collectedFees / 1000000).toFixed(1)}M`, 
-          icon: 'card', 
-          color: '#9C27B0', 
-          subtitle: `${feeCollectionPercentage}% collected`, 
-          trend: 0 
+        {
+          title: 'Monthly Fees',
+          value: `₹${(monthlyFeeCollection / 100000).toFixed(1)}L`,
+          icon: 'card',
+          color: '#9C27B0',
+          subtitle: `Collected this month`,
+          trend: 0
         }
       ]);
 
-      // Load announcements
-      const { data: announcementsData, error: announcementsError } = await supabase
-        .from('announcements')
+      // Load recent notifications as announcements
+      const { data: notificationsData, error: notificationsError } = await supabase
+        .from('notifications')
         .select('*')
+        .eq('type', 'General')
         .order('created_at', { ascending: false })
         .limit(5);
 
-      if (announcementsData) {
-        setAnnouncements(announcementsData.map(announcement => ({
-          message: announcement.message,
-          date: announcement.created_at,
-          icon: announcement.icon || 'megaphone',
-          color: announcement.color || '#2196F3'
+      if (notificationsData && !notificationsError) {
+        setAnnouncements(notificationsData.map(notification => ({
+          id: notification.id,
+          message: notification.message,
+          date: format(new Date(notification.created_at), 'yyyy-MM-dd'),
+          icon: 'megaphone',
+          color: '#2196F3'
         })));
+      } else {
+        console.error('Error loading notifications:', notificationsError);
       }
 
-      // Load events
-      const { data: eventsData, error: eventsError } = await supabase
-        .from('events')
-        .select('*')
-        .gte('date', format(new Date(), 'yyyy-MM-dd'))
-        .order('date', { ascending: true })
+      // Load upcoming exams as events
+      const { data: examsData, error: examsError } = await supabase
+        .from('exams')
+        .select('*, classes(class_name, section)')
+        .gte('start_date', format(new Date(), 'yyyy-MM-dd'))
+        .order('start_date', { ascending: true })
         .limit(5);
 
-      if (eventsData) {
-        setEvents(eventsData.map(event => ({
-          id: event.id,
-          type: event.type,
-          title: event.title,
-          date: event.date,
-          icon: event.icon || 'trophy',
-          color: event.color || '#FF9800'
+      if (examsData && !examsError) {
+        setEvents(examsData.map(exam => ({
+          id: exam.id,
+          type: 'Exam',
+          title: `${exam.name} - ${exam.classes?.class_name} ${exam.classes?.section}`,
+          date: exam.start_date,
+          icon: 'document-text',
+          color: '#2196F3'
         })));
+      } else {
+        console.error('Error loading exams:', examsError);
       }
 
-      // Load recent activities
-      const { data: activitiesData, error: activitiesError } = await supabase
-        .from('activities')
-        .select('*')
+      // Load recent activities from various sources
+      const recentActivities = [];
+
+      // Recent student registrations
+      const { data: recentStudents, error: studentsActivityError } = await supabase
+        .from('students')
+        .select('name, created_at')
         .order('created_at', { ascending: false })
-        .limit(5);
+        .limit(3);
 
-      if (activitiesData) {
-        setActivities(activitiesData.map(activity => ({
-          text: activity.message,
-          time: format(new Date(activity.created_at), 'PPp'),
-          icon: activity.icon || 'activity'
-        })));
+      if (recentStudents && !studentsActivityError) {
+        recentStudents.forEach(student => {
+          recentActivities.push({
+            text: `New student registered: ${student.name}`,
+            time: format(new Date(student.created_at), 'PPp'),
+            icon: 'person-add'
+          });
+        });
       }
+
+      // Recent fee payments
+      const { data: recentFees, error: feesActivityError } = await supabase
+        .from('student_fees')
+        .select('amount_paid, payment_date, students(name)')
+        .order('payment_date', { ascending: false })
+        .limit(3);
+
+      if (recentFees && !feesActivityError) {
+        recentFees.forEach(fee => {
+          recentActivities.push({
+            text: `Fee payment received: ₹${fee.amount_paid} from ${fee.students?.name}`,
+            time: format(new Date(fee.payment_date), 'PPp'),
+            icon: 'card'
+          });
+        });
+      }
+
+      // Sort activities by time and take latest 5
+      recentActivities.sort((a, b) => new Date(b.time) - new Date(a.time));
+      setActivities(recentActivities.slice(0, 5));
 
     } catch (error) {
       console.error('Error loading dashboard data:', error);
@@ -165,14 +228,51 @@ const AdminDashboard = ({ navigation }) => {
   };
 
   useEffect(() => {
-    loadDashboardData();
-    // Subscribe to Supabase real-time updates
+    const initializeDashboard = async () => {
+      await loadDashboardData();
+      await loadChartData();
+    };
+
+    initializeDashboard();
+
+    // Subscribe to Supabase real-time updates for multiple tables
     const subscription = supabase
       .channel('dashboard-updates')
       .on('postgres_changes', {
         event: '*',
         schema: 'public',
         table: 'students'
+      }, () => {
+        loadDashboardData();
+        loadChartData();
+      })
+      .on('postgres_changes', {
+        event: '*',
+        schema: 'public',
+        table: 'student_attendance'
+      }, () => {
+        loadDashboardData();
+        loadChartData();
+      })
+      .on('postgres_changes', {
+        event: '*',
+        schema: 'public',
+        table: 'student_fees'
+      }, () => {
+        loadDashboardData();
+        loadChartData();
+      })
+      .on('postgres_changes', {
+        event: '*',
+        schema: 'public',
+        table: 'notifications'
+      }, () => {
+        loadDashboardData();
+      })
+      .on('postgres_changes', {
+        event: '*',
+        schema: 'public',
+        table: 'exams'
       }, () => {
         loadDashboardData();
       })
@@ -183,10 +283,18 @@ const AdminDashboard = ({ navigation }) => {
     };
   }, []);
 
-  const onRefresh = () => {
+  const onRefresh = async () => {
     setRefreshing(true);
-    loadDashboardData()
-      .finally(() => setRefreshing(false));
+    try {
+      await Promise.all([
+        loadDashboardData(),
+        loadChartData()
+      ]);
+    } catch (error) {
+      console.error('Error refreshing dashboard:', error);
+    } finally {
+      setRefreshing(false);
+    }
   };
 
   const quickActions = [
@@ -200,52 +308,106 @@ const AdminDashboard = ({ navigation }) => {
     { title: 'Notifications', icon: 'notifications', color: '#E91E63', screen: 'NotificationManagement' }, // Stack screen
   ];
 
-  const attendanceData = {
+  // State for chart data
+  const [attendanceData, setAttendanceData] = useState({
     labels: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'],
-    datasets: [
-      {
-        data: [92, 94, 89, 96, 94],
-        color: (opacity = 1) => `rgba(33, 150, 243, ${opacity})`,
-        strokeWidth: 2,
-      },
-    ],
-  };
+    datasets: [{ data: [0, 0, 0, 0, 0] }],
+  });
 
-  const performanceData = {
-    labels: ['Class 1', 'Class 2', 'Class 3', 'Class 4', 'Class 5'],
-    datasets: [
-      {
-        data: [85, 78, 92, 88, 95],
-      },
-    ],
-  };
+  const [classPerformanceData, setClassPerformanceData] = useState({
+    labels: ['Loading...'],
+    datasets: [{ data: [0] }],
+  });
 
-  // Mock data for new key statistics charts
-  const studentsAttendancePerClass = {
-    labels: ['1A', '2A', '3A', '4A', '5A'],
-    datasets: [
-      { data: [95, 92, 88, 90, 93] },
-    ],
-  };
+  const [feeCollectionData, setFeeCollectionData] = useState([
+    { name: 'Collected', population: 0, color: '#4CAF50', legendFontColor: '#333', legendFontSize: 14 },
+    { name: 'Due', population: 0, color: '#F44336', legendFontColor: '#333', legendFontSize: 14 },
+  ]);
 
-  const teachersAttendance = {
-    labels: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'],
-    datasets: [
-      { data: [98, 97, 99, 96, 97] },
-    ],
-  };
+  // Load chart data
+  const loadChartData = async () => {
+    try {
+      // Load weekly attendance data
+      const weekDates = [];
+      for (let i = 6; i >= 0; i--) {
+        const date = new Date();
+        date.setDate(date.getDate() - i);
+        weekDates.push(format(date, 'yyyy-MM-dd'));
+      }
 
-  const classesAttendance = {
-    labels: ['Class 1', 'Class 2', 'Class 3', 'Class 4', 'Class 5'],
-    datasets: [
-      { data: [94, 91, 89, 93, 92] },
-    ],
-  };
+      const attendancePromises = weekDates.map(async (date) => {
+        const { data } = await supabase
+          .from('student_attendance')
+          .select('status')
+          .eq('date', date);
 
-  const feesCollectedDue = [
-    { name: 'Collected', population: 2400000, color: '#4CAF50', legendFontColor: '#333', legendFontSize: 14 },
-    { name: 'Due', population: 350000, color: '#F44336', legendFontColor: '#333', legendFontSize: 14 },
-  ];
+        const present = data?.filter(att => att.status === 'Present').length || 0;
+        const total = data?.length || 0;
+        return total > 0 ? Math.round((present / total) * 100) : 0;
+      });
+
+      const weeklyAttendance = await Promise.all(attendancePromises);
+
+      setAttendanceData({
+        labels: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'],
+        datasets: [{
+          data: weeklyAttendance,
+          color: (opacity = 1) => `rgba(33, 150, 243, ${opacity})`,
+          strokeWidth: 2,
+        }],
+      });
+
+      // Load class performance data
+      const { data: classesData } = await supabase
+        .from('classes')
+        .select('id, class_name, section');
+
+      if (classesData && classesData.length > 0) {
+        const classPerformancePromises = classesData.slice(0, 5).map(async (cls) => {
+          const { data: attendanceData } = await supabase
+            .from('student_attendance')
+            .select('status')
+            .eq('class_id', cls.id)
+            .gte('date', format(new Date(Date.now() - 7 * 24 * 60 * 60 * 1000), 'yyyy-MM-dd'));
+
+          const present = attendanceData?.filter(att => att.status === 'Present').length || 0;
+          const total = attendanceData?.length || 0;
+          return total > 0 ? Math.round((present / total) * 100) : 0;
+        });
+
+        const classPerformance = await Promise.all(classPerformancePromises);
+
+        setClassPerformanceData({
+          labels: classesData.slice(0, 5).map(cls => `${cls.class_name}${cls.section}`),
+          datasets: [{ data: classPerformance }],
+        });
+      }
+
+      // Load fee collection data
+      const currentMonth = format(new Date(), 'yyyy-MM');
+      const { data: feeData } = await supabase
+        .from('student_fees')
+        .select('amount_paid')
+        .gte('payment_date', `${currentMonth}-01`);
+
+      const { data: feeStructureData } = await supabase
+        .from('fee_structure')
+        .select('amount')
+        .eq('academic_year', '2024-25');
+
+      const collected = feeData?.reduce((sum, fee) => sum + (fee.amount_paid || 0), 0) || 0;
+      const totalDue = feeStructureData?.reduce((sum, fee) => sum + (fee.amount || 0), 0) || 0;
+      const due = Math.max(0, totalDue - collected);
+
+      setFeeCollectionData([
+        { name: 'Collected', population: collected, color: '#4CAF50', legendFontColor: '#333', legendFontSize: 14 },
+        { name: 'Due', population: due, color: '#F44336', legendFontColor: '#333', legendFontSize: 14 },
+      ]);
+
+    } catch (error) {
+      console.error('Error loading chart data:', error);
+    }
+  };
 
   const chartConfig = {
     backgroundColor: '#ffffff',
@@ -305,25 +467,27 @@ const AdminDashboard = ({ navigation }) => {
 
     try {
       if (editIndex !== null) {
-        // Update existing announcement
+        // Update existing notification
         const { error } = await supabase
-          .from('announcements')
+          .from('notifications')
           .update({
             message: announcementInput.message,
-            date: announcementInput.date
+            scheduled_at: new Date(announcementInput.date).toISOString()
           })
           .eq('id', announcements[editIndex].id);
 
         if (error) throw error;
       } else {
-        // Insert new announcement
+        // Insert new notification as general announcement
         const { error } = await supabase
-          .from('announcements')
+          .from('notifications')
           .insert({
+            type: 'General',
             message: announcementInput.message,
-            date: announcementInput.date,
-            icon: announcementInput.icon,
-            color: announcementInput.color
+            delivery_mode: 'InApp',
+            delivery_status: 'Sent',
+            scheduled_at: new Date(announcementInput.date).toISOString(),
+            sent_at: new Date().toISOString()
           });
 
         if (error) throw error;
@@ -331,6 +495,7 @@ const AdminDashboard = ({ navigation }) => {
 
       await loadDashboardData();
       setIsAnnouncementModalVisible(false);
+      Alert.alert('Success', 'Announcement saved successfully!');
     } catch (error) {
       console.error('Error saving announcement:', error);
       Alert.alert('Error', 'Failed to save announcement');
@@ -343,7 +508,7 @@ const AdminDashboard = ({ navigation }) => {
       { text: 'Delete', style: 'destructive', onPress: async () => {
         try {
           const { error } = await supabase
-            .from('announcements')
+            .from('notifications')
             .delete()
             .eq('id', id);
 
@@ -390,30 +555,43 @@ const AdminDashboard = ({ navigation }) => {
     }
 
     try {
+      // For now, we'll create a simple exam entry
+      // In a real implementation, you'd want to select a class
+      const { data: firstClass } = await supabase
+        .from('classes')
+        .select('id')
+        .limit(1)
+        .single();
+
+      if (!firstClass) {
+        Alert.alert('Error', 'No classes found. Please create a class first.');
+        return;
+      }
+
       if (editEventIndex !== null) {
-        // Update existing event
+        // Update existing exam
         const { error } = await supabase
-          .from('events')
+          .from('exams')
           .update({
-            title: eventInput.title,
-            date: eventInput.date,
-            type: eventInput.type,
-            icon: eventInput.icon,
-            color: eventInput.color
+            name: eventInput.title,
+            start_date: eventInput.date,
+            end_date: eventInput.date,
+            remarks: eventInput.type
           })
           .eq('id', events[editEventIndex].id);
 
         if (error) throw error;
       } else {
-        // Insert new event
+        // Insert new exam
         const { error } = await supabase
-          .from('events')
+          .from('exams')
           .insert({
-            title: eventInput.title,
-            date: eventInput.date,
-            type: eventInput.type,
-            icon: eventInput.icon,
-            color: eventInput.color
+            name: eventInput.title,
+            class_id: firstClass.id,
+            academic_year: '2024-25',
+            start_date: eventInput.date,
+            end_date: eventInput.date,
+            remarks: eventInput.type
           });
 
         if (error) throw error;
@@ -421,6 +599,7 @@ const AdminDashboard = ({ navigation }) => {
 
       await loadDashboardData();
       setIsEventModalVisible(false);
+      Alert.alert('Success', 'Event saved successfully!');
     } catch (error) {
       console.error('Error saving event:', error);
       Alert.alert('Error', 'Failed to save event');
@@ -433,7 +612,7 @@ const AdminDashboard = ({ navigation }) => {
       { text: 'Delete', style: 'destructive', onPress: async () => {
         try {
           const { error } = await supabase
-            .from('events')
+            .from('exams')
             .delete()
             .eq('id', id);
 
@@ -471,11 +650,53 @@ const AdminDashboard = ({ navigation }) => {
     ]);
   };
 
+  if (loading) {
+    return (
+      <View style={styles.container}>
+        <Header title="Admin Dashboard" />
+        <View style={styles.loading}>
+          <ActivityIndicator size="large" color="#2196F3" />
+          <Text style={styles.loadingText}>Loading dashboard data...</Text>
+        </View>
+      </View>
+    );
+  }
+
+  if (error) {
+    return (
+      <View style={styles.container}>
+        <Header title="Admin Dashboard" />
+        <View style={styles.error}>
+          <Ionicons name="alert-circle" size={48} color="#dc3545" />
+          <Text style={styles.errorText}>{error}</Text>
+          <TouchableOpacity style={styles.retryButton} onPress={() => {
+            setError(null);
+            loadDashboardData();
+            loadChartData();
+          }}>
+            <Text style={styles.retryButtonText}>Retry</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+    );
+  }
+
   return (
     <View style={styles.container}>
       <Header title="Admin Dashboard" />
-      
-      <ScrollView style={styles.scrollView} showsVerticalScrollIndicator={false}>
+
+      <ScrollView
+        style={styles.scrollView}
+        showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={onRefresh}
+            colors={['#2196F3']}
+            tintColor="#2196F3"
+          />
+        }
+      >
         {/* Welcome Section */}
         <View style={styles.welcomeSection}>
           <Text style={styles.welcomeText}>Welcome back, Admin!</Text>
@@ -659,7 +880,18 @@ const AdminDashboard = ({ navigation }) => {
           <View style={{ alignItems: 'center', marginBottom: 16, width: '100%', flexDirection: 'column', justifyContent: 'center' }}>
             <Text style={{ fontSize: 15, fontWeight: 'bold', marginBottom: 0, textAlign: 'center' }}></Text>
             <View style={{ width: '100%', alignItems: 'center', justifyContent: 'center' }}>
-              <CrossPlatformPieChart data={[{ name: 'Collected', population: 1200000, color: '#2196F3', legendFontColor: '#333', legendFontSize: 14 }, { name: 'Due', population: 300000, color: '#F44336', legendFontColor: '#333', legendFontSize: 14 }]} width={Math.min(width * 0.8, 350)} height={200} chartConfig={chartConfig} accessor={'population'} backgroundColor={'transparent'} paddingLeft={'70'} absolute style={[styles.chart, feeLoading ? { opacity: 0.5, alignSelf: 'center' } : null]} hasLegend={false} />
+              <CrossPlatformPieChart
+                data={feeCollectionData}
+                width={Math.min(width * 0.8, 350)}
+                height={200}
+                chartConfig={chartConfig}
+                accessor={'population'}
+                backgroundColor={'transparent'}
+                paddingLeft={'70'}
+                absolute
+                style={[styles.chart, feeLoading ? { opacity: 0.5, alignSelf: 'center' } : null]}
+                hasLegend={false}
+              />
               {feeLoading && (
                 <View style={styles.pieLoadingOverlay}>
                   <ActivityIndicator size="large" color="#2196F3" />
@@ -667,11 +899,11 @@ const AdminDashboard = ({ navigation }) => {
               )}
             </View>
             <View style={{ flexDirection: 'row', justifyContent: 'center', marginTop: 4, width: '100%' }}>
-              <Text style={{ color: '#2196F3', fontWeight: 'bold', marginRight: 16 }}>
-                Collected: ₹1,200,000
+              <Text style={{ color: '#4CAF50', fontWeight: 'bold', marginRight: 16 }}>
+                Collected: ₹{(feeCollectionData[0]?.population || 0).toLocaleString()}
               </Text>
               <Text style={{ color: '#F44336', fontWeight: 'bold' }}>
-                Due: ₹300,000
+                Due: ₹{(feeCollectionData[1]?.population || 0).toLocaleString()}
               </Text>
             </View>
           </View>
@@ -681,11 +913,47 @@ const AdminDashboard = ({ navigation }) => {
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Class Performance Analysis</Text>
           {/* Attendance per Class Chart */}
-          <Text style={{ fontWeight: 'bold', marginBottom: 4 }}>Attendance per Class (%)</Text>
-          <CrossPlatformBarChart data={{ labels: ['1A', '2A', '3A', '4A', '5A'], datasets: [ { data: [95, 92, 88, 90, 93] } ] }} width={Math.min(width * 0.9, 400)} height={220} yAxisLabel={''} xAxisLabel={'%'} fromZero chartConfig={{ ...chartConfig, decimalPlaces: 0, barPercentage: 0.6, backgroundGradientFrom: '#fff', backgroundGradientTo: '#fff', color: (opacity = 1) => `rgba(33, 150, 243, ${opacity})`, labelColor: (opacity = 1) => `rgba(0, 0, 0, ${opacity})`, }} verticalLabelRotation={0} style={{ marginBottom: 32, borderRadius: 12, alignSelf: 'center' }} />
-          {/* Marks Trend per Class Chart */}
-          <Text style={{ fontWeight: 'bold', marginBottom: 4 }}>Marks Trend per Class</Text>
-          <CrossPlatformBarChart data={{ labels: ['1A', '2A', '3A', '4A', '5A'], datasets: [ { data: [78, 85, 69, 88, 91] } ] }} width={Math.min(width * 0.9, 400)} height={220} yAxisLabel={''} xAxisLabel={' marks'} fromZero chartConfig={{ ...chartConfig, decimalPlaces: 0, barPercentage: 0.6, backgroundGradientFrom: '#fff', backgroundGradientTo: '#fff', color: (opacity = 1) => `rgba(76, 175, 80, ${opacity})`, labelColor: (opacity = 1) => `rgba(0, 0, 0, ${opacity})`, }} verticalLabelRotation={0} style={{ borderRadius: 12, alignSelf: 'center' }} />
+          <Text style={{ fontWeight: 'bold', marginBottom: 4 }}>Weekly Attendance Trend</Text>
+          <CrossPlatformBarChart
+            data={attendanceData}
+            width={Math.min(width * 0.9, 400)}
+            height={220}
+            yAxisLabel={''}
+            xAxisLabel={'%'}
+            fromZero
+            chartConfig={{
+              ...chartConfig,
+              decimalPlaces: 0,
+              barPercentage: 0.6,
+              backgroundGradientFrom: '#fff',
+              backgroundGradientTo: '#fff',
+              color: (opacity = 1) => `rgba(33, 150, 243, ${opacity})`,
+              labelColor: (opacity = 1) => `rgba(0, 0, 0, ${opacity})`,
+            }}
+            verticalLabelRotation={0}
+            style={{ marginBottom: 32, borderRadius: 12, alignSelf: 'center' }}
+          />
+          {/* Class Performance Chart */}
+          <Text style={{ fontWeight: 'bold', marginBottom: 4 }}>Class Performance (%)</Text>
+          <CrossPlatformBarChart
+            data={classPerformanceData}
+            width={Math.min(width * 0.9, 400)}
+            height={220}
+            yAxisLabel={''}
+            xAxisLabel={'%'}
+            fromZero
+            chartConfig={{
+              ...chartConfig,
+              decimalPlaces: 0,
+              barPercentage: 0.6,
+              backgroundGradientFrom: '#fff',
+              backgroundGradientTo: '#fff',
+              color: (opacity = 1) => `rgba(76, 175, 80, ${opacity})`,
+              labelColor: (opacity = 1) => `rgba(0, 0, 0, ${opacity})`,
+            }}
+            verticalLabelRotation={0}
+            style={{ borderRadius: 12, alignSelf: 'center' }}
+          />
         </View>
 
         {/* Recent Activities - moved to bottom */}
@@ -1001,6 +1269,13 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
+    padding: 20,
+  },
+  loadingText: {
+    marginTop: 16,
+    fontSize: 16,
+    color: '#666',
+    textAlign: 'center',
   },
   error: {
     flex: 1,

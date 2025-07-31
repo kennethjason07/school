@@ -47,17 +47,31 @@ const initialTimetables = {
 
 // Helper to calculate duration in minutes
 function getDuration(start, end) {
-  const [sh, sm] = start.split(':').map(Number);
-  const [eh, em] = end.split(':').map(Number);
-  return (eh * 60 + em) - (sh * 60 + sm);
+  if (!start || !end || typeof start !== 'string' || typeof end !== 'string') return 0;
+  try {
+    const [sh, sm] = start.split(':').map(Number);
+    const [eh, em] = end.split(':').map(Number);
+    if (isNaN(sh) || isNaN(sm) || isNaN(eh) || isNaN(em)) return 0;
+    return (eh * 60 + em) - (sh * 60 + sm);
+  } catch (error) {
+    console.error('Error calculating duration:', error);
+    return 0;
+  }
 }
 
 // Helper to format time (24h to 12h)
 function formatTime(t) {
-  let [h, m] = t.split(':').map(Number);
-  const ampm = h >= 12 ? 'PM' : 'AM';
-  h = h % 12 || 12;
-  return `${h}:${m.toString().padStart(2, '0')} ${ampm}`;
+  if (!t || typeof t !== 'string') return '';
+  try {
+    let [h, m] = t.split(':').map(Number);
+    if (isNaN(h) || isNaN(m)) return t; // Return original if parsing fails
+    const ampm = h >= 12 ? 'PM' : 'AM';
+    h = h % 12 || 12;
+    return `${h}:${m.toString().padStart(2, '0')} ${ampm}`;
+  } catch (error) {
+    console.error('Error formatting time:', error);
+    return t; // Return original string if error
+  }
 }
 
 const SubjectsTimetable = () => {
@@ -247,7 +261,18 @@ const SubjectsTimetable = () => {
 
   // Helper to handle time picker
   const openTimePicker = (field, initial) => {
-    let [h, m] = initial ? initial.split(':').map(Number) : [9, 0];
+    let h = 9, m = 0;
+    if (initial && typeof initial === 'string') {
+      try {
+        const parts = initial.split(':').map(Number);
+        if (parts.length >= 2 && !isNaN(parts[0]) && !isNaN(parts[1])) {
+          h = parts[0];
+          m = parts[1];
+        }
+      } catch (error) {
+        console.error('Error parsing initial time:', error);
+      }
+    }
     const date = new Date();
     date.setHours(h);
     date.setMinutes(m);

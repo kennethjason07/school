@@ -1,244 +1,391 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
   StyleSheet,
   ScrollView,
-  ActivityIndicator,
   TouchableOpacity,
   Dimensions,
-  Platform,
+  Alert,
+  RefreshControl,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { ActivityIndicator as PaperActivityIndicator } from 'react-native-paper';
 import Header from '../../components/Header';
-import StatCard from '../../components/StatCard';
-import { supabase, dbHelpers } from '../../utils/supabase';
+import { supabase, TABLES } from '../../utils/supabase';
 import { LineChart, BarChart, PieChart } from 'react-native-chart-kit';
-import { useTheme } from 'react-native-paper';
-import { Share } from 'react-native';
-import ExpoPrint from 'expo-print';
-import * as FileSystem from 'expo-file-system';
-import DateTimePicker from '@react-native-community/datetimepicker';
-import { Alert } from 'react-native';
+
+const { width: screenWidth } = Dimensions.get('window');
 
 const AnalyticsReports = ({ navigation }) => {
   const [loading, setLoading] = useState(true);
-  const [stats, setStats] = useState([]);
-  const [reports, setReports] = useState([]);
+  const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState(null);
-  const [selectedDate, setSelectedDate] = useState(new Date());
-  const [dateRange, setDateRange] = useState({
-    start: new Date(),
-    end: new Date()
-  });
+  const [selectedPeriod, setSelectedPeriod] = useState('thisMonth');
 
-  // Helper function to format date
-  const formatDate = (date) => {
-    return date.toLocaleDateString('en-US', {
-      year: 'numeric',
-      month: 'long',
-      day: 'numeric'
-    });
-  };
+  // Analytics Data State
+  const [overviewStats, setOverviewStats] = useState({});
+  const [attendanceData, setAttendanceData] = useState({});
+  const [academicData, setAcademicData] = useState({});
+  const [financialData, setFinancialData] = useState({});
+  const [teacherData, setTeacherData] = useState({});
+  const [studentData, setStudentData] = useState({});
 
-  // Helper function to calculate month-over-month change
-  const calculateMoM = (current, previous) => {
-    if (!previous) return 0;
-    return Math.round(((current - previous) / previous) * 100);
-  };
+  // Helper function to get date range based on selected period
+  const getDateRange = () => {
+    const now = new Date();
+    const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
 
-  // Load previous month's data for comparison
-  const loadPreviousMonthData = async () => {
-    try {
-      const prevMonth = new Date(selectedDate);
-      prevMonth.setMonth(prevMonth.getMonth() - 1);
-
-      const { data: prevStudents, error: studentError } = await supabase
-        .from('students')
-        .select('id')
-        .gte('created_at', prevMonth.toISOString())
-        .lt('created_at', selectedDate.toISOString());
-
-      const { data: prevTeachers, error: teacherError } = await supabase
-        .from('teachers')
-        .select('id')
-        .gte('created_at', prevMonth.toISOString())
-        .lt('created_at', selectedDate.toISOString());
-
-      return {
-        prevStudents: prevStudents?.length || 0,
-        prevTeachers: prevTeachers?.length || 0
-      };
-    } catch (error) {
-      console.error('Error loading previous month data:', error);
-      return { prevStudents: 0, prevTeachers: 0 };
+    switch (selectedPeriod) {
+      case 'today':
+        return {
+          start: startOfToday,
+          end: now,
+          label: 'Today'
+        };
+      case 'thisWeek':
+        const startOfWeek = new Date(now);
+        startOfWeek.setDate(now.getDate() - now.getDay());
+        return {
+          start: startOfWeek,
+          end: now,
+          label: 'This Week'
+        };
+      case 'thisMonth':
+        return {
+          start: new Date(now.getFullYear(), now.getMonth(), 1),
+          end: now,
+          label: 'This Month'
+        };
+      case 'thisYear':
+        return {
+          start: new Date(now.getFullYear(), 0, 1),
+          end: now,
+          label: 'This Year'
+        };
+      default:
+        return {
+          start: new Date(now.getFullYear(), now.getMonth(), 1),
+          end: now,
+          label: 'This Month'
+        };
     }
   };
 
-  // Load analytics data
-  const loadAnalyticsData = async () => {
+  // Helper function to format numbers
+  const formatNumber = (num) => {
+    if (num >= 1000000) return `${(num / 1000000).toFixed(1)}M`;
+    if (num >= 1000) return `${(num / 1000).toFixed(1)}K`;
+    return num.toString();
+  };
+
+  // Load overview statistics
+  const loadOverviewStats = async () => {
     try {
-      // Load student count
-      const { data: students, error: studentError } = await supabase
-        .from('students')
-        .select('id')
-        .gte('created_at', dateRange.start.toISOString())
-        .lte('created_at', dateRange.end.toISOString());
+      const dateRange = getDateRange();
 
-      // Load teacher count
-      const { data: teachers, error: teacherError } = await supabase
-        .from('teachers')
-        .select('id')
-        .gte('created_at', dateRange.start.toISOString())
-        .lte('created_at', dateRange.end.toISOString());
-
-      // Load attendance stats
-      const { data: attendance, error: attendanceError } = await supabase
-        .from('attendance')
-        .select('student_id, date')
-        .gte('date', dateRange.start.toISOString())
-        .lte('date', dateRange.end.toISOString());
-
-      // Load fee data
-      const { data: fees, error: feeError } = await supabase
-        .from('student_fees')
-        .select('amount, payment_date, status')
-        .gte('payment_date', dateRange.start.toISOString())
-        .lte('payment_date', dateRange.end.toISOString());
-
-      // Load previous month data for comparison
-      const prevData = await loadPreviousMonthData();
-
-      // Calculate statistics
-      const totalStudents = students?.length || 0;
-      const totalTeachers = teachers?.length || 0;
-      const attendancePercentage = attendance ? Math.round((attendance.length / (totalStudents * 20)) * 100) : 0;
-      const totalFees = fees?.reduce((sum, fee) => sum + (fee.amount || 0), 0) || 0;
-      const collectedFees = fees?.filter(fee => fee.status === 'Paid')?.reduce((sum, fee) => sum + (fee.amount || 0), 0) || 0;
-      const feeCollectionPercentage = Math.round((collectedFees / totalFees) * 100);
-
-      // Calculate month-over-month changes
-      const studentMoM = calculateMoM(totalStudents, prevData.prevStudents);
-      const teacherMoM = calculateMoM(totalTeachers, prevData.prevTeachers);
-
-      // Update stats
-      setStats([
-        {
-          title: 'Total Students',
-          value: totalStudents.toLocaleString(),
-          icon: 'people',
-          color: '#2196F3',
-          subtitle: `${studentMoM}% ${studentMoM >= 0 ? '↑' : '↓'} from last month`,
-          trend: studentMoM
-        },
-        {
-          title: 'Total Teachers',
-          value: totalTeachers.toString(),
-          icon: 'person',
-          color: '#4CAF50',
-          subtitle: `${teacherMoM}% ${teacherMoM >= 0 ? '↑' : '↓'} from last month`,
-          trend: teacherMoM
-        },
-        {
-          title: 'Average Attendance',
-          value: `${attendancePercentage}%`,
-          icon: 'checkmark-circle',
-          color: '#FF9800',
-          subtitle: 'This period'
-        },
-        {
-          title: 'Fee Collection',
-          value: `₹${(collectedFees / 1000000).toFixed(1)}M`,
-          icon: 'card',
-          color: '#9C27B0',
-          subtitle: `${feeCollectionPercentage}% collected`
-        },
+      // Load basic counts
+      const [studentsResult, teachersResult, classesResult, subjectsResult] = await Promise.all([
+        supabase.from(TABLES.STUDENTS).select('id, created_at, class_id'),
+        supabase.from(TABLES.TEACHERS).select('id, created_at, salary_amount'),
+        supabase.from(TABLES.CLASSES).select('id, class_name, section'),
+        supabase.from(TABLES.SUBJECTS).select('id, name, class_id')
       ]);
 
-      // Calculate attendance by class
-      const attendanceByClass = attendance.reduce((acc, curr) => {
-        const classId = curr.class_id;
-        if (!acc[classId]) {
-          acc[classId] = { count: 0, total: 0 };
-        }
-        acc[classId].count++;
-        acc[classId].total++;
-        return acc;
-      }, {});
+      const students = studentsResult.data || [];
+      const teachers = teachersResult.data || [];
+      const classes = classesResult.data || [];
+      const subjects = subjectsResult.data || [];
 
-      // Calculate fee collection by class
-      const feeCollectionByClass = fees.reduce((acc, curr) => {
-        const classId = curr.class_id;
-        if (!acc[classId]) {
-          acc[classId] = { collected: 0, total: 0 };
-        }
-        acc[classId].collected += curr.amount || 0;
-        acc[classId].total += curr.amount || 0;
-        return acc;
-      }, {});
+      // Calculate total salary expense
+      const totalSalaryExpense = teachers.reduce((sum, teacher) =>
+        sum + (parseFloat(teacher.salary_amount) || 0), 0
+      );
 
-      // Load reports data
-      setReports([
-        {
-          title: 'Attendance Report',
-          icon: 'checkmark-circle',
-          color: '#4CAF50',
-          data: {
-            total: attendance.length,
-            percentage: attendancePercentage,
-            byClass: attendanceByClass
+      setOverviewStats({
+        totalStudents: students.length,
+        totalTeachers: teachers.length,
+        totalClasses: classes.length,
+        totalSubjects: subjects.length,
+        totalSalaryExpense,
+        avgStudentsPerClass: classes.length > 0 ? Math.round(students.length / classes.length) : 0,
+        avgSubjectsPerClass: classes.length > 0 ? Math.round(subjects.length / classes.length) : 0
+      });
+
+    } catch (error) {
+      console.error('Error loading overview stats:', error);
+    }
+  };
+
+  // Load attendance analytics
+  const loadAttendanceData = async () => {
+    try {
+      const dateRange = getDateRange();
+
+      // Load student attendance
+      const { data: studentAttendance } = await supabase
+        .from(TABLES.STUDENT_ATTENDANCE)
+        .select(`
+          *,
+          students(name, class_id),
+          classes(class_name, section)
+        `)
+        .gte('date', dateRange.start.toISOString().split('T')[0])
+        .lte('date', dateRange.end.toISOString().split('T')[0]);
+
+      // Load teacher attendance
+      const { data: teacherAttendance } = await supabase
+        .from(TABLES.TEACHER_ATTENDANCE)
+        .select(`
+          *,
+          teachers(name)
+        `)
+        .gte('date', dateRange.start.toISOString().split('T')[0])
+        .lte('date', dateRange.end.toISOString().split('T')[0]);
+
+      // Calculate attendance statistics
+      const studentPresentCount = studentAttendance?.filter(a => a.status === 'Present').length || 0;
+      const studentTotalCount = studentAttendance?.length || 0;
+      const studentAttendanceRate = studentTotalCount > 0 ? (studentPresentCount / studentTotalCount * 100) : 0;
+
+      const teacherPresentCount = teacherAttendance?.filter(a => a.status === 'Present').length || 0;
+      const teacherTotalCount = teacherAttendance?.length || 0;
+      const teacherAttendanceRate = teacherTotalCount > 0 ? (teacherPresentCount / teacherTotalCount * 100) : 0;
+
+      // Group by class for student attendance
+      const attendanceByClass = {};
+      studentAttendance?.forEach(record => {
+        const className = record.classes?.class_name + ' ' + record.classes?.section;
+        if (!attendanceByClass[className]) {
+          attendanceByClass[className] = { present: 0, total: 0 };
+        }
+        attendanceByClass[className].total++;
+        if (record.status === 'Present') {
+          attendanceByClass[className].present++;
+        }
+      });
+
+      setAttendanceData({
+        studentAttendanceRate: Math.round(studentAttendanceRate),
+        teacherAttendanceRate: Math.round(teacherAttendanceRate),
+        studentPresentCount,
+        studentTotalCount,
+        teacherPresentCount,
+        teacherTotalCount,
+        attendanceByClass,
+        dailyAttendance: studentAttendance || []
+      });
+
+    } catch (error) {
+      console.error('Error loading attendance data:', error);
+    }
+  };
+
+  // Load academic performance data
+  const loadAcademicData = async () => {
+    try {
+      const dateRange = getDateRange();
+
+      // Load marks data
+      const { data: marks } = await supabase
+        .from(TABLES.MARKS)
+        .select(`
+          *,
+          students(name, class_id),
+          subjects(name, class_id),
+          exams(name, class_id)
+        `);
+
+      // Load exams data
+      const { data: exams } = await supabase
+        .from(TABLES.EXAMS)
+        .select(`
+          *,
+          classes(class_name, section)
+        `)
+        .gte('start_date', dateRange.start.toISOString().split('T')[0])
+        .lte('end_date', dateRange.end.toISOString().split('T')[0]);
+
+      // Load assignments data
+      const { data: assignments } = await supabase
+        .from(TABLES.ASSIGNMENTS)
+        .select(`
+          *,
+          classes(class_name, section),
+          subjects(name),
+          teachers(name)
+        `)
+        .gte('assigned_date', dateRange.start.toISOString().split('T')[0])
+        .lte('due_date', dateRange.end.toISOString().split('T')[0]);
+
+      // Calculate academic statistics
+      const totalMarks = marks?.reduce((sum, mark) => sum + (parseFloat(mark.marks_obtained) || 0), 0) || 0;
+      const totalMaxMarks = marks?.reduce((sum, mark) => sum + (parseFloat(mark.max_marks) || 0), 0) || 0;
+      const averagePercentage = totalMaxMarks > 0 ? (totalMarks / totalMaxMarks * 100) : 0;
+
+      // Group marks by subject
+      const subjectPerformance = {};
+      marks?.forEach(mark => {
+        const subjectName = mark.subjects?.name;
+        if (subjectName) {
+          if (!subjectPerformance[subjectName]) {
+            subjectPerformance[subjectName] = { totalMarks: 0, maxMarks: 0, count: 0 };
           }
-        },
-        {
-          title: 'Fee Collection Report',
-          icon: 'card',
-          color: '#9C27B0',
-          data: fees
-        },
-        {
-          title: 'Academic Performance',
-          icon: 'document-text',
-          color: '#2196F3',
-          data: null // TODO: Implement academic performance data
-        },
-        {
-          title: 'Student Progress Report',
-          icon: 'trending-up',
-          color: '#FF9800',
-          data: null // TODO: Implement student progress data
-        },
-      ]);
+          subjectPerformance[subjectName].totalMarks += parseFloat(mark.marks_obtained) || 0;
+          subjectPerformance[subjectName].maxMarks += parseFloat(mark.max_marks) || 0;
+          subjectPerformance[subjectName].count++;
+        }
+      });
 
+      // Calculate grade distribution
+      const gradeDistribution = { A: 0, B: 0, C: 0, D: 0, F: 0 };
+      marks?.forEach(mark => {
+        const percentage = mark.max_marks > 0 ? (mark.marks_obtained / mark.max_marks * 100) : 0;
+        if (percentage >= 90) gradeDistribution.A++;
+        else if (percentage >= 80) gradeDistribution.B++;
+        else if (percentage >= 70) gradeDistribution.C++;
+        else if (percentage >= 60) gradeDistribution.D++;
+        else gradeDistribution.F++;
+      });
+
+      setAcademicData({
+        totalExams: exams?.length || 0,
+        totalAssignments: assignments?.length || 0,
+        totalMarksRecords: marks?.length || 0,
+        averagePercentage: Math.round(averagePercentage),
+        subjectPerformance,
+        gradeDistribution,
+        recentExams: exams?.slice(0, 5) || [],
+        recentAssignments: assignments?.slice(0, 5) || []
+      });
+
+    } catch (error) {
+      console.error('Error loading academic data:', error);
+    }
+  };
+
+  // Load financial data
+  const loadFinancialData = async () => {
+    try {
+      const dateRange = getDateRange();
+
+      // Load fee payments
+      const { data: feePayments } = await supabase
+        .from(TABLES.STUDENT_FEES)
+        .select(`
+          *,
+          students(name, class_id)
+        `)
+        .gte('payment_date', dateRange.start.toISOString().split('T')[0])
+        .lte('payment_date', dateRange.end.toISOString().split('T')[0]);
+
+      // Load fee structure
+      const { data: feeStructure } = await supabase
+        .from(TABLES.FEE_STRUCTURE)
+        .select('*');
+
+      // Calculate financial statistics
+      const totalCollected = feePayments?.reduce((sum, payment) =>
+        sum + (parseFloat(payment.amount_paid) || 0), 0
+      ) || 0;
+
+      const totalExpected = feeStructure?.reduce((sum, fee) =>
+        sum + (parseFloat(fee.amount) || 0), 0
+      ) || 0;
+
+      const collectionRate = totalExpected > 0 ? (totalCollected / totalExpected * 100) : 0;
+
+      // Group by payment mode
+      const paymentModeDistribution = {};
+      feePayments?.forEach(payment => {
+        const mode = payment.payment_mode || 'Unknown';
+        paymentModeDistribution[mode] = (paymentModeDistribution[mode] || 0) + parseFloat(payment.amount_paid || 0);
+      });
+
+      // Group by fee component
+      const feeComponentDistribution = {};
+      feePayments?.forEach(payment => {
+        const component = payment.fee_component || 'Unknown';
+        feeComponentDistribution[component] = (feeComponentDistribution[component] || 0) + parseFloat(payment.amount_paid || 0);
+      });
+
+      setFinancialData({
+        totalCollected,
+        totalExpected,
+        collectionRate: Math.round(collectionRate),
+        totalPayments: feePayments?.length || 0,
+        paymentModeDistribution,
+        feeComponentDistribution,
+        recentPayments: feePayments?.slice(0, 10) || []
+      });
+
+    } catch (error) {
+      console.error('Error loading financial data:', error);
+    }
+  };
+
+  // Main data loading function
+  const loadAllData = async (showLoading = true) => {
+    if (showLoading) setLoading(true);
+    setError(null);
+
+    try {
+      await Promise.all([
+        loadOverviewStats(),
+        loadAttendanceData(),
+        loadAcademicData(),
+        loadFinancialData()
+      ]);
     } catch (error) {
       console.error('Error loading analytics data:', error);
-      setError('Failed to load analytics data');
+      setError('Failed to load analytics data. Please try again.');
     } finally {
       setLoading(false);
+      setRefreshing(false);
     }
   };
 
+  // Refresh data
+  const onRefresh = () => {
+    setRefreshing(true);
+    loadAllData(false);
+  };
+
+  // Load data on component mount and when period changes
+  useEffect(() => {
+    loadAllData();
+  }, [selectedPeriod]);
+
+  // Period selector options
+  const periodOptions = [
+    { key: 'today', label: 'Today' },
+    { key: 'thisWeek', label: 'This Week' },
+    { key: 'thisMonth', label: 'This Month' },
+    { key: 'thisYear', label: 'This Year' }
+  ];
+
+  // Loading state
   if (loading) {
     return (
       <View style={styles.container}>
         <Header title="Analytics & Reports" showBack={true} />
         <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color="#2196F3" />
+          <PaperActivityIndicator size="large" color="#2196F3" />
           <Text style={styles.loadingText}>Loading analytics data...</Text>
         </View>
       </View>
     );
   }
 
+  // Error state
   if (error) {
     return (
       <View style={styles.container}>
         <Header title="Analytics & Reports" showBack={true} />
         <View style={styles.errorContainer}>
+          <Ionicons name="alert-circle-outline" size={64} color="#f44336" />
           <Text style={styles.errorText}>{error}</Text>
-          <TouchableOpacity
-            style={styles.retryButton}
-            onPress={loadAnalyticsData}
-          >
+          <TouchableOpacity style={styles.retryButton} onPress={() => loadAllData()}>
             <Text style={styles.retryButtonText}>Retry</Text>
           </TouchableOpacity>
         </View>
@@ -246,109 +393,148 @@ const AnalyticsReports = ({ navigation }) => {
     );
   }
 
+  // Main render
   return (
     <View style={styles.container}>
       <Header title="Analytics & Reports" showBack={true} />
-      
-      <View style={styles.datePickerContainer}>
-        <Text style={styles.datePickerLabel}>Select Period:</Text>
-        <TouchableOpacity
-          style={styles.datePickerButton}
-          onPress={() => {
-            const now = new Date();
-            if (selectedDate.getMonth() === now.getMonth() && selectedDate.getFullYear() === now.getFullYear()) {
-              setDateRange(prev => ({
-                start: new Date(now.getFullYear(), now.getMonth(), 1),
-                end: now
-              }));
-            } else {
-              setDateRange(prev => ({
-                start: new Date(now.getFullYear(), now.getMonth() - 1, 1),
-                end: new Date(now.getFullYear(), now.getMonth(), 0)
-              }));
-            }
-            loadAnalyticsData();
-          }}
-        >
-          <Text style={styles.datePickerButtonText}>
-            {formatDate(dateRange.start)} - {formatDate(dateRange.end)}
-          </Text>
-        </TouchableOpacity>
+
+      {/* Period Selector */}
+      <View style={styles.periodSelector}>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+          {periodOptions.map((option) => (
+            <TouchableOpacity
+              key={option.key}
+              style={[
+                styles.periodButton,
+                selectedPeriod === option.key && styles.periodButtonActive
+              ]}
+              onPress={() => setSelectedPeriod(option.key)}
+            >
+              <Text style={[
+                styles.periodButtonText,
+                selectedPeriod === option.key && styles.periodButtonTextActive
+              ]}>
+                {option.label}
+              </Text>
+            </TouchableOpacity>
+          ))}
+        </ScrollView>
       </View>
 
-      <ScrollView style={styles.scrollView} showsVerticalScrollIndicator={false}>
-        <View style={styles.statsContainer}>
-          {stats.map((stat, index) => (
-            <StatCard
-              key={index}
-              title={stat.title}
-              value={stat.value}
-              icon={stat.icon}
-              color={stat.color}
-              subtitle={stat.subtitle}
-              trend={stat.trend}
-            />
-          ))}
+      <ScrollView
+        style={styles.scrollView}
+        showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
+        }
+      >
+        {/* Overview Stats */}
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>Overview</Text>
+          <View style={styles.statsGrid}>
+            <View style={styles.statCard}>
+              <View style={[styles.statIcon, { backgroundColor: '#2196F3' }]}>
+                <Ionicons name="people" size={24} color="#fff" />
+              </View>
+              <Text style={styles.statValue}>{overviewStats.totalStudents || 0}</Text>
+              <Text style={styles.statLabel}>Total Students</Text>
+            </View>
+            <View style={styles.statCard}>
+              <View style={[styles.statIcon, { backgroundColor: '#4CAF50' }]}>
+                <Ionicons name="person" size={24} color="#fff" />
+              </View>
+              <Text style={styles.statValue}>{overviewStats.totalTeachers || 0}</Text>
+              <Text style={styles.statLabel}>Total Teachers</Text>
+            </View>
+            <View style={styles.statCard}>
+              <View style={[styles.statIcon, { backgroundColor: '#FF9800' }]}>
+                <Ionicons name="school" size={24} color="#fff" />
+              </View>
+              <Text style={styles.statValue}>{overviewStats.totalClasses || 0}</Text>
+              <Text style={styles.statLabel}>Total Classes</Text>
+            </View>
+            <View style={styles.statCard}>
+              <View style={[styles.statIcon, { backgroundColor: '#9C27B0' }]}>
+                <Ionicons name="book" size={24} color="#fff" />
+              </View>
+              <Text style={styles.statValue}>{overviewStats.totalSubjects || 0}</Text>
+              <Text style={styles.statLabel}>Total Subjects</Text>
+            </View>
+          </View>
         </View>
 
+        {/* Financial Analytics */}
         <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Reports</Text>
+          <Text style={styles.sectionTitle}>Financial Overview</Text>
+          <View style={styles.financialStats}>
+            <View style={styles.financialCard}>
+              <Text style={styles.financialAmount}>₹{formatNumber(financialData.totalCollected || 0)}</Text>
+              <Text style={styles.financialLabel}>Total Collected</Text>
+              <Text style={styles.financialSubtext}>{financialData.collectionRate || 0}% collection rate</Text>
+            </View>
+            <View style={styles.financialCard}>
+              <Text style={styles.financialAmount}>₹{formatNumber(overviewStats.totalSalaryExpense || 0)}</Text>
+              <Text style={styles.financialLabel}>Monthly Salary Expense</Text>
+              <Text style={styles.financialSubtext}>Teacher salaries</Text>
+            </View>
+          </View>
+        </View>
+
+        {/* Quick Reports */}
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>Quick Reports</Text>
           <View style={styles.reportsList}>
-            {reports.map((report, index) => (
-              <TouchableOpacity
-                key={index}
-                style={[styles.reportItem, styles.reportCard]}
-                onPress={() => handleReportPress(report)}
-              >
-                <View style={[styles.reportIcon, { backgroundColor: report.color }]}>
-                  <Ionicons name={report.icon} size={24} color="#fff" />
-                </View>
-                <View style={styles.reportContent}>
-                  <Text style={styles.reportTitle}>{report.title}</Text>
-                  {report.data && (
-                    <>
-                      {report.title === 'Attendance Report' && (
-                        <View style={styles.reportMetrics}>
-                          <Text style={styles.reportMetric}>
-                            Total: {report.data.total}
-                          </Text>
-                          <Text style={styles.reportMetric}>
-                            Attendance: {report.data.percentage}%
-                          </Text>
-                          <Text style={styles.reportMetric}>
-                            Classes: {Object.keys(report.data.byClass).length}
-                          </Text>
-                        </View>
-                      )}
-                      {report.title === 'Fee Collection Report' && (
-                        <View style={styles.reportMetrics}>
-                          <Text style={styles.reportMetric}>
-                            Total: ₹{(report.data.total / 1000000).toFixed(1)}M
-                          </Text>
-                          <Text style={styles.reportMetric}>
-                            Collected: {report.data.collectionPercentage}%
-                          </Text>
-                          <Text style={styles.reportMetric}>
-                            Classes: {Object.keys(report.data.byClass).length}
-                          </Text>
-                        </View>
-                      )}
-                      {report.title === 'Academic Performance' && (
-                        <Text style={styles.reportMetric}>
-                          Coming soon...
-                        </Text>
-                      )}
-                      {report.title === 'Student Progress Report' && (
-                        <Text style={styles.reportMetric}>
-                          Coming soon...
-                        </Text>
-                      )}
-                    </>
-                  )}
-                </View>
-                <Ionicons name="chevron-forward" size={20} color="#666" />
-              </TouchableOpacity>
-            ))}
+            <TouchableOpacity style={styles.reportItem}>
+              <View style={[styles.reportIcon, { backgroundColor: '#4CAF50' }]}>
+                <Ionicons name="checkmark-circle" size={24} color="#fff" />
+              </View>
+              <View style={styles.reportContent}>
+                <Text style={styles.reportTitle}>Attendance Report</Text>
+                <Text style={styles.reportSubtitle}>
+                  Student: {attendanceData.studentAttendanceRate || 0}% • Teacher: {attendanceData.teacherAttendanceRate || 0}%
+                </Text>
+              </View>
+              <Ionicons name="chevron-forward" size={20} color="#666" />
+            </TouchableOpacity>
+
+            <TouchableOpacity style={styles.reportItem}>
+              <View style={[styles.reportIcon, { backgroundColor: '#2196F3' }]}>
+                <Ionicons name="school" size={24} color="#fff" />
+              </View>
+              <View style={styles.reportContent}>
+                <Text style={styles.reportTitle}>Academic Performance</Text>
+                <Text style={styles.reportSubtitle}>
+                  {academicData.totalExams || 0} exams • {academicData.averagePercentage || 0}% avg score
+                </Text>
+              </View>
+              <Ionicons name="chevron-forward" size={20} color="#666" />
+            </TouchableOpacity>
+
+            <TouchableOpacity style={styles.reportItem}>
+              <View style={[styles.reportIcon, { backgroundColor: '#9C27B0' }]}>
+                <Ionicons name="card" size={24} color="#fff" />
+              </View>
+              <View style={styles.reportContent}>
+                <Text style={styles.reportTitle}>Fee Collection</Text>
+                <Text style={styles.reportSubtitle}>
+                  ₹{formatNumber(financialData.totalCollected || 0)} collected • {financialData.collectionRate || 0}% rate
+                </Text>
+              </View>
+              <Ionicons name="chevron-forward" size={20} color="#666" />
+            </TouchableOpacity>
+
+            <TouchableOpacity style={styles.reportItem}>
+              <View style={[styles.reportIcon, { backgroundColor: '#FF9800' }]}>
+                <Ionicons name="people" size={24} color="#fff" />
+              </View>
+              <View style={styles.reportContent}>
+                <Text style={styles.reportTitle}>Student Overview</Text>
+                <Text style={styles.reportSubtitle}>
+                  {overviewStats.totalStudents || 0} students • {overviewStats.avgStudentsPerClass || 0} avg per class
+                </Text>
+              </View>
+              <Ionicons name="chevron-forward" size={20} color="#666" />
+            </TouchableOpacity>
           </View>
         </View>
       </ScrollView>
@@ -364,58 +550,181 @@ const styles = StyleSheet.create({
   scrollView: {
     flex: 1,
   },
-  datePickerContainer: {
-    padding: 16,
+  // Period Selector
+  periodSelector: {
     backgroundColor: '#fff',
+    paddingVertical: 16,
+    paddingHorizontal: 20,
     borderBottomWidth: 1,
-    borderBottomColor: '#eee',
+    borderBottomColor: '#f0f0f0',
   },
-  datePickerLabel: {
-    fontSize: 16,
+  periodButton: {
+    paddingHorizontal: 20,
+    paddingVertical: 10,
+    marginRight: 12,
+    borderRadius: 20,
+    backgroundColor: '#f8f9fa',
+    borderWidth: 1,
+    borderColor: '#e9ecef',
+  },
+  periodButtonActive: {
+    backgroundColor: '#2196F3',
+    borderColor: '#2196F3',
+  },
+  periodButtonText: {
+    fontSize: 14,
+    fontWeight: '500',
     color: '#666',
-    marginBottom: 8,
   },
-  datePickerButton: {
-    backgroundColor: '#f0f0f0',
-    padding: 12,
-    borderRadius: 8,
-    alignItems: 'center',
+  periodButtonTextActive: {
+    color: '#fff',
   },
-  datePickerButtonText: {
-    fontSize: 16,
-    color: '#333',
-  },
-  statsContainer: {
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-  },
+  // Sections
   section: {
     backgroundColor: '#fff',
     marginTop: 8,
     padding: 20,
+    marginHorizontal: 16,
+    borderRadius: 12,
+    elevation: 2,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
   },
   sectionTitle: {
-    fontSize: 18,
-    fontWeight: 'bold',
+    fontSize: 20,
+    fontWeight: '700',
     color: '#333',
+    marginBottom: 16,
   },
+  // Stats Grid
+  statsGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'space-between',
+  },
+  statCard: {
+    width: '48%',
+    backgroundColor: '#f8f9fa',
+    padding: 16,
+    borderRadius: 12,
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  statIcon: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  statValue: {
+    fontSize: 24,
+    fontWeight: '700',
+    color: '#333',
+    marginBottom: 4,
+  },
+  statLabel: {
+    fontSize: 14,
+    color: '#666',
+    textAlign: 'center',
+  },
+  // Attendance
+  attendanceContainer: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: 20,
+  },
+  attendanceCard: {
+    flex: 1,
+    backgroundColor: '#f8f9fa',
+    padding: 16,
+    borderRadius: 12,
+    alignItems: 'center',
+    marginHorizontal: 4,
+  },
+  attendanceTitle: {
+    fontSize: 14,
+    color: '#666',
+    marginBottom: 8,
+  },
+  attendancePercentage: {
+    fontSize: 28,
+    fontWeight: '700',
+    color: '#4CAF50',
+    marginBottom: 4,
+  },
+  attendanceSubtitle: {
+    fontSize: 12,
+    color: '#999',
+    textAlign: 'center',
+  },
+  // Academic
+  academicStats: {
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+    marginBottom: 20,
+  },
+  academicStatItem: {
+    alignItems: 'center',
+  },
+  academicStatValue: {
+    fontSize: 24,
+    fontWeight: '700',
+    color: '#2196F3',
+    marginBottom: 4,
+  },
+  academicStatLabel: {
+    fontSize: 12,
+    color: '#666',
+    textAlign: 'center',
+  },
+  // Financial
+  financialStats: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+  },
+  financialCard: {
+    flex: 1,
+    backgroundColor: '#f8f9fa',
+    padding: 16,
+    borderRadius: 12,
+    marginHorizontal: 4,
+  },
+  financialAmount: {
+    fontSize: 20,
+    fontWeight: '700',
+    color: '#9C27B0',
+    marginBottom: 4,
+  },
+  financialLabel: {
+    fontSize: 14,
+    color: '#333',
+    marginBottom: 4,
+  },
+  financialSubtext: {
+    fontSize: 12,
+    color: '#666',
+  },
+  // Reports
   reportsList: {
-    marginTop: 16,
+    marginTop: 8,
   },
   reportItem: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: '#eee',
-  },
-  reportCard: {
-    flex: 1,
+    paddingVertical: 16,
+    paddingHorizontal: 12,
+    backgroundColor: '#f8f9fa',
+    borderRadius: 12,
+    marginBottom: 12,
   },
   reportIcon: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
+    width: 48,
+    height: 48,
+    borderRadius: 24,
     justifyContent: 'center',
     alignItems: 'center',
     marginRight: 16,
@@ -429,75 +738,70 @@ const styles = StyleSheet.create({
     color: '#333',
     marginBottom: 4,
   },
-  reportMetrics: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 8,
-    marginTop: 8,
-  },
-  reportMetric: {
+  reportSubtitle: {
     fontSize: 14,
     color: '#666',
   },
-  reportActions: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginLeft: 'auto',
-  },
-  exportButton: {
-    backgroundColor: '#2196F3',
-    padding: 8,
-    borderRadius: 20,
-    marginRight: 8,
-  },
+  // Charts
   chartContainer: {
-    backgroundColor: '#fff',
-    padding: 20,
+    backgroundColor: '#f8f9fa',
+    padding: 16,
+    borderRadius: 12,
     marginTop: 16,
-    borderRadius: 8,
   },
   chartTitle: {
     fontSize: 16,
     fontWeight: '600',
     color: '#333',
     marginBottom: 16,
+    textAlign: 'center',
   },
   chart: {
     borderRadius: 16,
   },
+  // Loading & Error States
   loadingContainer: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    padding: 20,
+    padding: 40,
   },
   loadingText: {
     marginTop: 16,
     fontSize: 16,
     color: '#666',
+    textAlign: 'center',
   },
   errorContainer: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    padding: 20,
+    padding: 40,
   },
   errorText: {
     fontSize: 16,
-    color: '#d32f2f',
+    color: '#f44336',
     textAlign: 'center',
-    marginBottom: 16,
+    marginTop: 16,
+    marginBottom: 24,
+    lineHeight: 24,
   },
   retryButton: {
     backgroundColor: '#2196F3',
-    padding: 12,
+    paddingHorizontal: 24,
+    paddingVertical: 12,
     borderRadius: 8,
+    elevation: 2,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
   },
   retryButtonText: {
     color: '#fff',
     fontSize: 16,
     fontWeight: '600',
-  }
+  },
 });
 
 export default AnalyticsReports;

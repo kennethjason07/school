@@ -166,6 +166,18 @@ CREATE TABLE public.subjects (
   CONSTRAINT subjects_pkey PRIMARY KEY (id),
   CONSTRAINT subjects_class_id_fkey FOREIGN KEY (class_id) REFERENCES public.classes(id)
 );
+CREATE TABLE public.tasks (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  title text NOT NULL,
+  description text,
+  due_date date,
+  priority text DEFAULT 'Medium'::text CHECK (priority = ANY (ARRAY['Low'::text, 'Medium'::text, 'High'::text])),
+  status text DEFAULT 'Pending'::text CHECK (status = ANY (ARRAY['Pending'::text, 'In Progress'::text, 'Completed'::text])),
+  assigned_teacher_ids ARRAY,
+  created_at timestamp with time zone DEFAULT CURRENT_TIMESTAMP,
+  updated_at timestamp with time zone DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT tasks_pkey PRIMARY KEY (id)
+);
 CREATE TABLE public.teacher_attendance (
   id uuid NOT NULL DEFAULT gen_random_uuid(),
   teacher_id uuid NOT NULL,

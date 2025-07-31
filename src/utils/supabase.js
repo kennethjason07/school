@@ -27,6 +27,7 @@ export const TABLES = {
   ASSIGNMENTS: 'assignments',
   TIMETABLE: 'timetable',
   NOTIFICATIONS: 'notifications',
+  TASKS: 'tasks',
 };
 
 // Authentication helper functions
@@ -197,7 +198,7 @@ export const dbHelpers = {
 
       // Extract unique sections
       const uniqueSections = [...new Set(data.map(item => item.section))];
-      return { data: uniqueSections.map(s => ({ section_name: s })), error: null };
+      return { data: uniqueSections.map(s => ({ id: s, section_name: s })), error: null };
     } catch (error) {
       return { data: null, error };
     }
@@ -436,6 +437,18 @@ export const dbHelpers = {
       }
       
       const { data, error } = await query;
+      return { data, error };
+    } catch (error) {
+      return { data: null, error };
+    }
+  },
+
+  async getTasks() {
+    try {
+      const { data, error } = await supabase
+        .from(TABLES.TASKS)
+        .select('*')
+        .order('due_date', { ascending: true });
       return { data, error };
     } catch (error) {
       return { data: null, error };
