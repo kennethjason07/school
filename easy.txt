@@ -141,3 +141,4 @@
 **TeacherDetails.js Queries:**
 - Get all teachers: `dbHelpers.getTeachers()`
 - Get subjects assigned to a teacher: `dbHelpers.getTeacherSubjects(teacher.id)`
+///comment
