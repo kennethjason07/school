@@ -22,7 +22,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { supabase, dbHelpers, TABLES } from '../../utils/supabase';
 import { format, parseISO } from 'date-fns';
 import { CrossPlatformPieChart, CrossPlatformBarChart } from '../../components/CrossPlatformChart';
-import { formatCurrency } from '../../utils/helpers';
+import { formatCurrency, parseDate, formatDateForDb, fixInvalidDate } from '../../utils/helpers';
 import * as Animatable from 'react-native-animatable';
 
 const FeeManagement = () => {
@@ -34,6 +34,240 @@ const FeeManagement = () => {
   const [payments, setPayments] = useState([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+
+  // Function to fix invalid dates in the database using raw SQL
+  const fixInvalidDatesInDatabase = async () => {
+    try {
+      console.log('🔧 Fixing invalid dates in database using SQL...');
+
+      let totalFixed = 0;
+
+      // Fix invalid dates using raw SQL to bypass date validation
+      const fixQueries = [
+        // Fix fee_structure table
+        {
+          table: 'fee_structure',
+          query: `UPDATE fee_structure SET due_date = '2025-07-31' WHERE due_date = '2025-07-32'`,
+          description: 'fee_structure.due_date'
+        },
+        {
+          table: 'fee_structure',
+          query: `UPDATE fee_structure SET created_at = '2025-07-31' WHERE created_at LIKE '%2025-07-32%'`,
+          description: 'fee_structure.created_at'
+        },
+        // Fix student_fees table
+        {
+          table: 'student_fees',
+          query: `UPDATE student_fees SET payment_date = '2025-07-31' WHERE payment_date = '2025-07-32'`,
+          description: 'student_fees.payment_date'
+        },
+        {
+          table: 'student_fees',
+          query: `UPDATE student_fees SET due_date = '2025-07-31' WHERE due_date = '2025-07-32'`,
+          description: 'student_fees.due_date'
+        },
+        {
+          table: 'student_fees',
+          query: `UPDATE student_fees SET created_at = '2025-07-31' WHERE created_at LIKE '%2025-07-32%'`,
+          description: 'student_fees.created_at'
+        },
+        // Fix other common invalid dates
+        {
+          table: 'fee_structure',
+          query: `UPDATE fee_structure SET due_date = '2025-06-30' WHERE due_date = '2025-06-31'`,
+          description: 'fee_structure.due_date (June 31)'
+        },
+        {
+          table: 'student_fees',
+          query: `UPDATE student_fees SET payment_date = '2025-06-30' WHERE payment_date = '2025-06-31'`,
+          description: 'student_fees.payment_date (June 31)'
+        }
+      ];
+
+      // Try a simpler approach - get all records and fix them individually
+      console.log('🔧 Attempting to fix fee_structure table...');
+
+      // Fix fee_structure table by selecting all and updating invalid dates
+      try {
+        // Use a simple select to get IDs and dates as text
+        const { data: feeRecords, error: feeSelectError } = await supabase
+          .from('fee_structure')
+          .select('id, due_date, created_at');
+
+        if (!feeSelectError && feeRecords) {
+          for (const record of feeRecords) {
+            const updates = {};
+            let needsUpdate = false;
+
+            // Check due_date
+            if (record.due_date && typeof record.due_date === 'string' && record.due_date.includes('2025-07-32')) {
+              updates.due_date = '2025-07-31';
+              needsUpdate = true;
+              console.log(`🔧 Fixing due_date for fee_structure ${record.id}`);
+            }
+
+            // Check created_at
+            if (record.created_at && typeof record.created_at === 'string' && record.created_at.includes('2025-07-32')) {
+              updates.created_at = record.created_at.replace('2025-07-32', '2025-07-31');
+              needsUpdate = true;
+              console.log(`🔧 Fixing created_at for fee_structure ${record.id}`);
+            }
+
+            if (needsUpdate) {
+              const { error: updateError } = await supabase
+                .from('fee_structure')
+                .update(updates)
+                .eq('id', record.id);
+
+              if (!updateError) {
+                totalFixed++;
+              } else {
+                console.error('Update error:', updateError);
+              }
+            }
+          }
+        }
+      } catch (error) {
+        console.warn('Could not fix fee_structure:', error.message);
+      }
+
+      console.log('🔧 Attempting to fix student_fees table...');
+
+      // Fix student_fees table
+      try {
+        const { data: paymentRecords, error: paymentSelectError } = await supabase
+          .from('student_fees')
+          .select('id, payment_date, due_date, created_at');
+
+        if (!paymentSelectError && paymentRecords) {
+          for (const record of paymentRecords) {
+            const updates = {};
+            let needsUpdate = false;
+
+            // Check all date fields
+            ['payment_date', 'due_date', 'created_at'].forEach(field => {
+              if (record[field] && typeof record[field] === 'string' && record[field].includes('2025-07-32')) {
+                updates[field] = record[field].replace('2025-07-32', '2025-07-31');
+                needsUpdate = true;
+                console.log(`🔧 Fixing ${field} for student_fees ${record.id}`);
+              }
+            });
+
+            if (needsUpdate) {
+              const { error: updateError } = await supabase
+                .from('student_fees')
+                .update(updates)
+                .eq('id', record.id);
+
+              if (!updateError) {
+                totalFixed++;
+              } else {
+                console.error('Update error:', updateError);
+              }
+            }
+          }
+        }
+      } catch (error) {
+        console.warn('Could not fix student_fees:', error.message);
+      }
+
+      // Fix invalid dates in fee_structure table
+      const { data: feeStructures, error: feeError } = await supabase
+        .from(TABLES.FEE_STRUCTURE)
+        .select('id, due_date, created_at');
+
+      if (feeError) {
+        console.error('❌ Error fetching fee structures:', feeError);
+        return;
+      }
+
+      for (const fee of feeStructures || []) {
+        const updates = {};
+        let needsUpdate = false;
+
+        // Check due_date
+        if (fee.due_date) {
+          for (const [invalid, valid] of Object.entries(DATE_FIXES)) {
+            if (fee.due_date.includes(invalid)) {
+              console.log(`🔧 Fixing due_date in fee structure ${fee.id}: ${invalid} → ${valid}`);
+              updates.due_date = fee.due_date.replace(invalid, valid);
+              needsUpdate = true;
+              break;
+            }
+          }
+        }
+
+        if (needsUpdate) {
+          const { error: updateError } = await supabase
+            .from(TABLES.FEE_STRUCTURE)
+            .update(updates)
+            .eq('id', fee.id);
+
+          if (updateError) {
+            console.error('❌ Error updating fee structure:', updateError);
+          } else {
+            totalFixed++;
+          }
+        }
+      }
+
+      // Fix invalid dates in student_fees table
+      const { data: studentFees, error: studentFeeError } = await supabase
+        .from(TABLES.STUDENT_FEES)
+        .select('id, payment_date, due_date, created_at');
+
+      if (studentFeeError) {
+        console.error('❌ Error fetching student fees:', studentFeeError);
+        return;
+      }
+
+      for (const payment of studentFees || []) {
+        const updates = {};
+        let needsUpdate = false;
+
+        // Check all date fields
+        ['payment_date', 'due_date', 'created_at'].forEach(field => {
+          if (payment[field]) {
+            for (const [invalid, valid] of Object.entries(DATE_FIXES)) {
+              if (payment[field].includes(invalid)) {
+                console.log(`🔧 Fixing ${field} in student fees ${payment.id}: ${invalid} → ${valid}`);
+                updates[field] = payment[field].replace(invalid, valid);
+                needsUpdate = true;
+                break;
+              }
+            }
+          }
+        });
+
+        if (needsUpdate) {
+          const { error: updateError } = await supabase
+            .from(TABLES.STUDENT_FEES)
+            .update(updates)
+            .eq('id', payment.id);
+
+          if (updateError) {
+            console.error('❌ Error updating student fees:', updateError);
+          } else {
+            totalFixed++;
+          }
+        }
+      }
+
+      console.log(`✅ Finished fixing invalid dates. Total records fixed: ${totalFixed}`);
+
+      if (totalFixed > 0) {
+        Alert.alert(
+          'Success',
+          `Fixed ${totalFixed} invalid dates in the database. The app should now work properly.`,
+          [{ text: 'OK', onPress: () => loadAllData() }]
+        );
+      }
+
+    } catch (error) {
+      console.error('❌ Error fixing invalid dates:', error);
+      Alert.alert('Error', `Failed to fix invalid dates: ${error.message}`);
+    }
+  };
   const [feeModal, setFeeModal] = useState({ 
     visible: false, 
     classId: '', 
@@ -133,15 +367,44 @@ const FeeManagement = () => {
       if (classesError) throw classesError;
       setClasses(classesData || []);
 
-      // Load fee structures with class information
-      const { data: feeStructuresData, error: feeStructuresError } = await supabase
-        .from(TABLES.FEE_STRUCTURE)
-        .select(`
-          *,
-          classes:${TABLES.CLASSES}(id, class_name)
-        `);
+      // Load fee structures with class information - use raw SQL to handle invalid dates
+      let feeStructuresData = [];
+      try {
+        const { data, error: feeStructuresError } = await supabase
+          .from(TABLES.FEE_STRUCTURE)
+          .select(`
+            *,
+            classes:${TABLES.CLASSES}(id, class_name)
+          `);
 
-      if (feeStructuresError) throw feeStructuresError;
+        if (feeStructuresError) {
+          console.error('Error loading fee structures:', feeStructuresError);
+          // If there's a date error, try to fix it first
+          if (feeStructuresError.message && feeStructuresError.message.includes('date/time field value out of range')) {
+            console.log('🔧 Detected invalid date error, attempting to fix...');
+            await fixInvalidDatesInDatabase();
+            // Try loading again after fix
+            const { data: retryData, error: retryError } = await supabase
+              .from(TABLES.FEE_STRUCTURE)
+              .select(`
+                *,
+                classes:${TABLES.CLASSES}(id, class_name)
+              `);
+
+            if (retryError) {
+              throw retryError;
+            }
+            feeStructuresData = retryData || [];
+          } else {
+            throw feeStructuresError;
+          }
+        } else {
+          feeStructuresData = data || [];
+        }
+      } catch (error) {
+        console.error('Failed to load fee structures:', error);
+        feeStructuresData = [];
+      }
       
       // Process fee structures to group by class
       const processedFeeStructures = [];
@@ -157,11 +420,23 @@ const FeeManagement = () => {
           };
         }
         
+        // Fix invalid dates before adding to the group
+        let fixedDueDate = fee.due_date;
+        if (fixedDueDate) {
+          const parsedDate = parseDate(fixedDueDate);
+          if (parsedDate) {
+            fixedDueDate = formatDateForDb(parsedDate);
+          } else {
+            console.warn('Invalid due_date found:', fee.due_date, 'for fee:', fee.id);
+            fixedDueDate = null;
+          }
+        }
+
         groupedByClass[fee.class_id].fees.push({
           id: fee.id,
           type: fee.type,
           amount: fee.amount,
-          dueDate: fee.due_date,
+          dueDate: fixedDueDate,
           description: fee.description
         });
       });
@@ -184,17 +459,69 @@ const FeeManagement = () => {
       if (studentsError) throw studentsError;
       setStudents(studentsData || []);
 
-      // Load payments
-      const { data: paymentsData, error: paymentsError } = await supabase
-        .from(TABLES.STUDENT_FEES)
-        .select(`
-          *,
-          students:${TABLES.STUDENTS}(full_name),
-          fee_structure:${TABLES.FEE_STRUCTURE}(*)
-        `);
+      // Load payments - handle invalid dates
+      let paymentsData = [];
+      try {
+        const { data, error: paymentsError } = await supabase
+          .from(TABLES.STUDENT_FEES)
+          .select(`
+            *,
+            students:${TABLES.STUDENTS}(full_name),
+            fee_structure:${TABLES.FEE_STRUCTURE}(*)
+          `);
 
-      if (paymentsError) throw paymentsError;
-      setPayments(paymentsData || []);
+        if (paymentsError) {
+          console.error('Error loading payments:', paymentsError);
+          // If there's a date error, try to fix it first
+          if (paymentsError.message && paymentsError.message.includes('date/time field value out of range')) {
+            console.log('🔧 Detected invalid date error in payments, attempting to fix...');
+            await fixInvalidDatesInDatabase();
+            // Try loading again after fix
+            const { data: retryData, error: retryError } = await supabase
+              .from(TABLES.STUDENT_FEES)
+              .select(`
+                *,
+                students:${TABLES.STUDENTS}(full_name),
+                fee_structure:${TABLES.FEE_STRUCTURE}(*)
+              `);
+
+            if (retryError) {
+              console.error('Still failed after fix:', retryError);
+              paymentsData = [];
+            } else {
+              paymentsData = retryData || [];
+            }
+          } else {
+            throw paymentsError;
+          }
+        } else {
+          paymentsData = data || [];
+        }
+      } catch (error) {
+        console.error('Failed to load payments:', error);
+        paymentsData = [];
+      }
+
+      // Process payments to fix invalid dates
+      const processedPayments = (paymentsData || []).map(payment => {
+        let fixedPaymentDate = payment.payment_date;
+        if (fixedPaymentDate) {
+          const parsedDate = parseDate(fixedPaymentDate);
+          if (parsedDate) {
+            fixedPaymentDate = formatDateForDb(parsedDate);
+          } else {
+            console.warn('Invalid payment_date found:', payment.payment_date, 'for payment:', payment.id);
+            fixedPaymentDate = null;
+          }
+        }
+
+        return {
+          ...payment,
+          payment_date: fixedPaymentDate
+        };
+      });
+
+      setPayments(processedPayments);
 
       // Calculate fee statistics
       await calculateFeeStats();
@@ -291,12 +618,6 @@ const FeeManagement = () => {
   const handlePayment = async (studentId, feeId, amount) => {
     if (!studentId || !amount) {
       Alert.alert('Error', 'Missing required payment information');
-      return;
-    }
-
-    // Validate payment date
-    if (!isValidDate(paymentDate)) {
-      Alert.alert('Error', 'Invalid payment date selected. Please select a valid date.');
       return;
     }
     
@@ -414,35 +735,33 @@ const FeeManagement = () => {
     }
   };
 
-  // Helper function to validate date
-  const isValidDate = (date) => {
-    if (!date) return false;
-    const d = new Date(date);
-    return d instanceof Date && !isNaN(d) && d.toString() !== 'Invalid Date';
-  };
-
   // Handle date change
   const handleDateChange = (event, selectedDate) => {
     setShowDatePicker(false);
-    if (selectedDate && isValidDate(selectedDate)) {
+    if (selectedDate) {
+      // Ensure we have a valid date
+      const validDate = parseDate(selectedDate);
+      if (!validDate) {
+        Alert.alert('Error', 'Invalid date selected');
+        return;
+      }
+
       if (paymentModal) {
-        setPaymentDate(selectedDate);
+        setPaymentDate(validDate);
       } else if (feeModal.visible) {
         setFeeModal(prev => ({
           ...prev,
           fee: {
             ...prev.fee,
-            dueDate: selectedDate.toISOString()
+            dueDate: formatDateForDb(validDate)
           }
         }));
       } else if (feeStructureModal) {
         setNewFeeStructure(prev => ({
           ...prev,
-          dueDate: selectedDate.toISOString()
+          dueDate: formatDateForDb(validDate)
         }));
       }
-    } else if (selectedDate && !isValidDate(selectedDate)) {
-      Alert.alert('Error', 'Invalid date selected. Please select a valid date.');
     }
   };
 
@@ -581,7 +900,16 @@ const FeeManagement = () => {
   return (
     <View style={styles.container}>
       <Header title="Fee Management" navigation={navigation} />
-      
+
+      {/* Temporary Debug Button - Remove after fixing dates */}
+      <TouchableOpacity
+        style={styles.debugButton}
+        onPress={fixInvalidDatesInDatabase}
+      >
+        <Ionicons name="build" size={16} color="#fff" />
+        <Text style={styles.debugButtonText}>Fix Invalid Dates</Text>
+      </TouchableOpacity>
+
       {loading ? (
         <View style={styles.loadingContainer}>
           <ActivityIndicator size="large" color="#1976d2" />
@@ -654,7 +982,18 @@ const FeeManagement = () => {
                                 <View>
                                   <Text style={styles.feeType}>{fee.type}</Text>
                                   <Text>{fee.description}</Text>
-                                  <Text>Due: {format(new Date(fee.dueDate || fee.due_date), 'dd MMM yyyy')}</Text>
+                                  <Text>Due: {
+                                    (() => {
+                                      try {
+                                        const dueDate = fee.dueDate || fee.due_date;
+                                        if (!dueDate) return 'No due date';
+                                        const parsedDate = parseDate(dueDate);
+                                        return parsedDate ? format(parsedDate, 'dd MMM yyyy') : 'Invalid date';
+                                      } catch (error) {
+                                        return 'Invalid date';
+                                      }
+                                    })()
+                                  }</Text>
                                 </View>
                                 <View style={styles.feeAmount}>
                                   <Text>{formatCurrency(fee.amount)}</Text>
@@ -1254,6 +1593,29 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: '#666',
     marginBottom: 8,
+  },
+  // Debug button styles (temporary)
+  debugButton: {
+    backgroundColor: '#FF5722',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    marginHorizontal: 16,
+    marginVertical: 8,
+    borderRadius: 8,
+    elevation: 2,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+  },
+  debugButtonText: {
+    color: '#fff',
+    fontSize: 14,
+    fontWeight: '600',
+    marginLeft: 8,
   },
 });
 

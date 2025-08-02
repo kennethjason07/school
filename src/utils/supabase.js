@@ -10,8 +10,8 @@ export const supabase = createClient(supabaseUrl, supabaseAnonKey);
 // Database table names matching your schema
 export const TABLES = {
   USERS: 'users',
+  ROLES: 'roles',
   CLASSES: 'classes',
-  PARENTS: 'parents',
   STUDENTS: 'students',
   TEACHERS: 'teachers',
   SUBJECTS: 'subjects',
@@ -22,11 +22,10 @@ export const TABLES = {
   STUDENT_FEES: 'student_fees',
   EXAMS: 'exams',
   MARKS: 'marks',
-  HOMEWORKS: 'homeworks',
   ASSIGNMENTS: 'assignments',
-  ASSIGNMENTS: 'assignments',
-  TIMETABLE: 'timetable',
+  TIMETABLE_ENTRIES: 'timetable_entries',
   NOTIFICATIONS: 'notifications',
+  MESSAGES: 'messages',
   TASKS: 'tasks',
 };
 
@@ -175,7 +174,10 @@ export const dbHelpers = {
     try {
       const { data, error } = await supabase
         .from(TABLES.CLASSES)
-        .select('*')
+        .select(`
+          *,
+          teachers!classes_class_teacher_id_fkey(name)
+        `)
         .order('class_name');
       return { data, error };
     } catch (error) {
@@ -188,7 +190,7 @@ export const dbHelpers = {
       let query = supabase
         .from(TABLES.CLASSES)
         .select('section');
-      
+
       if (classId) {
         query = query.eq('id', classId);
       }
@@ -204,6 +206,61 @@ export const dbHelpers = {
     }
   },
 
+  async getClassById(classId) {
+    try {
+      const { data, error } = await supabase
+        .from(TABLES.CLASSES)
+        .select(`
+          *,
+          teachers!classes_class_teacher_id_fkey(name)
+        `)
+        .eq('id', classId)
+        .single();
+      return { data, error };
+    } catch (error) {
+      return { data: null, error };
+    }
+  },
+
+  async createClass(classData) {
+    try {
+      const { data, error } = await supabase
+        .from(TABLES.CLASSES)
+        .insert(classData)
+        .select()
+        .single();
+      return { data, error };
+    } catch (error) {
+      return { data: null, error };
+    }
+  },
+
+  async updateClass(classId, updates) {
+    try {
+      const { data, error } = await supabase
+        .from(TABLES.CLASSES)
+        .update(updates)
+        .eq('id', classId)
+        .select()
+        .single();
+      return { data, error };
+    } catch (error) {
+      return { data: null, error };
+    }
+  },
+
+  async deleteClass(classId) {
+    try {
+      const { error } = await supabase
+        .from(TABLES.CLASSES)
+        .delete()
+        .eq('id', classId);
+      return { error };
+    } catch (error) {
+      return { error };
+    }
+  },
+
   // Student management
   async getStudentsByClass(classId, sectionId = null) {
     try {
@@ -212,14 +269,14 @@ export const dbHelpers = {
         .select(`
           *,
           classes(class_name, section),
-          users!students_parent_id_fkey(full_name, phone, email)
+          parents(full_name, phone, email)
         `)
         .eq('class_id', classId);
-
+      
       if (sectionId) {
         query = query.eq('classes.section', sectionId);
       }
-
+      
       const { data, error } = await query.order('roll_no');
       return { data, error };
     } catch (error) {
@@ -238,6 +295,83 @@ export const dbHelpers = {
         `)
         .eq('id', studentId)
         .single();
+      return { data, error };
+    } catch (error) {
+      return { data: null, error };
+    }
+  },
+
+  async getAllStudents() {
+    try {
+      const { data, error } = await supabase
+        .from(TABLES.STUDENTS)
+        .select(`
+          *,
+          classes(class_name, section),
+          users!students_parent_id_fkey(full_name, phone, email)
+        `)
+        .order('created_at', { ascending: false });
+      return { data, error };
+    } catch (error) {
+      return { data: null, error };
+    }
+  },
+
+  async createStudent(studentData) {
+    try {
+      const { data, error } = await supabase
+        .from(TABLES.STUDENTS)
+        .insert(studentData)
+        .select()
+        .single();
+      return { data, error };
+    } catch (error) {
+      return { data: null, error };
+    }
+  },
+
+  async updateStudent(studentId, updates) {
+    try {
+      const { data, error } = await supabase
+        .from(TABLES.STUDENTS)
+        .update(updates)
+        .eq('id', studentId)
+        .select()
+        .single();
+      return { data, error };
+    } catch (error) {
+      return { data: null, error };
+    }
+  },
+
+  async deleteStudent(studentId) {
+    try {
+      const { error } = await supabase
+        .from(TABLES.STUDENTS)
+        .delete()
+        .eq('id', studentId);
+      return { error };
+    } catch (error) {
+      return { error };
+    }
+  },
+
+  async getStudentAttendance(studentId, startDate = null, endDate = null) {
+    try {
+      let query = supabase
+        .from(TABLES.STUDENT_ATTENDANCE)
+        .select('*')
+        .eq('student_id', studentId)
+        .order('date', { ascending: false });
+
+      if (startDate) {
+        query = query.gte('date', startDate);
+      }
+      if (endDate) {
+        query = query.lte('date', endDate);
+      }
+
+      const { data, error } = await query;
       return { data, error };
     } catch (error) {
       return { data: null, error };

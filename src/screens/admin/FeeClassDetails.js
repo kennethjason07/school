@@ -4,7 +4,7 @@ import Header from '../../components/Header';
 import { useRoute, useNavigation } from '@react-navigation/native';
 import { supabase, dbHelpers, TABLES } from '../../utils/supabase';
 import { format, parseISO } from 'date-fns';
-import { formatCurrency } from '../../utils/helpers';
+import { formatCurrency, parseDate, formatDate } from '../../utils/helpers';
 import { Ionicons } from '@expo/vector-icons';
 import * as Animatable from 'react-native-animatable';
 

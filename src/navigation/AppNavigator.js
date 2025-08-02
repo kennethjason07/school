@@ -249,6 +249,9 @@ export default function AppNavigator() {
             {userType === 'admin' && (
               <>
                 <Stack.Screen name="AdminTabs" component={AdminTabNavigator} />
+                <Stack.Screen name="ManageStudents" component={ManageStudents} />
+                <Stack.Screen name="ManageClasses" component={ManageClasses} />
+                <Stack.Screen name="ManageTeachers" component={ManageTeachers} />
                 <Stack.Screen name="SubjectsTimetable" component={SubjectsTimetable} />
                 <Stack.Screen name="AttendanceManagement" component={AttendanceManagement} />
                 <Stack.Screen name="FeeManagement" component={FeeManagement} />
