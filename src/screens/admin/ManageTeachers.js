@@ -110,7 +110,6 @@ const ManageTeachers = ({ navigation }) => {
       setSubjects(uniqueSubjects);
       
     } catch (err) {
-      console.error('Error loading data:', err);
       setError(err.message);
     } finally {
       setLoading(false);
@@ -120,7 +119,6 @@ const ManageTeachers = ({ navigation }) => {
   const loadSections = async (classId) => {
     const { data, error } = await dbHelpers.getSectionsByClass(classId);
     if (error) {
-      console.error('Error loading sections:', error);
       return;
     }
     setSections(data);

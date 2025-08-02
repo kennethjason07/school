@@ -8,7 +8,7 @@ import StatCard from '../../components/StatCard';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { Platform } from 'react-native';
 import { useAuth } from '../../utils/AuthContext';
-import { supabase, TABLES } from '../../utils/supabase';
+import { supabase, TABLES, dbHelpers } from '../../utils/supabase';
 
 const screenWidth = Dimensions.get('window').width;
 
@@ -31,6 +31,7 @@ const TeacherDashboard = () => {
   const [marksTrend, setMarksTrend] = useState({});
   const [recentActivities, setRecentActivities] = useState([]);
   const [announcements, setAnnouncements] = useState([]);
+  const [teacherProfile, setTeacherProfile] = useState(null);
   const { user } = useAuth();
 
 // Helper to extract class order key
@@ -68,15 +69,15 @@ function groupAndSortSchedule(schedule) {
       setLoading(true);
       setError(null);
       
-      // Get teacher info
-      const { data: teacherData, error: teacherError } = await supabase
-        .from(TABLES.TEACHERS)
-        .select('*')
-        .eq('user_id', user.id)
-        .single();
+      // Get teacher info using the new helper function
+      const { data: teacherData, error: teacherError } = await dbHelpers.getTeacherByUserId(user.id);
 
-      if (teacherError) throw new Error('Teacher not found');
+      if (teacherError || !teacherData) {
+        throw new Error('Teacher profile not found. Please contact administrator.');
+      }
+
       const teacher = teacherData;
+      setTeacherProfile(teacher);
 
       // Get assigned classes and subjects
       const { data: assignedSubjects, error: subjectsError } = await supabase

@@ -5,45 +5,9 @@ import Header from '../../components/Header';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { format } from 'date-fns';
 import Ionicons from 'react-native-vector-icons/Ionicons';
-import { dbHelpers } from '../../utils/supabase';
+import { supabase, TABLES, dbHelpers } from '../../utils/supabase';
 
-const mockTeachers = [
-  { id: 't1', name: 'Alice Smith' },
-  { id: 't2', name: 'Bob Johnson' },
-  { id: 't3', name: 'Carol Lee' },
-];
 
-const mockClasses = [
-  { id: 'c1', name: 'Class 1' },
-  { id: 'c2', name: 'Class 2' },
-  { id: 'c3', name: 'Class 3' },
-];
-
-const initialSubjects = [
-  { id: 's1', name: 'Mathematics', code: 'MATH101', teacherId: 't1' },
-  { id: 's2', name: 'Science', code: 'SCI101', teacherId: 't2' },
-];
-
-// Update initialTimetables to new structure
-const initialTimetables = {
-  c1: {
-    Monday: [
-      { id: 'p1', type: 'subject', subjectId: 's1', startTime: '09:00', endTime: '09:55' },
-      { id: 'p2', type: 'subject', subjectId: 's2', startTime: '09:55', endTime: '10:50' },
-      { id: 'p3', type: 'break', label: 'Tea Break', startTime: '10:50', endTime: '11:10' },
-      { id: 'p4', type: 'subject', subjectId: 's2', startTime: '11:10', endTime: '12:05' },
-      { id: 'p5', type: 'subject', subjectId: 's1', startTime: '12:05', endTime: '13:00' },
-      { id: 'p6', type: 'break', label: 'Lunch Break', startTime: '13:00', endTime: '14:00' },
-      { id: 'p7', type: 'subject', subjectId: 's1', startTime: '14:00', endTime: '15:00' },
-    ],
-    Tuesday: [],
-    Wednesday: [],
-    Thursday: [],
-    Friday: [],
-  },
-  c2: {},
-  c3: {},
-};
 
 // Helper to calculate duration in minutes
 function getDuration(start, end) {
@@ -81,11 +45,11 @@ const SubjectsTimetable = () => {
   const [classes, setClasses] = useState([]);
   const [modalVisible, setModalVisible] = useState(false);
   const [editSubject, setEditSubject] = useState(null);
-  const [subjectForm, setSubjectForm] = useState({ name: '', code: '', teacherId: '' });
+  const [subjectForm, setSubjectForm] = useState({ name: '', teacherId: '' });
   const [selectedClass, setSelectedClass] = useState(null);
   const [timetables, setTimetables] = useState({});
   const [periodModal, setPeriodModal] = useState({ visible: false, day: '', period: null });
-  const [periodForm, setPeriodForm] = useState({ type: 'subject', subjectId: '', label: '', startTime: '', endTime: '' });
+  const [periodForm, setPeriodForm] = useState({ type: 'subject', subjectId: '', label: '', startTime: '', endTime: '', room: '' });
   const [showTimePicker, setShowTimePicker] = useState({ visible: false, field: '', value: new Date() });
   const [selectedDate, setSelectedDate] = useState(new Date());
   const [loading, setLoading] = useState(true);
@@ -99,30 +63,35 @@ const SubjectsTimetable = () => {
         // Fetch classes
         const { data: classData, error: classError } = await dbHelpers.getClasses();
         if (classError) throw classError;
-        setClasses(classData);
-        const defaultClassId = classData[0]?.id || null;
+        setClasses(classData || []);
+
+        const defaultClassId = classData?.[0]?.id || null;
         setSelectedClass(defaultClassId);
+
         // Fetch teachers
         const { data: teacherData, error: teacherError } = await dbHelpers.getTeachers();
         if (teacherError) throw teacherError;
-        setTeachers(teacherData);
-        // Fetch subjects for the default class
+        setTeachers(teacherData || []);
+
+        // Fetch all subjects with teacher information through junction table
+        const { data: subjectData, error: subjectError } = await supabase
+          .from(TABLES.SUBJECTS)
+          .select(`
+            *,
+            teacher_subjects(
+              teachers(id, name)
+            )
+          `)
+          .order('name');
+        if (subjectError) throw subjectError;
+        setSubjects(subjectData || []);
+
+        // Fetch timetable for the default class
         if (defaultClassId) {
-          const { data: subjectData, error: subjectError } = await dbHelpers.read('subjects', { class_id: defaultClassId });
-          if (subjectError) throw subjectError;
-          setSubjects(subjectData);
-          // Fetch timetable for the default class (no section for now)
-          const { data: timetableData, error: timetableError } = await dbHelpers.getTimetable(defaultClassId, null);
-          if (timetableError) throw timetableError;
-          // Group timetable by day
-          const grouped = {};
-          timetableData?.forEach(period => {
-            if (!grouped[period.day_of_week]) grouped[period.day_of_week] = [];
-            grouped[period.day_of_week].push(period);
-          });
-          setTimetables({ [defaultClassId]: grouped });
+          await fetchTimetableForClass(defaultClassId);
         }
       } catch (err) {
+        console.error('Error fetching data:', err);
         setError('Failed to load timetable data.');
       } finally {
         setLoading(false);
@@ -131,29 +100,60 @@ const SubjectsTimetable = () => {
     fetchData();
   }, []);
 
+  const fetchTimetableForClass = async (classId) => {
+    try {
+      const { data: timetableData, error: timetableError } = await dbHelpers.getTimetableByClass(classId);
+      if (timetableError) throw timetableError;
+
+      // Group timetable by day
+      const grouped = {
+        Monday: [],
+        Tuesday: [],
+        Wednesday: [],
+        Thursday: [],
+        Friday: [],
+        Saturday: [],
+        Sunday: []
+      };
+
+      timetableData?.forEach(period => {
+        const dayName = getDayName(period.day_of_week);
+        if (grouped[dayName]) {
+          grouped[dayName].push({
+            id: period.id,
+            type: period.period_type || 'subject',
+            subjectId: period.subject_id,
+            subject: period.subjects,
+            startTime: period.start_time,
+            endTime: period.end_time,
+            label: period.label || period.subjects?.name,
+            room: period.room_number
+          });
+        }
+      });
+
+      // Sort periods by start time for each day
+      Object.keys(grouped).forEach(day => {
+        grouped[day].sort((a, b) => a.startTime.localeCompare(b.startTime));
+      });
+
+      setTimetables(prev => ({ ...prev, [classId]: grouped }));
+    } catch (err) {
+      console.error('Error fetching timetable:', err);
+      setError('Failed to load timetable for selected class.');
+    }
+  };
+
+  const getDayName = (dayNumber) => {
+    const days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+    return days[dayNumber] || 'Monday';
+  };
+
   useEffect(() => {
-    // When selectedClass changes, fetch subjects and timetable for that class
+    // When selectedClass changes, fetch timetable for that class
     const fetchClassData = async () => {
       if (!selectedClass) return;
-      setLoading(true);
-      setError(null);
-      try {
-        const { data: subjectData, error: subjectError } = await dbHelpers.read('subjects', { class_id: selectedClass });
-        if (subjectError) throw subjectError;
-        setSubjects(subjectData);
-        const { data: timetableData, error: timetableError } = await dbHelpers.getTimetable(selectedClass, null);
-        if (timetableError) throw timetableError;
-        const grouped = {};
-        timetableData?.forEach(period => {
-          if (!grouped[period.day_of_week]) grouped[period.day_of_week] = [];
-          grouped[period.day_of_week].push(period);
-        });
-        setTimetables(prev => ({ ...prev, [selectedClass]: grouped }));
-      } catch (err) {
-        setError('Failed to load class data.');
-      } finally {
-        setLoading(false);
-      }
+      await fetchTimetableForClass(selectedClass);
     };
     fetchClassData();
   }, [selectedClass]);
@@ -166,29 +166,128 @@ const SubjectsTimetable = () => {
   };
   const openEditSubject = (subject) => {
     setEditSubject(subject);
-    setSubjectForm({ name: subject.name, code: subject.code, teacherId: subject.teacherId });
+    // Get teacher ID from the junction table relationship
+    const teacherId = subject.teacher_subjects?.[0]?.teachers?.id || '';
+    setSubjectForm({
+      name: subject.name,
+      teacherId: teacherId
+    });
     setModalVisible(true);
   };
+
   const handleSaveSubject = async () => {
-    if (!subjectForm.name || !subjectForm.code) {
-      Alert.alert('Error', 'Please fill all fields');
+    if (!subjectForm.name) {
+      Alert.alert('Error', 'Please enter subject name');
       return;
     }
-    if (editSubject) {
-      await dbHelpers.update('subjects', editSubject.id, { name: subjectForm.name, code: subjectForm.code, teacher_id: subjectForm.teacherId });
-      setSubjects(subjects.map(s => s.id === editSubject.id ? { ...editSubject, ...subjectForm } : s));
-    } else {
-      await dbHelpers.create('subjects', { name: subjectForm.name, code: subjectForm.code, teacher_id: subjectForm.teacherId, class_id: selectedClass });
-      setSubjects([...subjects, { id: 's' + (subjects.length + 1), ...subjectForm, class_id: selectedClass }]);
+
+    try {
+      setLoading(true);
+      const subjectData = {
+        name: subjectForm.name
+      };
+
+      if (editSubject) {
+        // Update subject
+        const { data, error } = await supabase
+          .from(TABLES.SUBJECTS)
+          .update(subjectData)
+          .eq('id', editSubject.id)
+          .select();
+
+        if (error) throw error;
+
+        // Handle teacher assignment through junction table
+        if (subjectForm.teacherId) {
+          // First, remove existing teacher assignments for this subject
+          await supabase
+            .from(TABLES.TEACHER_SUBJECTS)
+            .delete()
+            .eq('subject_id', editSubject.id);
+
+          // Then add the new teacher assignment
+          await supabase
+            .from(TABLES.TEACHER_SUBJECTS)
+            .insert([{
+              teacher_id: subjectForm.teacherId,
+              subject_id: editSubject.id
+            }]);
+        }
+
+        // Refresh subjects list
+        await refreshSubjects();
+      } else {
+        // Create new subject
+        const { data, error } = await supabase
+          .from(TABLES.SUBJECTS)
+          .insert([subjectData])
+          .select();
+
+        if (error) throw error;
+
+        // Handle teacher assignment through junction table
+        if (subjectForm.teacherId && data[0]) {
+          await supabase
+            .from(TABLES.TEACHER_SUBJECTS)
+            .insert([{
+              teacher_id: subjectForm.teacherId,
+              subject_id: data[0].id
+            }]);
+        }
+
+        // Refresh subjects list
+        await refreshSubjects();
+      }
+
+      setModalVisible(false);
+      Alert.alert('Success', `Subject ${editSubject ? 'updated' : 'created'} successfully`);
+    } catch (error) {
+      console.error('Error saving subject:', error);
+      Alert.alert('Error', 'Failed to save subject');
+    } finally {
+      setLoading(false);
     }
-    setModalVisible(false);
   };
+
+  const refreshSubjects = async () => {
+    try {
+      const { data: subjectData, error: subjectError } = await supabase
+        .from(TABLES.SUBJECTS)
+        .select(`
+          *,
+          teacher_subjects(
+            teachers(id, name)
+          )
+        `)
+        .order('name');
+      if (subjectError) throw subjectError;
+      setSubjects(subjectData || []);
+    } catch (error) {
+      console.error('Error refreshing subjects:', error);
+    }
+  };
+
   const handleDeleteSubject = async (id) => {
     Alert.alert('Delete Subject', 'Are you sure?', [
       { text: 'Cancel', style: 'cancel' },
       { text: 'Delete', style: 'destructive', onPress: async () => {
-        await dbHelpers.delete('subjects', id);
-        setSubjects(subjects.filter(s => s.id !== id));
+        try {
+          setLoading(true);
+          const { error } = await supabase
+            .from(TABLES.SUBJECTS)
+            .delete()
+            .eq('id', id);
+
+          if (error) throw error;
+
+          setSubjects(subjects.filter(s => s.id !== id));
+          Alert.alert('Success', 'Subject deleted successfully');
+        } catch (error) {
+          console.error('Error deleting subject:', error);
+          Alert.alert('Error', 'Failed to delete subject');
+        } finally {
+          setLoading(false);
+        }
       }},
     ]);
   };
@@ -203,6 +302,14 @@ const SubjectsTimetable = () => {
   const getTeacherName = (teacherId) => {
     const t = teachers.find(t => t.id === teacherId);
     return t ? t.name : '-';
+  };
+
+  const getSubjectTeacher = (subject) => {
+    if (subject.teacher_subjects && subject.teacher_subjects.length > 0) {
+      const teacher = subject.teacher_subjects[0].teachers;
+      return teacher ? teacher.name : '-';
+    }
+    return '-';
   };
   const handleAssignSubject = async (day, period, subjectId) => {
     setTimetables(prev => {
@@ -221,11 +328,25 @@ const SubjectsTimetable = () => {
 
   // Open add/edit period modal
   const openAddPeriod = (day) => {
-    setPeriodForm({ type: 'subject', subjectId: subjects[0]?.id || '', label: '', startTime: '', endTime: '' });
+    setPeriodForm({
+      type: 'subject',
+      subjectId: subjects[0]?.id || '',
+      label: '',
+      startTime: '',
+      endTime: '',
+      room: ''
+    });
     setPeriodModal({ visible: true, day, period: null });
   };
   const openEditPeriod = (day, period) => {
-    setPeriodForm({ ...period });
+    setPeriodForm({
+      type: period.type,
+      subjectId: period.subjectId || '',
+      label: period.label || '',
+      startTime: period.startTime,
+      endTime: period.endTime,
+      room: period.room || ''
+    });
     setPeriodModal({ visible: true, day, period });
   };
   const handleSavePeriod = async () => {
@@ -234,29 +355,114 @@ const SubjectsTimetable = () => {
       Alert.alert('Error', 'Please fill all fields');
       return;
     }
-    setTimetables(prev => {
-      const classTT = { ...prev[selectedClass] };
-      const dayTT = classTT[periodModal.day] ? [...classTT[periodModal.day]] : [];
+
+    try {
+      setLoading(true);
+      const dayNumber = getDayNumber(periodModal.day);
+
+      const timetableData = {
+        class_id: selectedClass,
+        day_of_week: dayNumber,
+        start_time: startTime,
+        end_time: endTime,
+        period_type: type,
+        subject_id: type === 'subject' ? subjectId : null,
+        label: type === 'break' ? label : null,
+        room_number: periodForm.room || null
+      };
+
       if (periodModal.period) {
-        // Edit
-        const idx = dayTT.findIndex(p => p.id === periodModal.period.id);
-        dayTT[idx] = { ...periodForm, id: periodModal.period.id };
+        // Edit existing period
+        const { data, error } = await dbHelpers.updateTimetableEntry(periodModal.period.id, timetableData);
+        if (error) throw error;
+
+        // Update local state
+        setTimetables(prev => {
+          const classTT = { ...prev[selectedClass] };
+          const dayTT = classTT[periodModal.day] ? [...classTT[periodModal.day]] : [];
+          const idx = dayTT.findIndex(p => p.id === periodModal.period.id);
+          if (idx >= 0) {
+            dayTT[idx] = {
+              id: data[0].id,
+              type: data[0].period_type,
+              subjectId: data[0].subject_id,
+              subject: data[0].subjects,
+              startTime: data[0].start_time,
+              endTime: data[0].end_time,
+              label: data[0].label || data[0].subjects?.name,
+              room: data[0].room_number
+            };
+          }
+          classTT[periodModal.day] = dayTT;
+          return { ...prev, [selectedClass]: classTT };
+        });
       } else {
-        // Add
-        dayTT.push({ ...periodForm, id: 'p' + (Date.now()) });
+        // Add new period
+        const { data, error } = await dbHelpers.createTimetableEntry(timetableData);
+        if (error) throw error;
+
+        // Update local state
+        setTimetables(prev => {
+          const classTT = { ...prev[selectedClass] };
+          const dayTT = classTT[periodModal.day] ? [...classTT[periodModal.day]] : [];
+          dayTT.push({
+            id: data[0].id,
+            type: data[0].period_type,
+            subjectId: data[0].subject_id,
+            subject: data[0].subjects,
+            startTime: data[0].start_time,
+            endTime: data[0].end_time,
+            label: data[0].label || data[0].subjects?.name,
+            room: data[0].room_number
+          });
+          // Sort by start time
+          dayTT.sort((a, b) => a.startTime.localeCompare(b.startTime));
+          classTT[periodModal.day] = dayTT;
+          return { ...prev, [selectedClass]: classTT };
+        });
       }
-      classTT[periodModal.day] = dayTT;
-      return { ...prev, [selectedClass]: classTT };
-    });
-    setPeriodModal({ visible: false, day: '', period: null });
+
+      setPeriodModal({ visible: false, day: '', period: null });
+      Alert.alert('Success', `Period ${periodModal.period ? 'updated' : 'added'} successfully`);
+    } catch (error) {
+      console.error('Error saving period:', error);
+      Alert.alert('Error', 'Failed to save period');
+    } finally {
+      setLoading(false);
+    }
   };
+
   const handleDeletePeriod = async (day, id) => {
-    setTimetables(prev => {
-      const classTT = { ...prev[selectedClass] };
-      const dayTT = classTT[day] ? [...classTT[day]] : [];
-      classTT[day] = dayTT.filter(p => p.id !== id);
-      return { ...prev, [selectedClass]: classTT };
-    });
+    Alert.alert('Delete Period', 'Are you sure?', [
+      { text: 'Cancel', style: 'cancel' },
+      { text: 'Delete', style: 'destructive', onPress: async () => {
+        try {
+          setLoading(true);
+          const { error } = await dbHelpers.deleteTimetableEntry(id);
+          if (error) throw error;
+
+          // Update local state
+          setTimetables(prev => {
+            const classTT = { ...prev[selectedClass] };
+            const dayTT = classTT[day] ? [...classTT[day]] : [];
+            classTT[day] = dayTT.filter(p => p.id !== id);
+            return { ...prev, [selectedClass]: classTT };
+          });
+
+          Alert.alert('Success', 'Period deleted successfully');
+        } catch (error) {
+          console.error('Error deleting period:', error);
+          Alert.alert('Error', 'Failed to delete period');
+        } finally {
+          setLoading(false);
+        }
+      }},
+    ]);
+  };
+
+  const getDayNumber = (dayName) => {
+    const days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+    return days.indexOf(dayName);
   };
 
   // Helper to handle time picker
@@ -291,7 +497,7 @@ const SubjectsTimetable = () => {
   };
 
   // Helper to get day name from date
-  function getDayName(date) {
+  function getDayNameFromDate(date) {
     return days[date.getDay() === 0 ? 6 : date.getDay() - 1]; // 0=Sunday, 1=Monday...
   }
 
@@ -355,12 +561,7 @@ const SubjectsTimetable = () => {
                   onChangeText={text => setSubjectForm(f => ({ ...f, name: text }))}
                   style={styles.input}
                 />
-                <TextInput
-                  placeholder="Subject Code"
-                  value={subjectForm.code}
-                  onChangeText={text => setSubjectForm(f => ({ ...f, code: text }))}
-                  style={styles.input}
-                />
+
                 <Text style={{ marginTop: 8 }}>Assign Teacher:</Text>
                 <Picker
                   selectedValue={subjectForm.teacherId}
@@ -423,7 +624,7 @@ const SubjectsTimetable = () => {
           </View>
           {/* Show only the selected day's timetable */}
           {(() => {
-            const dayName = getDayName(selectedDate);
+            const dayName = getDayNameFromDate(selectedDate);
             const dayTT = timetables[selectedClass]?.[dayName] ? [...timetables[selectedClass][dayName]] : [];
             dayTT.sort((a, b) => a.startTime.localeCompare(b.startTime));
             return (
@@ -439,21 +640,28 @@ const SubjectsTimetable = () => {
                   const duration = getDuration(period.startTime, period.endTime);
                   let subject, teacherName;
                   if (period.type === 'subject') {
-                    subject = subjects.find(s => s.id === period.subjectId);
-                    teacherName = subject ? getTeacherName(subject.teacher_id) : '-';
+                    // Use the subject data from the period if available, otherwise find it
+                    subject = period.subject || subjects.find(s => s.id === period.subjectId);
+                    // Get teacher name from the subject's teacher_subjects relationship
+                    teacherName = subject ? getSubjectTeacher(subject) : '-';
                   }
                   return (
                     <View key={period.id} style={styles.periodCard}>
                       <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
                         <View style={{ flex: 1 }}>
                           <Text style={styles.periodTitle}>
-                            {period.type === 'subject' && subject ? `${subject.name} (${subject.code})` : period.label}
+                            {period.type === 'subject' && subject ?
+                              subject.name :
+                              period.label}
                           </Text>
                           <Text style={styles.periodTime}>
                             {formatTime(period.startTime)} - {formatTime(period.endTime)} ({duration} min)
                           </Text>
                           {period.type === 'subject' && (
-                            <Text style={styles.periodTeacher}>{teacherName}</Text>
+                            <Text style={styles.periodTeacher}>
+                              Teacher: {teacherName}
+                              {period.room && ` • Room: ${period.room}`}
+                            </Text>
                           )}
                         </View>
                         <View style={{ flexDirection: 'row' }}>
@@ -528,6 +736,15 @@ const SubjectsTimetable = () => {
             >
               <Text>{periodForm.endTime ? `End Time: ${formatTime(periodForm.endTime)}` : 'Select End Time'}</Text>
             </TouchableOpacity>
+
+            {periodForm.type === 'subject' && (
+              <TextInput
+                placeholder="Room Number (optional)"
+                value={periodForm.room}
+                onChangeText={text => setPeriodForm(f => ({ ...f, room: text }))}
+                style={styles.input}
+              />
+            )}
             {showTimePicker.visible && (
               <DateTimePicker
                 value={showTimePicker.value}

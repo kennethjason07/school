@@ -62,7 +62,6 @@ const ManageClasses = ({ navigation }) => {
         })
       );
 
-      console.log('Fetched classes:', classesWithCounts);
       setClasses(classesWithCounts);
 
       // Get all teachers - as specified in easy.txt
@@ -74,7 +73,6 @@ const ManageClasses = ({ navigation }) => {
       if (teacherError) throw teacherError;
       setTeachers(teacherData);
     } catch (error) {
-      console.error('Error loading data:', error);
       Alert.alert('Error', 'Failed to load classes and teachers');
     } finally {
       setLoading(false);
@@ -111,7 +109,6 @@ const ManageClasses = ({ navigation }) => {
       setIsAddModalVisible(false);
       Alert.alert('Success', 'Class added successfully!');
     } catch (error) {
-      console.error('Error adding class:', error);
       Alert.alert('Error', 'Failed to add class');
     }
   };
@@ -175,7 +172,6 @@ const ManageClasses = ({ navigation }) => {
               await loadAllData();
               Alert.alert('Success', 'Class deleted. Students remain in the system.');
             } catch (error) {
-              console.error('Error deleting class:', error);
               Alert.alert('Error', `Failed to delete class: ${error.message}`);
             }
           },

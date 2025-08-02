@@ -25,8 +25,19 @@ import NotificationManagement from '../screens/admin/NotificationManagement';
 import StudentDetails from '../screens/admin/StudentDetails';
 import StudentList from '../screens/admin/StudentList';
 import TeacherDetails from '../screens/admin/TeacherDetails';
+import TeacherAccountManagement from '../screens/admin/TeacherAccountManagement';
+import StudentAccountManagement from '../screens/admin/StudentAccountManagement';
+import ParentAccountManagement from '../screens/admin/ParentAccountManagement';
+import AccountTestScreen from '../screens/admin/AccountTestScreen';
+import DatabaseCleanup from '../screens/admin/DatabaseCleanup';
 import FeeClassDetails from '../screens/admin/FeeClassDetails';
 import AssignTaskToTeacher from '../screens/admin/AssignTaskToTeacher';
+
+// Report Screens
+import AttendanceReport from '../screens/admin/reports/AttendanceReport';
+import AcademicPerformance from '../screens/admin/reports/AcademicPerformance';
+import FeeCollection from '../screens/admin/reports/FeeCollection';
+import StudentOverview from '../screens/admin/reports/StudentOverview';
 
 // Teacher Screens
 import TeacherDashboard from '../screens/teacher/TeacherDashboard';
@@ -256,7 +267,16 @@ export default function AppNavigator() {
                 <Stack.Screen name="ExamsMarks" component={ExamsMarks} />
                 <Stack.Screen name="NotificationManagement" component={NotificationManagement} />
                 <Stack.Screen name="TeacherDetails" component={TeacherDetails} />
+                <Stack.Screen name="TeacherAccountManagement" component={TeacherAccountManagement} />
+                <Stack.Screen name="StudentAccountManagement" component={StudentAccountManagement} />
+                <Stack.Screen name="ParentAccountManagement" component={ParentAccountManagement} />
+                <Stack.Screen name="AccountTestScreen" component={AccountTestScreen} />
+                <Stack.Screen name="DatabaseCleanup" component={DatabaseCleanup} />
                 <Stack.Screen name="AssignTaskToTeacher" component={AssignTaskToTeacher} />
+                <Stack.Screen name="AttendanceReport" component={AttendanceReport} />
+                <Stack.Screen name="AcademicPerformance" component={AcademicPerformance} />
+                <Stack.Screen name="FeeCollection" component={FeeCollection} />
+                <Stack.Screen name="StudentOverview" component={StudentOverview} />
               </>
             )}
             {userType === 'teacher' && (

@@ -47,7 +47,6 @@ const AttendanceManagement = () => {
       setTeachers(teachersData || []);
 
     } catch (error) {
-      console.error('Error loading data:', error);
       Alert.alert('Error', 'Failed to load data');
     } finally {
       setLoading(false);

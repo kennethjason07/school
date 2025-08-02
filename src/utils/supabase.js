@@ -10,6 +10,7 @@ export const supabase = createClient(supabaseUrl, supabaseAnonKey);
 // Database table names matching your schema
 export const TABLES = {
   USERS: 'users',
+  ROLES: 'roles',
   CLASSES: 'classes',
   PARENTS: 'parents',
   STUDENTS: 'students',
@@ -24,8 +25,7 @@ export const TABLES = {
   MARKS: 'marks',
   HOMEWORKS: 'homeworks',
   ASSIGNMENTS: 'assignments',
-  ASSIGNMENTS: 'assignments',
-  TIMETABLE: 'timetable',
+  TIMETABLE: 'timetable_entries',
   NOTIFICATIONS: 'notifications',
   TASKS: 'tasks',
 };
@@ -89,6 +89,32 @@ export const authHelpers = {
 
 // Database helper functions
 export const dbHelpers = {
+  // Ensure default roles exist
+  async ensureRolesExist() {
+    try {
+      const defaultRoles = ['admin', 'teacher', 'student', 'parent'];
+
+      for (const roleName of defaultRoles) {
+        const { data: existingRole } = await supabase
+          .from(TABLES.ROLES)
+          .select('id')
+          .eq('role_name', roleName)
+          .single();
+
+        if (!existingRole) {
+          await supabase
+            .from(TABLES.ROLES)
+            .insert({ role_name: roleName });
+          console.log(`Created role: ${roleName}`);
+        }
+      }
+
+      return { success: true };
+    } catch (error) {
+      console.error('Error ensuring roles exist:', error);
+      return { success: false, error };
+    }
+  },
   // Generic CRUD operations
   async create(table, data) {
     try {
@@ -249,11 +275,425 @@ export const dbHelpers = {
     try {
       const { data, error } = await supabase
         .from(TABLES.TEACHERS)
-        .select('*')
+        .select(`
+          *,
+          users!users_linked_teacher_id_fkey(id, email, full_name, phone)
+        `)
         .order('name');
       return { data, error };
     } catch (error) {
       return { data: null, error };
+    }
+  },
+
+  async getTeacherByUserId(userId) {
+    try {
+      // First get the user to find linked_teacher_id
+      const { data: user, error: userError } = await supabase
+        .from(TABLES.USERS)
+        .select('linked_teacher_id')
+        .eq('id', userId)
+        .single();
+
+      if (userError || !user?.linked_teacher_id) {
+        return { data: null, error: userError || new Error('No teacher linked to this user') };
+      }
+
+      // Then get the teacher with related data
+      const { data, error } = await supabase
+        .from(TABLES.TEACHERS)
+        .select(`
+          *,
+          teacher_subjects(
+            subjects(id, name, class_id)
+          )
+        `)
+        .eq('id', user.linked_teacher_id)
+        .single();
+      return { data, error };
+    } catch (error) {
+      return { data: null, error };
+    }
+  },
+
+  async createTeacherAccount(teacherData, authData) {
+    try {
+      // 0. Ensure roles exist
+      await this.ensureRolesExist();
+
+      // 1. Create auth user using regular signup
+      const { data: authUser, error: authError } = await supabase.auth.signUp({
+        email: authData.email,
+        password: authData.password,
+        options: {
+          data: {
+            full_name: authData.full_name,
+            role: 'teacher'
+          },
+          emailRedirectTo: undefined // Disable email confirmation for admin-created accounts
+        }
+      });
+
+      if (authError) throw authError;
+
+      if (!authUser.user) {
+        throw new Error('Failed to create user account');
+      }
+
+      // 2. Get teacher role ID
+      const { data: teacherRole, error: roleError } = await supabase
+        .from(TABLES.ROLES)
+        .select('id')
+        .eq('role_name', 'teacher')
+        .single();
+
+      if (roleError) {
+        // If role doesn't exist, create it
+        const { data: newRole, error: createRoleError } = await supabase
+          .from(TABLES.ROLES)
+          .insert({ role_name: 'teacher' })
+          .select()
+          .single();
+
+        if (createRoleError) throw createRoleError;
+        teacherRole = newRole;
+      }
+
+      // 3. Create user profile with linked_teacher_id
+      const { data: userProfile, error: userError } = await supabase
+        .from(TABLES.USERS)
+        .insert({
+          id: authUser.user.id,
+          email: authData.email,
+          full_name: authData.full_name,
+          phone: authData.phone || '',
+          role_id: teacherRole.id,
+          linked_teacher_id: teacherData.teacherId  // ✅ Link to teacher record
+        })
+        .select()
+        .single();
+
+      if (userError) throw userError;
+
+      // 4. Get the teacher record for return
+      const { data: teacher, error: teacherError } = await supabase
+        .from(TABLES.TEACHERS)
+        .select('*')
+        .eq('id', teacherData.teacherId)
+        .single();
+
+      if (teacherError) throw teacherError;
+
+      return {
+        data: {
+          authUser: authUser.user,
+          userProfile,
+          teacher
+        },
+        error: null
+      };
+    } catch (error) {
+      return { data: null, error };
+    }
+  },
+
+  async createStudentAccount(studentData, authData) {
+    try {
+      console.log('Creating student account - Step 1: Ensuring roles exist');
+      // 0. Ensure roles exist
+      await this.ensureRolesExist();
+
+      console.log('Creating student account - Step 2: Creating auth user for email:', authData.email);
+      // 1. Create auth user using regular signup
+      const { data: authUser, error: authError } = await supabase.auth.signUp({
+        email: authData.email,
+        password: authData.password,
+        options: {
+          data: {
+            full_name: authData.full_name,
+            role: 'student'
+          },
+          emailRedirectTo: undefined // Disable email confirmation for admin-created accounts
+        }
+      });
+
+      if (authError) {
+        console.error('Auth signup error:', authError);
+        throw authError;
+      }
+
+      if (!authUser.user) {
+        throw new Error('Failed to create user account - no user returned');
+      }
+
+      console.log('Creating student account - Step 3: Auth user created with ID:', authUser.user.id);
+
+      // 2. Get student role ID
+      console.log('Creating student account - Step 4: Getting student role');
+      let { data: studentRole, error: roleError } = await supabase
+        .from(TABLES.ROLES)
+        .select('id')
+        .eq('role_name', 'student')
+        .single();
+
+      if (roleError) {
+        console.log('Student role not found, creating it');
+        // If role doesn't exist, create it
+        const { data: newRole, error: createRoleError } = await supabase
+          .from(TABLES.ROLES)
+          .insert({ role_name: 'student' })
+          .select()
+          .single();
+
+        if (createRoleError) {
+          console.error('Error creating student role:', createRoleError);
+          throw createRoleError;
+        }
+        studentRole = newRole;
+      }
+
+      console.log('Creating student account - Step 5: Student role ID:', studentRole.id);
+
+      // 3. Create user profile with linked_student_id
+      console.log('Creating student account - Step 6: Creating user profile');
+      const userProfileData = {
+        id: authUser.user.id,
+        email: authData.email,
+        full_name: authData.full_name,
+        phone: authData.phone || '',
+        role_id: studentRole.id,
+        linked_student_id: studentData.studentId  // ✅ Link to student record
+      };
+
+      console.log('User profile data:', userProfileData);
+
+      const { data: userProfile, error: userError } = await supabase
+        .from(TABLES.USERS)
+        .insert(userProfileData)
+        .select()
+        .single();
+
+      if (userError) {
+        console.error('Error creating user profile:', userError);
+        throw userError;
+      }
+
+      console.log('Creating student account - Step 7: User profile created:', userProfile);
+
+      // 4. Get the student record for return
+      console.log('Creating student account - Step 8: Getting student record for ID:', studentData.studentId);
+      const { data: student, error: studentError } = await supabase
+        .from(TABLES.STUDENTS)
+        .select('*')
+        .eq('id', studentData.studentId)
+        .single();
+
+      if (studentError) {
+        console.error('Error getting student record:', studentError);
+        throw studentError;
+      }
+
+      console.log('Creating student account - Step 9: Success! Account created for student:', student.name);
+
+      return {
+        data: {
+          authUser: authUser.user,
+          userProfile,
+          student
+        },
+        error: null
+      };
+    } catch (error) {
+      console.error('Error in createStudentAccount:', error);
+      return { data: null, error };
+    }
+  },
+
+  async createParentAccount(studentData, authData) {
+    try {
+      console.log('Creating parent account - Step 1: Ensuring roles exist');
+      // 0. Ensure roles exist
+      await this.ensureRolesExist();
+
+      console.log('Creating parent account - Step 2: Creating auth user for email:', authData.email);
+      // 1. Create auth user using regular signup
+      const { data: authUser, error: authError } = await supabase.auth.signUp({
+        email: authData.email,
+        password: authData.password,
+        options: {
+          data: {
+            full_name: authData.full_name,
+            role: 'parent'
+          },
+          emailRedirectTo: undefined // Disable email confirmation for admin-created accounts
+        }
+      });
+
+      if (authError) {
+        console.error('Auth signup error:', authError);
+        throw authError;
+      }
+
+      if (!authUser.user) {
+        throw new Error('Failed to create user account - no user returned');
+      }
+
+      console.log('Creating parent account - Step 3: Auth user created with ID:', authUser.user.id);
+
+      // 2. Get parent role ID
+      console.log('Creating parent account - Step 4: Getting parent role');
+      let { data: parentRole, error: roleError } = await supabase
+        .from(TABLES.ROLES)
+        .select('id')
+        .eq('role_name', 'parent')
+        .single();
+
+      if (roleError) {
+        console.log('Parent role not found, creating it');
+        // If role doesn't exist, create it
+        const { data: newRole, error: createRoleError } = await supabase
+          .from(TABLES.ROLES)
+          .insert({ role_name: 'parent' })
+          .select()
+          .single();
+
+        if (createRoleError) {
+          console.error('Error creating parent role:', createRoleError);
+          throw createRoleError;
+        }
+        parentRole = newRole;
+      }
+
+      console.log('Creating parent account - Step 5: Parent role ID:', parentRole.id);
+
+      // 3. Create user profile with linked_parent_of
+      console.log('Creating parent account - Step 6: Creating user profile');
+      const userProfileData = {
+        id: authUser.user.id,
+        email: authData.email,
+        full_name: authData.full_name,
+        phone: authData.phone || '',
+        role_id: parentRole.id,
+        linked_parent_of: studentData.studentId  // ✅ Link to student record as parent
+      };
+
+      console.log('User profile data:', userProfileData);
+
+      const { data: userProfile, error: userError } = await supabase
+        .from(TABLES.USERS)
+        .insert(userProfileData)
+        .select()
+        .single();
+
+      if (userError) {
+        console.error('Error creating user profile:', userError);
+        throw userError;
+      }
+
+      console.log('Creating parent account - Step 7: User profile created:', userProfile);
+
+      // 4. Create parent record in parents table
+      console.log('Creating parent account - Step 8: Creating parent record');
+      const parentRecordData = {
+        name: authData.full_name,
+        relation: authData.relation || 'Guardian', // Default to Guardian if not specified
+        phone: authData.phone || '',
+        email: authData.email,
+        student_id: studentData.studentId
+      };
+
+      console.log('Parent record data:', parentRecordData);
+
+      const { data: parentRecord, error: parentError } = await supabase
+        .from(TABLES.PARENTS)
+        .insert(parentRecordData)
+        .select()
+        .single();
+
+      if (parentError) {
+        console.error('Error creating parent record:', parentError);
+        throw parentError;
+      }
+
+      console.log('Creating parent account - Step 9: Parent record created:', parentRecord);
+
+      // 5. Update student record to link to the user account
+      console.log('Creating parent account - Step 10: Updating student parent_id');
+      const { error: studentUpdateError } = await supabase
+        .from(TABLES.STUDENTS)
+        .update({ parent_id: authUser.user.id })
+        .eq('id', studentData.studentId);
+
+      if (studentUpdateError) {
+        console.error('Error updating student parent_id:', studentUpdateError);
+        throw studentUpdateError;
+      }
+
+      console.log('Creating parent account - Step 11: Student parent_id updated successfully');
+
+      // 6. Get the student record for return
+      console.log('Creating parent account - Step 12: Getting student record for ID:', studentData.studentId);
+      const { data: student, error: studentError } = await supabase
+        .from(TABLES.STUDENTS)
+        .select('*')
+        .eq('id', studentData.studentId)
+        .single();
+
+      if (studentError) {
+        console.error('Error getting student record:', studentError);
+        throw studentError;
+      }
+
+      console.log('Creating parent account - Step 13: Success! Parent account and record created for student:', student.name);
+
+      return {
+        data: {
+          authUser: authUser.user,
+          userProfile,
+          parentRecord,
+          student
+        },
+        error: null
+      };
+    } catch (error) {
+      console.error('Error in createParentAccount:', error);
+      // Note: In a production environment, you might want to implement rollback logic here
+      // to clean up any partially created records if the transaction fails
+      return { data: null, error };
+    }
+  },
+
+  // Test function to verify auth is working
+  async testAuthConnection() {
+    try {
+      console.log('Testing Supabase Auth connection...');
+      const { data: { session }, error } = await supabase.auth.getSession();
+      console.log('Current session:', session);
+      console.log('Auth test completed, error:', error);
+      return { session, error };
+    } catch (error) {
+      console.error('Auth connection test failed:', error);
+      return { session: null, error };
+    }
+  },
+
+  // Verify if a user exists in auth.users table
+  async verifyAuthUser(email) {
+    try {
+      console.log('Verifying auth user for email:', email);
+      // Note: This requires RLS policies to be set up properly
+      const { data, error } = await supabase.auth.admin.listUsers();
+      if (error) {
+        console.log('Cannot access admin.listUsers, checking via sign-in attempt');
+        return { exists: 'unknown', error: 'Admin access required' };
+      }
+
+      const userExists = data.users.some(user => user.email === email);
+      console.log('Auth user exists:', userExists);
+      return { exists: userExists, error: null };
+    } catch (error) {
+      console.error('Error verifying auth user:', error);
+      return { exists: 'unknown', error };
     }
   },
 
@@ -404,18 +844,81 @@ export const dbHelpers = {
   },
 
   // Timetable management
-  async getTimetable(classId, sectionId) {
+  async getTimetable(classId) {
+    try {
+      let query = supabase
+        .from(TABLES.TIMETABLE)
+        .select(`
+          *,
+          subjects(id, name),
+          teachers(id, name),
+          classes(id, class_name, section)
+        `)
+        .eq('class_id', classId)
+        .order('day_of_week, period_number');
+
+      const { data, error } = await query;
+      return { data, error };
+    } catch (error) {
+      return { data: null, error };
+    }
+  },
+
+  async createTimetableEntry(timetableData) {
+    try {
+      const { data, error } = await supabase
+        .from(TABLES.TIMETABLE)
+        .insert([timetableData])
+        .select(`
+          *,
+          subjects(id, name),
+          classes(id, class_name, section)
+        `);
+      return { data, error };
+    } catch (error) {
+      return { data: null, error };
+    }
+  },
+
+  async updateTimetableEntry(id, updates) {
+    try {
+      const { data, error } = await supabase
+        .from(TABLES.TIMETABLE)
+        .update(updates)
+        .eq('id', id)
+        .select(`
+          *,
+          subjects(id, name),
+          classes(id, class_name, section)
+        `);
+      return { data, error };
+    } catch (error) {
+      return { data: null, error };
+    }
+  },
+
+  async deleteTimetableEntry(id) {
+    try {
+      const { data, error } = await supabase
+        .from(TABLES.TIMETABLE)
+        .delete()
+        .eq('id', id);
+      return { data, error };
+    } catch (error) {
+      return { data: null, error };
+    }
+  },
+
+  async getTimetableByClass(classId) {
     try {
       const { data, error } = await supabase
         .from(TABLES.TIMETABLE)
         .select(`
           *,
-          subjects(name),
-          teachers(full_name),
-          classes(section)
+          subjects(id, name),
+          classes(id, class_name, section)
         `)
         .eq('class_id', classId)
-        .eq('classes.section', sectionId)
         .order('day_of_week, start_time');
       return { data, error };
     } catch (error) {

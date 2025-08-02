@@ -23,6 +23,7 @@ import { supabase, dbHelpers, TABLES } from '../../utils/supabase';
 import { format, parseISO } from 'date-fns';
 import { CrossPlatformPieChart, CrossPlatformBarChart } from '../../components/CrossPlatformChart';
 import { formatCurrency } from '../../utils/helpers';
+import { isValidDate, isReasonableDate, formatDateForDB, cleanDateForForm } from '../../utils/dateValidation';
 import * as Animatable from 'react-native-animatable';
 
 const FeeManagement = () => {
@@ -146,9 +147,15 @@ const FeeManagement = () => {
       // Process fee structures to group by class
       const processedFeeStructures = [];
       
-      // Group fee structures by class_id
+      // Group fee structures by class_id and filter out invalid dates
       const groupedByClass = {};
       feeStructuresData.forEach(fee => {
+        // Skip fees with invalid dates
+        if (!fee.due_date || !isValidDate(fee.due_date)) {
+          console.warn('Skipping fee with invalid due_date:', fee);
+          return;
+        }
+
         if (!groupedByClass[fee.class_id]) {
           groupedByClass[fee.class_id] = {
             classId: fee.class_id,
@@ -156,7 +163,7 @@ const FeeManagement = () => {
             fees: []
           };
         }
-        
+
         groupedByClass[fee.class_id].fees.push({
           id: fee.id,
           type: fee.type,
@@ -201,6 +208,7 @@ const FeeManagement = () => {
 
     } catch (error) {
       console.error('Error loading data:', error);
+      Alert.alert('Error', `Failed to load fee data: ${error.message}`);
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -213,10 +221,20 @@ const FeeManagement = () => {
       Alert.alert('Error', 'Missing required fee information');
       return;
     }
-    
+
+    // Validate due date
+    const dueDate = operation === 'edit' ? feeData.dueDate : newFeeStructure.dueDate;
+    if (!dueDate || !isValidDate(dueDate)) {
+      Alert.alert('Error', 'Please select a valid due date');
+      return;
+    }
+
     try {
       setPaymentLoading(true);
-      
+
+      // Format the date properly before saving
+      const formattedDueDate = formatDateForDB(dueDate);
+
       const { error } = await supabase
         .from(TABLES.FEE_STRUCTURE)
         .upsert([
@@ -225,14 +243,14 @@ const FeeManagement = () => {
             class_id: operation === 'edit' ? feeData.classId : selectedClassId,
             type: operation === 'edit' ? feeData.type : newFeeStructure.type,
             amount: operation === 'edit' ? feeData.amount : newFeeStructure.amount,
-            due_date: operation === 'edit' ? feeData.dueDate : newFeeStructure.dueDate,
+            due_date: formattedDueDate,
             description: operation === 'edit' ? feeData.description : newFeeStructure.description
           }
         ])
         .select();
 
       if (error) throw error;
-      
+
       await loadAllData();
       if (operation === 'edit') {
         setFeeModal({ visible: false, classId: '', fee: { type: '', amount: '', dueDate: '', description: '' } });
@@ -246,7 +264,7 @@ const FeeManagement = () => {
 
     } catch (error) {
       console.error('Error handling fee operation:', error);
-      Alert.alert('Error', operation === 'edit' ? 'Failed to update fee' : 'Failed to add fee');
+      Alert.alert('Error', `${operation === 'edit' ? 'Failed to update fee' : 'Failed to add fee'}: ${error.message}`);
     } finally {
       setPaymentLoading(false);
     }
@@ -258,22 +276,31 @@ const FeeManagement = () => {
       Alert.alert('Error', 'Missing required fee information');
       return;
     }
-    
+
+    // Validate due date
+    if (!fee.dueDate || !isValidDate(fee.dueDate)) {
+      Alert.alert('Error', 'Please select a valid due date');
+      return;
+    }
+
     try {
       setPaymentLoading(true);
-      
+
+      // Format the date properly before saving
+      const formattedDueDate = formatDateForDB(fee.dueDate);
+
       const { error } = await supabase
         .from(TABLES.FEE_STRUCTURE)
         .update({
           type: fee.type,
           amount: fee.amount,
-          due_date: fee.dueDate,
+          due_date: formattedDueDate,
           description: fee.description
         })
         .eq('id', feeId);
 
       if (error) throw error;
-      
+
       await loadAllData();
       setFeeModal({ visible: false, classId: '', fee: { type: '', amount: '', dueDate: '', description: '' } });
       setEditFeeId(null);
@@ -281,7 +308,7 @@ const FeeManagement = () => {
 
     } catch (error) {
       console.error('Error editing fee:', error);
-      Alert.alert('Error', 'Failed to update fee');
+      Alert.alert('Error', `Failed to update fee: ${error.message}`);
     } finally {
       setPaymentLoading(false);
     }
@@ -414,35 +441,44 @@ const FeeManagement = () => {
     }
   };
 
-  // Helper function to validate date
-  const isValidDate = (date) => {
-    if (!date) return false;
-    const d = new Date(date);
-    return d instanceof Date && !isNaN(d) && d.toString() !== 'Invalid Date';
-  };
+  // Note: Using imported isValidDate from dateValidation utils
 
   // Handle date change
   const handleDateChange = (event, selectedDate) => {
     setShowDatePicker(false);
-    if (selectedDate && isValidDate(selectedDate)) {
-      if (paymentModal) {
-        setPaymentDate(selectedDate);
-      } else if (feeModal.visible) {
-        setFeeModal(prev => ({
-          ...prev,
-          fee: {
-            ...prev.fee,
-            dueDate: selectedDate.toISOString()
-          }
-        }));
-      } else if (feeStructureModal) {
-        setNewFeeStructure(prev => ({
-          ...prev,
-          dueDate: selectedDate.toISOString()
-        }));
-      }
-    } else if (selectedDate && !isValidDate(selectedDate)) {
+
+    if (!selectedDate) return;
+
+    // Validate the selected date
+    if (!isValidDate(selectedDate)) {
       Alert.alert('Error', 'Invalid date selected. Please select a valid date.');
+      return;
+    }
+
+    // Check for reasonable date range
+    if (!isReasonableDate(selectedDate)) {
+      Alert.alert('Error', 'Please select a date within a reasonable range (within 1 year ago to 5 years from now).');
+      return;
+    }
+
+    // Format date to ensure it's properly formatted
+    const formattedDate = selectedDate.toISOString();
+
+    if (paymentModal) {
+      setPaymentDate(selectedDate);
+    } else if (feeModal.visible) {
+      setFeeModal(prev => ({
+        ...prev,
+        fee: {
+          ...prev.fee,
+          dueDate: formattedDate
+        }
+      }));
+    } else if (feeStructureModal) {
+      setNewFeeStructure(prev => ({
+        ...prev,
+        dueDate: formattedDate
+      }));
     }
   };
 
@@ -544,16 +580,26 @@ const FeeManagement = () => {
       Alert.alert('Error', 'Please fill all required fields');
       return;
     }
-    
+
+    // Validate the due date
+    if (!isValidDate(newFeeStructure.dueDate)) {
+      Alert.alert('Error', 'Please select a valid due date');
+      return;
+    }
+
     try {
       setPaymentLoading(true);
+
+      // Format the date properly before saving
+      const formattedDueDate = formatDateForDB(newFeeStructure.dueDate);
+
       const { error } = await supabase
         .from(TABLES.FEE_STRUCTURE)
         .insert({
           class_id: selectedClassId,
           type: newFeeStructure.type,
           amount: parseFloat(newFeeStructure.amount),
-          due_date: newFeeStructure.dueDate,
+          due_date: formattedDueDate,
           description: newFeeStructure.description
         });
 
@@ -572,7 +618,7 @@ const FeeManagement = () => {
 
     } catch (error) {
       console.error('Error adding fee structure:', error);
-      Alert.alert('Error', 'Failed to add fee structure');
+      Alert.alert('Error', `Failed to add fee structure: ${error.message}`);
     } finally {
       setPaymentLoading(false);
     }

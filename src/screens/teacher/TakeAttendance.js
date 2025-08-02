@@ -91,7 +91,6 @@ const TakeAttendance = () => {
 
     } catch (err) {
       setError(err.message);
-      console.error('Error fetching classes:', err);
     } finally {
       setLoading(false);
     }

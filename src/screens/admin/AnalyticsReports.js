@@ -484,7 +484,10 @@ const AnalyticsReports = ({ navigation }) => {
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Quick Reports</Text>
           <View style={styles.reportsList}>
-            <TouchableOpacity style={styles.reportItem}>
+            <TouchableOpacity
+              style={styles.reportItem}
+              onPress={() => navigation.navigate('AttendanceReport')}
+            >
               <View style={[styles.reportIcon, { backgroundColor: '#4CAF50' }]}>
                 <Ionicons name="checkmark-circle" size={24} color="#fff" />
               </View>
@@ -497,7 +500,10 @@ const AnalyticsReports = ({ navigation }) => {
               <Ionicons name="chevron-forward" size={20} color="#666" />
             </TouchableOpacity>
 
-            <TouchableOpacity style={styles.reportItem}>
+            <TouchableOpacity
+              style={styles.reportItem}
+              onPress={() => navigation.navigate('AcademicPerformance')}
+            >
               <View style={[styles.reportIcon, { backgroundColor: '#2196F3' }]}>
                 <Ionicons name="school" size={24} color="#fff" />
               </View>
@@ -510,7 +516,10 @@ const AnalyticsReports = ({ navigation }) => {
               <Ionicons name="chevron-forward" size={20} color="#666" />
             </TouchableOpacity>
 
-            <TouchableOpacity style={styles.reportItem}>
+            <TouchableOpacity
+              style={styles.reportItem}
+              onPress={() => navigation.navigate('FeeCollection')}
+            >
               <View style={[styles.reportIcon, { backgroundColor: '#9C27B0' }]}>
                 <Ionicons name="card" size={24} color="#fff" />
               </View>
@@ -523,7 +532,10 @@ const AnalyticsReports = ({ navigation }) => {
               <Ionicons name="chevron-forward" size={20} color="#666" />
             </TouchableOpacity>
 
-            <TouchableOpacity style={styles.reportItem}>
+            <TouchableOpacity
+              style={styles.reportItem}
+              onPress={() => navigation.navigate('StudentOverview')}
+            >
               <View style={[styles.reportIcon, { backgroundColor: '#FF9800' }]}>
                 <Ionicons name="people" size={24} color="#fff" />
               </View>

@@ -22,7 +22,7 @@ import DateTimePicker from '@react-native-community/datetimepicker';
 import CrossPlatformPieChart from '../../components/CrossPlatformPieChart';
 import CrossPlatformBarChart from '../../components/CrossPlatformBarChart';
 import { supabase } from '../../utils/supabase';
-import { format } from 'date-fns';
+import { format, addMonths } from 'date-fns';
 
 const { width } = Dimensions.get('window');
 
@@ -78,12 +78,14 @@ const AdminDashboard = ({ navigation }) => {
       }
 
       // Load fee collection data for current month
-      const currentMonth = format(new Date(), 'yyyy-MM');
+      const now = new Date();
+      const currentMonth = format(now, 'yyyy-MM');
+      const nextMonth = format(addMonths(now, 1), 'yyyy-MM');
       const { data: feeData, error: feeError } = await supabase
         .from('student_fees')
         .select('amount_paid')
         .gte('payment_date', `${currentMonth}-01`)
-        .lt('payment_date', `${currentMonth}-32`);
+        .lt('payment_date', `${nextMonth}-01`);
 
       if (feeError) {
         console.error('Error loading fees:', feeError);
@@ -301,11 +303,16 @@ const AdminDashboard = ({ navigation }) => {
     { title: 'Manage Classes', icon: 'school', color: '#2196F3', screen: 'Classes' }, // Tab name
     { title: 'Manage Students', icon: 'people', color: '#4CAF50', screen: 'Students' }, // Tab name
     { title: 'Manage Teachers', icon: 'person', color: '#FF9800', screen: 'Teachers' }, // Tab name
+    { title: 'Teacher Accounts', icon: 'person-add', color: '#3F51B5', screen: 'TeacherAccountManagement' }, // Stack screen
+    { title: 'Student Accounts', icon: 'people-circle', color: '#8BC34A', screen: 'StudentAccountManagement' }, // Stack screen
+    { title: 'Parent Accounts', icon: 'people', color: '#9C27B0', screen: 'ParentAccountManagement' }, // Stack screen
     { title: 'Subjects Timetable', icon: 'calendar', color: '#607D8B', screen: 'SubjectsTimetable' }, // Stack screen
     { title: 'Attendance', icon: 'checkmark-circle', color: '#009688', screen: 'AttendanceManagement' }, // Stack screen
     { title: 'Fee Management', icon: 'card', color: '#9C27B0', screen: 'FeeManagement' }, // Stack screen
     { title: 'Exams & Marks', icon: 'document-text', color: '#795548', screen: 'ExamsMarks' }, // Stack screen
     { title: 'Notifications', icon: 'notifications', color: '#E91E63', screen: 'NotificationManagement' }, // Stack screen
+    { title: 'Database Cleanup', icon: 'build', color: '#607D8B', screen: 'DatabaseCleanup' }, // Stack screen
+    { title: 'Account Test', icon: 'bug', color: '#FF5722', screen: 'AccountTestScreen' }, // Stack screen
   ];
 
   // State for chart data
