@@ -32,6 +32,8 @@ const SignupScreen = ({ navigation }) => {
   const [fullNameError, setFullNameError] = useState('');
   const [phoneError, setPhoneError] = useState('');
   const [linkedId, setLinkedId] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
 
   const roles = [
     { key: 1, label: 'Admin', icon: 'school', color: '#1976d2' },
@@ -101,7 +103,7 @@ const SignupScreen = ({ navigation }) => {
   // Validate confirm password
   const validateConfirmPassword = (password, confirmPassword) => {
     if (!confirmPassword) {
-      setConfirmPasswordError('Please confirm your password');
+      setConfirmPasswordError('Confirm password required');
       return false;
     }
     if (password !== confirmPassword) {
@@ -302,12 +304,22 @@ const SignupScreen = ({ navigation }) => {
                   setPassword(text);
                   validatePassword(text);
                 }}
-                secureTextEntry={true}
+                secureTextEntry={!showPassword}
               />
-              {passwordError && (
-                <Text style={styles.errorText}>{passwordError}</Text>
-              )}
+              <TouchableOpacity
+                style={styles.showPasswordButton}
+                onPress={() => setShowPassword(!showPassword)}
+              >
+                <Ionicons
+                  name={showPassword ? "eye-off" : "eye"}
+                  size={24}
+                  color="#666"
+                />
+              </TouchableOpacity>
             </View>
+            {passwordError && (
+              <Text style={styles.errorText}>{passwordError}</Text>
+            )}
 
             {/* Confirm Password Input */}
             <View style={styles.inputContainer}>
@@ -321,12 +333,22 @@ const SignupScreen = ({ navigation }) => {
                   setConfirmPassword(text);
                   validateConfirmPassword(password, text);
                 }}
-                secureTextEntry={true}
+                secureTextEntry={!showConfirmPassword}
               />
-              {confirmPasswordError && (
-                <Text style={styles.errorText}>{confirmPasswordError}</Text>
-              )}
+              <TouchableOpacity
+                style={styles.showPasswordButton}
+                onPress={() => setShowConfirmPassword(!showConfirmPassword)}
+              >
+                <Ionicons
+                  name={showConfirmPassword ? "eye-off" : "eye"}
+                  size={24}
+                  color="#666"
+                />
+              </TouchableOpacity>
             </View>
+            {confirmPasswordError && (
+              <Text style={styles.errorText}>{confirmPasswordError}</Text>
+            )}
 
             {/* Linked ID Input */}
             <View style={styles.inputContainer}>
@@ -426,18 +448,21 @@ const styles = StyleSheet.create({
   roleButtons: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: 10,
+    justifyContent: 'space-between',
+    gap: 8,
   },
   roleButton: {
     flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'center',
     padding: 12,
     borderRadius: 10,
     backgroundColor: '#f5f5f5',
     borderWidth: 1,
     borderColor: '#ddd',
+    minWidth: '48%',
     flex: 1,
-    maxWidth: '48%',
+    marginBottom: 8,
   },
   roleButtonText: {
     fontSize: 14,
@@ -464,6 +489,8 @@ const styles = StyleSheet.create({
     color: '#dc3545',
     fontSize: 12,
     marginTop: 5,
+    marginBottom: 10,
+    marginLeft: 15,
   },
   loginButton: {
     flexDirection: 'row',
@@ -490,6 +517,9 @@ const styles = StyleSheet.create({
   signupLinkText: {
     color: '#1976d2',
     fontSize: 14,
+  },
+  showPasswordButton: {
+    marginLeft: 10,
   },
 });
 

@@ -24,9 +24,9 @@ export const TABLES = {
   MARKS: 'marks',
   HOMEWORKS: 'homeworks',
   ASSIGNMENTS: 'assignments',
-  ASSIGNMENTS: 'assignments',
   TIMETABLE: 'timetable',
   NOTIFICATIONS: 'notifications',
+  NOTIFICATION_RECIPIENTS: 'notification_recipients',
   TASKS: 'tasks',
 };
 

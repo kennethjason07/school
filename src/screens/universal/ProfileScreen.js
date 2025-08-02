@@ -13,6 +13,7 @@ import {
   ActivityIndicator,
   Dimensions,
   RefreshControl,
+  KeyboardAvoidingView,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
@@ -276,26 +277,12 @@ const ProfileScreen = () => {
       const { error } = await signOut();
       if (error) {
         Alert.alert('Error', 'Failed to logout');
-      } else {
-        navigation.reset({
-          index: 0,
-          routes: [{ name: 'Login' }],
-        });
       }
+      // Remove the navigation.reset call - AuthContext will handle navigation automatically
     } catch (error) {
       console.error('Logout error:', error);
       Alert.alert('Error', 'Failed to logout');
     }
-  };
-
-  // Add handler for back button
-  const handleGoBack = () => {
-    // If StudentDashboard is in a nested navigator, use the correct navigation call
-    // Example: navigation.navigate('Main', { screen: 'StudentDashboard' });
-    // Replace 'Main' with your parent navigator name if needed
-
-    // If StudentDashboard is in the current navigator, use:
-    
   };
 
   if (loading) {
@@ -308,114 +295,113 @@ const ProfileScreen = () => {
 
   return (
     <View style={styles.container}>
-      {/* Header with back button and title */}
-      <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 16, marginBottom: 8 }}>
-        <TouchableOpacity style={styles.backButton} onPress={handleGoBack}>
-          <Ionicons name="arrow-back" size={28} color="#1976d2" />
-          <Text style={styles.backButtonText}>Back</Text>
-        </TouchableOpacity>
-        <Text style={{ fontSize: 22, fontWeight: 'bold', color: '#1976d2', marginLeft: 16 }}>
-          Profile
-        </Text>
-      </View>
-      <ScrollView
-        contentContainerStyle={styles.scrollContent}
-        refreshControl={
-          <RefreshControl refreshing={loading} onRefresh={loadUserData} />
-        }
+      <Header title="Profile" showBack={true} />
+      <KeyboardAvoidingView 
+        style={styles.keyboardAvoidingView}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : 0}
       >
-        <View style={styles.profileHeader}>
-          {user?.photo_url ? (
-            <Image
-              source={{ uri: user.photo_url }}
-              style={styles.profileImage}
-            />
-          ) : (
-            <View style={styles.imageContainer}>
-              <View style={styles.defaultProfileImage}>
-                <Ionicons name="person" size={60} color="#999" />
-              </View>
-              <TouchableOpacity
-                style={styles.imageOverlay}
-                onPress={handlePickPhoto}
-              >
-                <Ionicons name="camera" size={24} color="#1976d2" />
-              </TouchableOpacity>
-            </View>
-          )}
-          <Text style={styles.name}>{user?.name || 'No Name'}</Text>
-          <Text style={styles.email}>{user?.email || 'No Email'}</Text>
-        </View>
-        <View style={styles.rolesContainer}>
-          {roles.map(role => (
-            <View key={role} style={styles.roleTag}>
-              <Text style={styles.roleText}>{role}</Text>
-            </View>
-          ))}
-        </View>
-        <View style={styles.form}>
-          <Text style={styles.inputLabel}>Name</Text>
-          <TextInput
-            style={styles.input}
-            value={form.name}
-            onChangeText={text => setForm(f => ({ ...f, name: text }))}
-            editable={editing}
-          />
-          <Text style={styles.inputLabel}>Email</Text>
-          <TextInput
-            style={styles.input}
-            value={form.email}
-            onChangeText={text => setForm(f => ({ ...f, email: text }))}
-            editable={editing}
-            keyboardType="email-address"
-          />
-          <Text style={styles.inputLabel}>Contact</Text>
-          <TextInput
-            style={styles.input}
-            value={form.contact}
-            onChangeText={text => setForm(f => ({ ...f, contact: text }))}
-            editable={editing}
-            keyboardType="phone-pad"
-          />
-          <TouchableOpacity
-            style={[styles.saveButton, !editing && styles.disabledButton]}
-            onPress={editing ? handleSave : () => setEditing(true)}
-          >
-            <Text style={styles.buttonText}>
-              {editing ? 'Save Changes' : 'Edit Profile'}
-            </Text>
-          </TouchableOpacity>
-        </View>
-        <View style={styles.passwordSection}>
-          <Text style={styles.sectionHeader}>Change Password</Text>
-          <TextInput
-            style={styles.passwordInput}
-            value={password}
-            onChangeText={setPassword}
-            placeholder="New Password"
-            secureTextEntry
-          />
-          <TextInput
-            style={styles.passwordInput}
-            value={confirmPassword}
-            onChangeText={setConfirmPassword}
-            placeholder="Confirm Password"
-            secureTextEntry
-          />
-          <TouchableOpacity
-            style={styles.passwordButton}
-            onPress={handleChangePassword}
-          >
-            <Text style={styles.buttonText}>Change Password</Text>
-          </TouchableOpacity>
-        </View>
-        <TouchableOpacity
-          style={styles.logoutButton}
-          onPress={handleLogout}
+        <ScrollView
+          contentContainerStyle={styles.scrollContent}
+          refreshControl={
+            <RefreshControl refreshing={loading} onRefresh={loadUserData} />
+          }
+          keyboardShouldPersistTaps="handled"
+          showsVerticalScrollIndicator={false}
         >
-          <Text style={styles.buttonText}>Logout</Text>
-        </TouchableOpacity>
-      </ScrollView>
+          <View style={styles.profileHeader}>
+            {user?.photo_url ? (
+              <Image
+                source={{ uri: user.photo_url }}
+                style={styles.profileImage}
+              />
+            ) : (
+              <View style={styles.imageContainer}>
+                <View style={styles.defaultProfileImage}>
+                  <Ionicons name="person" size={60} color="#999" />
+                </View>
+                <TouchableOpacity
+                  style={styles.imageOverlay}
+                  onPress={handlePickPhoto}
+                >
+                  <Ionicons name="camera" size={24} color="#1976d2" />
+                </TouchableOpacity>
+              </View>
+            )}
+            <Text style={styles.name}>{user?.name || 'No Name'}</Text>
+            <Text style={styles.email}>{user?.email || 'No Email'}</Text>
+          </View>
+          <View style={styles.rolesContainer}>
+            {roles.map(role => (
+              <View key={role} style={styles.roleTag}>
+                <Text style={styles.roleText}>{role}</Text>
+              </View>
+            ))}
+          </View>
+          <View style={styles.form}>
+            <Text style={styles.inputLabel}>Name</Text>
+            <TextInput
+              style={styles.input}
+              value={form.name}
+              onChangeText={text => setForm(f => ({ ...f, name: text }))}
+              editable={editing}
+            />
+            <Text style={styles.inputLabel}>Email</Text>
+            <TextInput
+              style={styles.input}
+              value={form.email}
+              onChangeText={text => setForm(f => ({ ...f, email: text }))}
+              editable={editing}
+              keyboardType="email-address"
+            />
+            <Text style={styles.inputLabel}>Contact</Text>
+            <TextInput
+              style={styles.input}
+              value={form.contact}
+              onChangeText={text => setForm(f => ({ ...f, contact: text }))}
+              editable={editing}
+              keyboardType="phone-pad"
+            />
+            <TouchableOpacity
+              style={[styles.saveButton, !editing && styles.disabledButton]}
+              onPress={editing ? handleSave : () => setEditing(true)}
+            >
+              <Text style={styles.buttonText}>
+                {editing ? 'Save Changes' : 'Edit Profile'}
+              </Text>
+            </TouchableOpacity>
+          </View>
+          <View style={styles.passwordSection}>
+            <Text style={styles.sectionHeader}>Change Password</Text>
+            <TextInput
+              style={styles.passwordInput}
+              value={password}
+              onChangeText={setPassword}
+              placeholder="New Password"
+              secureTextEntry
+            />
+            <TextInput
+              style={styles.passwordInput}
+              value={confirmPassword}
+              onChangeText={setConfirmPassword}
+              placeholder="Confirm Password"
+              secureTextEntry
+            />
+            <TouchableOpacity
+              style={styles.passwordButton}
+              onPress={handleChangePassword}
+            >
+              <Text style={styles.buttonText}>Change Password</Text>
+            </TouchableOpacity>
+          </View>
+          <TouchableOpacity
+            style={styles.logoutButton}
+            onPress={handleLogout}
+          >
+            <Text style={styles.buttonText}>Logout</Text>
+          </TouchableOpacity>
+        </ScrollView>
+      </KeyboardAvoidingView>
     </View>
   );
 };
@@ -424,10 +410,10 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#f5f7fa',
-    padding: 16,
   },
   scrollContent: {
     paddingBottom: 20,
+    paddingHorizontal: 16,
   },
   loadingContainer: {
     flex: 1,

@@ -30,6 +30,9 @@ const ManageClasses = ({ navigation }) => {
     section: '',
     class_teacher_id: '',
   });
+  const [classDetailsModal, setClassDetailsModal] = useState(false);
+  const [selectedClassDetails, setSelectedClassDetails] = useState(null);
+  const [classSubjects, setClassSubjects] = useState([]);
 
   useEffect(() => {
     loadAllData();
@@ -194,6 +197,40 @@ const ManageClasses = ({ navigation }) => {
     setIsEditModalVisible(true);
   };
 
+  const openClassDetails = async (classItem) => {
+    try {
+      setSelectedClassDetails(classItem);
+      
+      // Fetch subjects for this class with their assigned teachers
+      const { data: subjectsData, error: subjectsError } = await supabase
+        .from('subjects')
+        .select(`
+          *,
+          teacher_subjects(
+            teachers(
+              id,
+              name
+            )
+          )
+        `)
+        .eq('class_id', classItem.id);
+      
+      if (subjectsError) throw subjectsError;
+      
+      // Process the data to get teacher info for each subject
+      const processedSubjects = subjectsData?.map(subject => ({
+        ...subject,
+        teacher: subject.teacher_subjects?.[0]?.teachers || null
+      })) || [];
+      
+      setClassSubjects(processedSubjects);
+      setClassDetailsModal(true);
+    } catch (error) {
+      console.error('Error loading class details:', error);
+      Alert.alert('Error', 'Failed to load class details');
+    }
+  };
+
   const renderClassItem = ({ item }) => {
     if (loading) {
       return (
@@ -207,7 +244,10 @@ const ManageClasses = ({ navigation }) => {
     const teacher = teachers.find(t => t.id === item.class_teacher_id);
 
     return (
-      <View style={styles.classCard}>
+      <TouchableOpacity 
+        style={styles.classCard}
+        onPress={() => openClassDetails(item)}
+      >
         <View style={styles.classHeader}>
           <View style={styles.classInfo}>
             <Text style={styles.className}>{item.class_name}</Text>
@@ -215,7 +255,7 @@ const ManageClasses = ({ navigation }) => {
               Section {item.section} • {item.academic_year}
             </Text>
             <Text style={styles.classTeacher}>
-              Teacher: {teacher?.name || 'Unknown'}
+              Class Teacher: {teacher?.name || 'Unknown'}
             </Text>
           </View>
           <View style={styles.classStats}>
@@ -233,7 +273,10 @@ const ManageClasses = ({ navigation }) => {
         <View style={styles.classActions}>
           <TouchableOpacity 
             style={[styles.actionButton, styles.viewButton]}
-            onPress={() => navigation.navigate('StudentList', { classId: item.id })}
+            onPress={(e) => {
+              e.stopPropagation();
+              navigation.navigate('StudentList', { classId: item.id });
+            }}
           >
             <Ionicons name="people" size={16} color="#2196F3" />
             <Text style={styles.viewButtonText}>View Students</Text>
@@ -241,7 +284,10 @@ const ManageClasses = ({ navigation }) => {
           
           <TouchableOpacity 
             style={[styles.actionButton, styles.editButton]}
-            onPress={() => openEditModal(item)}
+            onPress={(e) => {
+              e.stopPropagation();
+              openEditModal(item);
+            }}
           >
             <Ionicons name="create" size={16} color="#FF9800" />
             <Text style={styles.editButtonText}>Edit</Text>
@@ -249,13 +295,16 @@ const ManageClasses = ({ navigation }) => {
           
           <TouchableOpacity 
             style={[styles.actionButton, styles.deleteButton]}
-            onPress={() => handleDeleteClass(item.id)}
+            onPress={(e) => {
+              e.stopPropagation();
+              handleDeleteClass(item.id);
+            }}
           >
             <Ionicons name="trash" size={16} color="#f44336" />
             <Text style={styles.deleteButtonText}>Delete</Text>
           </TouchableOpacity>
         </View>
-      </View>
+      </TouchableOpacity>
     );
   };
 
@@ -370,6 +419,71 @@ const ManageClasses = ({ navigation }) => {
     </Modal>
   );
 
+  // Add class details modal
+  const renderClassDetailsModal = () => (
+    <Modal
+      visible={classDetailsModal}
+      animationType="slide"
+      transparent={false}
+      onRequestClose={() => setClassDetailsModal(false)}
+    >
+      <View style={styles.fullScreenModal}>
+        <View style={styles.modalHeader}>
+          <Text style={styles.modalTitle}>
+            {selectedClassDetails?.class_name} Details
+          </Text>
+          <TouchableOpacity onPress={() => setClassDetailsModal(false)}>
+            <Ionicons name="close" size={24} color="#666" />
+          </TouchableOpacity>
+        </View>
+
+        <ScrollView style={styles.detailsContent}>
+          <View style={styles.classInfoSection}>
+            <Text style={styles.sectionTitle}>Class Information</Text>
+            <Text style={styles.infoText}>Section: {selectedClassDetails?.section}</Text>
+            <Text style={styles.infoText}>Academic Year: {selectedClassDetails?.academic_year}</Text>
+            <Text style={styles.infoText}>
+              Class Teacher: {teachers.find(t => t.id === selectedClassDetails?.class_teacher_id)?.name || 'Unknown'}
+            </Text>
+            <Text style={styles.infoText}>Students: {selectedClassDetails?.students_count || 0}</Text>
+          </View>
+
+          <View style={styles.subjectsSection}>
+            <Text style={styles.sectionTitle}>Subjects & Teachers</Text>
+            {classSubjects.length > 0 ? (
+              classSubjects.map((subject, index) => (
+                <View key={subject.id} style={styles.subjectItem}>
+                  <View style={styles.subjectInfo}>
+                    <Text style={styles.subjectName}>{subject.name}</Text>
+                    {subject.is_optional && (
+                      <Text style={styles.subjectCode}>Optional</Text>
+                    )}
+                  </View>
+                  <Text style={styles.subjectTeacher}>
+                    {subject.teacher?.name || 'No teacher assigned'}
+                  </Text>
+                </View>
+              ))
+            ) : (
+              <Text style={styles.noSubjectsText}>No subjects assigned to this class</Text>
+            )}
+          </View>
+        </ScrollView>
+
+        <TouchableOpacity
+          style={styles.timetableButton}
+          onPress={() => {
+            setClassDetailsModal(false);
+            navigation.navigate('SubjectsTimetable', { classId: selectedClassDetails?.id });
+          }}
+        >
+          <Ionicons name="calendar" size={20} color="#fff" />
+          <Text style={styles.timetableButtonText}>View Timetable</Text>
+        </TouchableOpacity>
+      </View>
+    </Modal>
+  );
+
   return (
     <View style={styles.container}>
       <Header title="Manage Classes" showBack={true} />
@@ -411,6 +525,7 @@ const ManageClasses = ({ navigation }) => {
 
       {renderModal(isAddModalVisible, false)}
       {renderModal(isEditModalVisible, true)}
+      {renderClassDetailsModal()}
     </View>
   );
 };
@@ -650,6 +765,81 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontSize: 16,
     fontWeight: '600',
+  },
+  fullScreenModal: {
+    flex: 1,
+    backgroundColor: '#fff',
+    paddingTop: 40,
+    paddingHorizontal: 20,
+  },
+  detailsContent: {
+    flex: 1,
+    paddingVertical: 10,
+  },
+  classInfoSection: {
+    marginBottom: 20,
+  },
+  sectionTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#333',
+    marginBottom: 10,
+  },
+  infoText: {
+    fontSize: 14,
+    color: '#666',
+    marginBottom: 5,
+  },
+  subjectsSection: {
+    marginBottom: 20,
+  },
+  subjectItem: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    padding: 12,
+    backgroundColor: '#f8f9fa',
+    borderRadius: 8,
+    marginBottom: 8,
+  },
+  subjectInfo: {
+    flex: 1,
+  },
+  subjectName: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#333',
+  },
+  subjectCode: {
+    fontSize: 12,
+    color: '#666',
+  },
+  subjectTeacher: {
+    fontSize: 14,
+    color: '#2196F3',
+    fontWeight: '500',
+  },
+  noSubjectsText: {
+    fontSize: 14,
+    color: '#999',
+    fontStyle: 'italic',
+    textAlign: 'center',
+    padding: 20,
+  },
+  timetableButton: {
+    backgroundColor: '#2196F3',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 15,
+    borderRadius: 10,
+    marginVertical: 20,
+  },
+  timetableButtonText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '600',
+    marginLeft: 8,
   },
 });
 

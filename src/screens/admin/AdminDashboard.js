@@ -22,7 +22,7 @@ import DateTimePicker from '@react-native-community/datetimepicker';
 import CrossPlatformPieChart from '../../components/CrossPlatformPieChart';
 import CrossPlatformBarChart from '../../components/CrossPlatformBarChart';
 import { supabase } from '../../utils/supabase';
-import { format } from 'date-fns';
+import { format, addMonths } from 'date-fns';
 
 const { width } = Dimensions.get('window');
 
@@ -79,11 +79,13 @@ const AdminDashboard = ({ navigation }) => {
 
       // Load fee collection data for current month
       const currentMonth = format(new Date(), 'yyyy-MM');
+      const nextMonth = format(addMonths(new Date(), 1), 'yyyy-MM-dd');
+
       const { data: feeData, error: feeError } = await supabase
         .from('student_fees')
         .select('amount_paid')
         .gte('payment_date', `${currentMonth}-01`)
-        .lt('payment_date', `${currentMonth}-32`);
+        .lt('payment_date', nextMonth);
 
       if (feeError) {
         console.error('Error loading fees:', feeError);

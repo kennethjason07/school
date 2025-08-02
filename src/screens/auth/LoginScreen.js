@@ -50,14 +50,10 @@ const LoginScreen = ({ navigation }) => {
     return true;
   };
 
-  // Validate password
+  // Validate password - simplified for login
   const validatePassword = (password) => {
     if (!password) {
       setPasswordError('Password is required');
-      return false;
-    }
-    if (password.length < 6) {
-      setPasswordError('Password must be at least 6 characters');
       return false;
     }
     setPasswordError('');
@@ -183,10 +179,10 @@ const LoginScreen = ({ navigation }) => {
                 autoCapitalize="none"
                 autoCorrect={false}
               />
-              {emailError && (
-                <Text style={styles.errorText}>{emailError}</Text>
-              )}
             </View>
+            {emailError && (
+              <Text style={styles.errorText}>{emailError}</Text>
+            )}
 
             {/* Password Input */}
             <View style={styles.inputContainer}>
@@ -212,10 +208,10 @@ const LoginScreen = ({ navigation }) => {
                   color="#666"
                 />
               </TouchableOpacity>
-              {passwordError && (
-                <Text style={styles.errorText}>{passwordError}</Text>
-              )}
             </View>
+            {passwordError && (
+              <Text style={styles.errorText}>{passwordError}</Text>
+            )}
 
             {/* Login Button */}
             <TouchableOpacity
