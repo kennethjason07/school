@@ -24,13 +24,14 @@ export const TABLES = {
   EXAMS: 'exams',
   MARKS: 'marks',
   HOMEWORKS: 'homeworks',
-  HOMEWORK: 'homeworks', // Alias for backward compatibility
+  HOMEWORK: 'homeworks',
   ASSIGNMENTS: 'assignments',
   TIMETABLE: 'timetable_entries',
   NOTIFICATIONS: 'notifications',
   NOTIFICATION_RECIPIENTS: 'notification_recipients',
   TASKS: 'tasks',
   SCHOOL_DETAILS: 'school_details',
+  MESSAGES: 'messages',
 };
 
 // Authentication helper functions

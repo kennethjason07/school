@@ -24,12 +24,15 @@ const TakeAttendance = () => {
   const today = new Date();
   const [classes, setClasses] = useState([]);
   const [students, setStudents] = useState([]);
-  const [selectedClass, setSelectedClass] = useState('');
-  const [selectedDate, setSelectedDate] = useState(`${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`);
+  const [selectedClass, setSelectedClass] = useState(null);
+  const [selectedSection, setSelectedSection] = useState(null);
+  const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
   const [attendanceMark, setAttendanceMark] = useState({});
+  const [editMode, setEditMode] = useState({});
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [viewModalVisible, setViewModalVisible] = useState(false);
-  const [viewClass, setViewClass] = useState('');
+  const [viewClass, setViewClass] = useState(null);
+  const [viewSection, setViewSection] = useState(null);
   const [viewDate, setViewDate] = useState(selectedDate);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -84,10 +87,8 @@ const TakeAttendance = () => {
       if (classList.length > 0) {
         setSelectedClass(classList[0].id);
         setViewClass(classList[0].id);
-      }
-      if (sectionList.length > 0) {
-        setSelectedSection(sectionList[0]);
-        setViewSection(sectionList[0]);
+        setSelectedSection(classList[0].section);
+        setViewSection(classList[0].section);
       }
 
     } catch (err) {
@@ -348,6 +349,38 @@ const TakeAttendance = () => {
     }
   };
 
+  // Toggle attendance status for a student
+  const toggleStudentAttendance = (studentId, status) => {
+    // Check if student is in edit mode or if no attendance is marked yet
+    const isInEditMode = editMode[studentId] || !attendanceMark[studentId];
+
+    if (isInEditMode) {
+      setAttendanceMark(prev => ({
+        ...prev,
+        [studentId]: status
+      }));
+
+      // After marking attendance, disable edit mode for this student
+      setEditMode(prev => ({
+        ...prev,
+        [studentId]: false
+      }));
+    }
+  };
+
+  // Enable edit mode for a specific student
+  const enableEditMode = (studentId) => {
+    setEditMode(prev => ({
+      ...prev,
+      [studentId]: true
+    }));
+  };
+
+  // Check if student can be edited (either in edit mode or no attendance marked)
+  const canEditStudent = (studentId) => {
+    return editMode[studentId] || !attendanceMark[studentId];
+  };
+
   if (loading && students.length === 0) {
     return (
       <View style={styles.container}>
@@ -379,50 +412,69 @@ const TakeAttendance = () => {
       <Header title="Take Attendance" showBack={true} />
       <ScrollView style={styles.scrollView}>
         <View style={{ padding: 20 }}>
-          {/* Class and Section Selection */}
+          {/* Class and Date Selection */}
           <View style={styles.selectionContainer}>
             <View style={styles.pickerContainer}>
-              <Text style={styles.pickerLabel}>Class:</Text>
-              {Platform.OS === 'web' ? (
-                <select 
-                  value={selectedClass} 
-                  onChange={e => setSelectedClass(e.target.value)} 
-                  style={styles.webSelect}
-                >
-                  {classes.map(cls => <option key={cls.id} value={cls.id}>{cls.class_name} - {cls.section}</option>)}
-                </select>
-              ) : (
-                <Picker 
-                  selectedValue={selectedClass} 
-                  onValueChange={setSelectedClass} 
-                  style={styles.picker}
-                >
-                  {classes.map(cls => <Picker.Item key={cls.id} label={`${cls.class_name} - ${cls.section}`} value={cls.id} />)}
-                </Picker>
-              )}
+              <Text style={styles.pickerLabel}>Select Class</Text>
+              <Picker
+                selectedValue={selectedClass}
+                onValueChange={(itemValue) => {
+                  setSelectedClass(itemValue);
+                  const selectedClassData = classes.find(c => c.id === itemValue);
+                  if (selectedClassData) {
+                    setSelectedSection(selectedClassData.section);
+                  }
+                }}
+                style={styles.picker}
+              >
+                <Picker.Item label="Select Class" value={null} />
+                {classes.map(cls => (
+                  <Picker.Item 
+                    key={cls.id} 
+                    label={`${cls.class_name} ${cls.section}`} 
+                    value={cls.id} 
+                  />
+                ))}
+              </Picker>
             </View>
 
-            <View style={styles.pickerContainer}>
-              <Text style={styles.pickerLabel}>Date:</Text>
-              {Platform.OS === 'web' ? (
-                <input 
-                  type="date" 
-                  value={selectedDate} 
-                  onChange={e => setSelectedDate(e.target.value)} 
-                  style={styles.webInput}
-                />
-              ) : (
-                <TouchableOpacity 
-                  style={styles.dateButton} 
-                  onPress={() => setShowDatePicker(true)}
-                >
-                  <Text style={styles.dateButtonText}>
-                    {selectedDate ? formatDateDMY(selectedDate) : 'Select Date'}
-                  </Text>
-                </TouchableOpacity>
-              )}
+            <View style={styles.dateContainer}>
+              <Text style={styles.pickerLabel}>Select Date</Text>
+              <TouchableOpacity
+                style={styles.dateButton}
+                onPress={() => setShowDatePicker(true)}
+              >
+                <Text style={styles.dateButtonText}>
+                  {selectedDate}
+                </Text>
+                <Ionicons name="calendar-outline" size={20} color="#666" />
+              </TouchableOpacity>
             </View>
           </View>
+
+          {/* Attendance Count Summary */}
+          {students.length > 0 && (
+            <View style={styles.countContainer}>
+              <View style={styles.countBox}>
+                <Text style={styles.countNumber}>
+                  {Object.values(attendanceMark).filter(status => status === 'Present').length}
+                </Text>
+                <Text style={styles.countLabel}>Present</Text>
+              </View>
+              <View style={styles.countBox}>
+                <Text style={styles.countNumber}>
+                  {Object.values(attendanceMark).filter(status => status === 'Absent').length}
+                </Text>
+                <Text style={styles.countLabel}>Absent</Text>
+              </View>
+              <View style={styles.countBox}>
+                <Text style={styles.countNumber}>
+                  {students.length - Object.keys(attendanceMark).length}
+                </Text>
+                <Text style={styles.countLabel}>Not Marked</Text>
+              </View>
+            </View>
+          )}
 
           {showDatePicker && Platform.OS !== 'web' && (
             <DateTimePicker 
@@ -445,38 +497,80 @@ const TakeAttendance = () => {
           {students.length > 0 ? (
             <View style={styles.studentsContainer}>
               <View style={styles.tableHeader}>
-                <Text style={styles.headerCell}>Roll No</Text>
-                <Text style={styles.headerCell}>Student Name</Text>
-                <Text style={styles.headerCell}>Present</Text>
-                <Text style={styles.headerCell}>Absent</Text>
+                <Text style={[styles.headerCell, { flex: 1 }]}>Roll No</Text>
+                <Text style={[styles.headerCell, { flex: 2.5 }]}>Student Name</Text>
+                <Text style={[styles.headerCell, { flex: 1 }]}>Present</Text>
+                <Text style={[styles.headerCell, { flex: 1 }]}>Absent</Text>
+                <Text style={[styles.headerCell, { flex: 0.8 }]}>Edit</Text>
               </View>
               
-              {students.map(student => (
-                <View key={student.id} style={styles.studentRow}>
-                  <Text style={styles.studentCell}>{student.roll_no}</Text>
-                  <Text style={styles.studentCell}>{student.name}</Text>
-                  <TouchableOpacity 
-                    style={styles.attendanceButton} 
-                    onPress={() => setAttendanceMark({ ...attendanceMark, [student.id]: 'Present' })}
-                  >
-                    <Ionicons 
-                      name="checkmark-circle" 
-                      size={28} 
-                      color={attendanceMark[student.id] === 'Present' ? '#4CAF50' : '#e0e0e0'} 
-                    />
-                  </TouchableOpacity>
-                  <TouchableOpacity 
-                    style={styles.attendanceButton} 
-                    onPress={() => setAttendanceMark({ ...attendanceMark, [student.id]: 'Absent' })}
-                  >
-                    <Ionicons 
-                      name="close-circle" 
-                      size={28} 
-                      color={attendanceMark[student.id] === 'Absent' ? '#F44336' : '#e0e0e0'} 
-                    />
-                  </TouchableOpacity>
-                </View>
-              ))}
+              {students.map(student => {
+                const isEditable = canEditStudent(student.id);
+                const currentStatus = attendanceMark[student.id];
+                
+                return (
+                  <View key={student.id} style={styles.studentRow}>
+                    <Text style={[styles.studentCell, { flex: 1 }]}>{student.roll_no}</Text>
+                    <Text style={[styles.studentCell, { flex: 2.5 }]}>{student.name}</Text>
+                    
+                    {/* Present Button */}
+                    <View style={{ flex: 1, alignItems: 'center' }}>
+                      <TouchableOpacity
+                        style={[
+                          styles.attendanceCircle,
+                          currentStatus === 'Present' && styles.presentCircle,
+                          !isEditable && currentStatus !== 'Present' && styles.disabledCircle
+                        ]}
+                        onPress={() => toggleStudentAttendance(student.id, 'Present')}
+                        disabled={!isEditable && currentStatus !== 'Present'}
+                      >
+                        <Ionicons
+                          name="checkmark"
+                          size={16}
+                          color={currentStatus === 'Present' ? '#fff' : (isEditable ? '#ccc' : '#ddd')}
+                        />
+                      </TouchableOpacity>
+                    </View>
+
+                    {/* Absent Button */}
+                    <View style={{ flex: 1, alignItems: 'center' }}>
+                      <TouchableOpacity
+                        style={[
+                          styles.attendanceCircle,
+                          currentStatus === 'Absent' && styles.absentCircle,
+                          !isEditable && currentStatus !== 'Absent' && styles.disabledCircle
+                        ]}
+                        onPress={() => toggleStudentAttendance(student.id, 'Absent')}
+                        disabled={!isEditable && currentStatus !== 'Absent'}
+                      >
+                        <Ionicons
+                          name="close"
+                          size={16}
+                          color={currentStatus === 'Absent' ? '#fff' : (isEditable ? '#ccc' : '#ddd')}
+                        />
+                      </TouchableOpacity>
+                    </View>
+
+                    {/* Edit Button */}
+                    <View style={{ flex: 0.8, alignItems: 'center' }}>
+                      <TouchableOpacity
+                        style={[
+                          styles.editButton,
+                          currentStatus && !editMode[student.id] && styles.editButtonActive
+                        ]}
+                        onPress={() => enableEditMode(student.id)}
+                        disabled={!currentStatus}
+                      >
+                        <Ionicons
+                          name="pencil"
+                          size={14}
+                          color={currentStatus && !editMode[student.id] ? "#1976d2" : "#ccc"}
+                        />
+                      </TouchableOpacity>
+                    </View>
+                  </View>
+                );
+              })}
             </View>
           ) : (
             <View style={styles.noDataContainer}>
@@ -619,24 +713,30 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   selectionContainer: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginBottom: 20,
-    flexWrap: 'wrap',
+    backgroundColor: '#fff',
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 16,
+    elevation: 2,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
   },
   pickerContainer: {
-    flex: 1,
-    marginHorizontal: 4,
-    minWidth: 120,
+    marginBottom: 16,
+  },
+  dateContainer: {
+    marginBottom: 0,
   },
   pickerLabel: {
     fontSize: 14,
     fontWeight: 'bold',
     color: '#333',
-    marginBottom: 4,
+    marginBottom: 8,
   },
   picker: {
-    backgroundColor: '#fff',
+    backgroundColor: '#f8f8f8',
     borderRadius: 8,
     borderWidth: 1,
     borderColor: '#e0e0e0',
@@ -658,15 +758,45 @@ const styles = StyleSheet.create({
     backgroundColor: '#fff',
   },
   dateButton: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    backgroundColor: '#f8f8f8',
     borderWidth: 1,
     borderColor: '#e0e0e0',
     borderRadius: 8,
-    padding: 10,
-    backgroundColor: '#fafafa',
+    padding: 12,
   },
   dateButtonText: {
     color: '#333',
     fontSize: 15,
+  },
+  countContainer: {
+    flexDirection: 'row',
+    backgroundColor: '#fff',
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 16,
+    elevation: 2,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    justifyContent: 'space-around',
+  },
+  countBox: {
+    alignItems: 'center',
+    flex: 1,
+  },
+  countNumber: {
+    fontSize: 24,
+    fontWeight: 'bold',
+    color: '#1976d2',
+  },
+  countLabel: {
+    fontSize: 12,
+    color: '#666',
+    marginTop: 4,
   },
   studentsContainer: {
     backgroundColor: '#fff',
@@ -707,6 +837,10 @@ const styles = StyleSheet.create({
   attendanceButton: {
     flex: 1,
     alignItems: 'center',
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: 8,
+    marginHorizontal: 2,
   },
   noDataContainer: {
     backgroundColor: '#fff',
@@ -866,6 +1000,50 @@ const styles = StyleSheet.create({
   closeButtonText: {
     color: '#fff',
     fontWeight: 'bold',
+  },
+  attendanceCircle: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: '#f5f5f5',
+    borderWidth: 1,
+    borderColor: '#e0e0e0',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  presentCircle: {
+    backgroundColor: '#4caf50',
+    borderColor: '#4caf50',
+  },
+  absentCircle: {
+    backgroundColor: '#f44336',
+    borderColor: '#f44336',
+  },
+  disabledCircle: {
+    opacity: 0.5,
+  },
+  editButton: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: '#f5f5f5',
+    borderWidth: 1,
+    borderColor: '#e0e0e0',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  editButtonActive: {
+    backgroundColor: '#e3f2fd',
+    borderColor: '#1976d2',
+  },
+  presentButton: {
+    backgroundColor: '#e8f5e8',
+  },
+  absentButton: {
+    backgroundColor: '#ffebee',
+  },
+  disabledButton: {
+    opacity: 0.5,
   },
 });
 

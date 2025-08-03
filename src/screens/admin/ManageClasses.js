@@ -158,14 +158,21 @@ const ManageClasses = ({ navigation }) => {
           style: 'destructive',
           onPress: async () => {
             try {
-              // 1. Set class_id to null for all students in this class
+              // 1. Delete attendance records for this class
+              const { error: attendanceError } = await supabase
+                .from('student_attendance')
+                .delete()
+                .eq('class_id', classId);
+              if (attendanceError) throw attendanceError;
+
+              // 2. Set class_id to null for all students in this class
               const { error: updateError } = await supabase
                 .from('students')
                 .update({ class_id: null })
                 .eq('class_id', classId);
               if (updateError) throw updateError;
 
-              // 2. Delete the class
+              // 3. Delete the class
               const { error: classDeleteError } = await supabase
                 .from('classes')
                 .delete()

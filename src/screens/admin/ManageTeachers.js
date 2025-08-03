@@ -19,7 +19,7 @@ import { supabase, TABLES, dbHelpers } from '../../utils/supabase';
 import { ActivityIndicator as PaperActivityIndicator } from 'react-native-paper';
 
 // Will be fetched from Supabase
-const ManageTeachers = ({ navigation }) => {
+const ManageTeachers = ({ navigation, route }) => {
   const [subjects, setSubjects] = useState([]);
   const [classes, setClasses] = useState([]);
   const [teachers, setTeachers] = useState([]);
@@ -36,7 +36,14 @@ const ManageTeachers = ({ navigation }) => {
   // Load data on component mount
   useEffect(() => {
     loadData();
-  }, []);
+    
+    // Check if we need to open edit modal from navigation
+    if (route.params?.openEditModal && route.params?.editTeacher) {
+      setTimeout(() => {
+        openEditModal(route.params.editTeacher);
+      }, 500);
+    }
+  }, [route.params]);
 
   useEffect(() => {
     // When selected classes change, filter out subjects that are no longer valid
