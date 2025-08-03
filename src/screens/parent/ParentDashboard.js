@@ -14,7 +14,7 @@ import { Ionicons } from '@expo/vector-icons';
 import Header from '../../components/Header';
 import StatCard from '../../components/StatCard';
 import CrossPlatformPieChart from '../../components/CrossPlatformPieChart';
-import { dbHelpers } from '../../utils/supabase';
+import { supabase, TABLES, dbHelpers } from '../../utils/supabase';
 import { useAuth } from '../../utils/AuthContext';
 
 const ParentDashboard = ({ navigation }) => {
@@ -39,42 +39,76 @@ const ParentDashboard = ({ navigation }) => {
       setLoading(true);
       setError(null);
       try {
-        // Get parent's student data
-        const parentData = await dbHelpers.read('parents', { user_id: user.id });
-        if (!parentData || parentData.length === 0) {
+        // Get parent's student data using the helper function
+        const { data: parentUserData, error: parentError } = await dbHelpers.getParentByUserId(user.id);
+        if (parentError || !parentUserData) {
           throw new Error('Parent data not found');
         }
-        const parent = parentData[0];
-        
-        // Get student details
-        const studentDetails = await dbHelpers.getStudentById(parent.student_id);
+
+        // Get student details from the linked student
+        const studentDetails = parentUserData.students;
         setStudentData(studentDetails);
 
-        // Get notifications for parent
-        const parentNotifications = await dbHelpers.read('notifications', { 
-          recipient_type: 'parent', 
-          recipient_id: parent.id 
-        });
-        setNotifications(parentNotifications || []);
+        // Get notifications for parent (simplified approach)
+        try {
+          const { data: notificationsData, error: notificationsError } = await supabase
+            .from(TABLES.NOTIFICATIONS)
+            .select('*')
+            .order('created_at', { ascending: false })
+            .limit(5);
+
+          if (notificationsError && notificationsError.code !== '42P01') {
+            console.log('Notifications error:', notificationsError);
+          }
+          setNotifications(notificationsData || []);
+        } catch (err) {
+          console.log('Notifications fetch error:', err);
+          setNotifications([]);
+        }
 
         // Get upcoming exams for student's class
-        const studentExams = await dbHelpers.read('exams', { class_id: studentDetails.class_id });
-        setExams(studentExams || []);
+        try {
+          const { data: examsData, error: examsError } = await supabase
+            .from(TABLES.EXAMS)
+            .select('*')
+            .eq('class_id', studentDetails.class_id)
+            .order('date', { ascending: true })
+            .limit(5);
 
-        // Get events
-        const schoolEvents = await dbHelpers.read('events');
-        setEvents(schoolEvents || []);
+          if (examsError && examsError.code !== '42P01') {
+            console.log('Exams error:', examsError);
+          }
+          setExams(examsData || []);
+        } catch (err) {
+          console.log('Exams fetch error:', err);
+          setExams([]);
+        }
 
-        // Get attendance for current week
+        // Set empty events for now (no events table in schema)
+        setEvents([]);
+
+        // Get attendance for current month
         const currentDate = new Date();
-        const weekStart = new Date(currentDate.setDate(currentDate.getDate() - currentDate.getDay()));
-        const weekEnd = new Date(currentDate.setDate(currentDate.getDate() + 6));
-        
-        const weekAttendance = await dbHelpers.read('attendance', {
-          student_id: parent.student_id,
-          date: { gte: weekStart.toISOString().split('T')[0], lte: weekEnd.toISOString().split('T')[0] }
-        });
-        setAttendance(weekAttendance || []);
+        const monthStart = new Date(currentDate.getFullYear(), currentDate.getMonth(), 1);
+        const monthEnd = new Date(currentDate.getFullYear(), currentDate.getMonth() + 1, 0);
+
+        try {
+          const { data: attendanceData, error: attendanceError } = await supabase
+            .from(TABLES.STUDENT_ATTENDANCE)
+            .select('*')
+            .eq('student_id', studentDetails.id)
+            .gte('date', monthStart.toISOString().split('T')[0])
+            .lte('date', monthEnd.toISOString().split('T')[0])
+            .order('date', { ascending: false });
+
+          if (attendanceError && attendanceError.code !== '42P01') {
+            console.log('Attendance error:', attendanceError);
+          }
+          setAttendance(attendanceData || []);
+        } catch (err) {
+          console.log('Attendance fetch error:', err);
+          setAttendance([]);
+        }
 
       } catch (err) {
         console.error('Error fetching dashboard data:', err);
@@ -94,8 +128,8 @@ const ParentDashboard = ({ navigation }) => {
   const unreadCount = notifications.filter(notification => !notification.is_read).length;
 
   // Calculate attendance data for pie chart
-  const presentCount = attendance.filter(item => item.status === 'present').length;
-  const absentCount = attendance.filter(item => item.status === 'absent').length;
+  const presentCount = attendance.filter(item => item.status === 'Present').length;
+  const absentCount = attendance.filter(item => item.status === 'Absent').length;
   const attendancePieData = [
     { name: 'Present', population: presentCount, color: '#4CAF50', legendFontColor: '#333', legendFontSize: 14 },
     { name: 'Absent', population: absentCount, color: '#F44336', legendFontColor: '#333', legendFontSize: 14 },

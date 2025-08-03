@@ -5,7 +5,7 @@ import Header from '../../components/Header';
 import * as ImagePicker from 'expo-image-picker';
 import { useFocusEffect } from '@react-navigation/native';
 import { useAuth } from '../../utils/AuthContext';
-import { supabase, TABLES } from '../../utils/supabase';
+import { supabase, TABLES, dbHelpers } from '../../utils/supabase';
 
 const StudentChatWithTeacher = () => {
   const { user } = useAuth();
@@ -32,19 +32,29 @@ const StudentChatWithTeacher = () => {
     try {
       setLoading(true);
       setError(null);
-      // Get student info
-      const { data: student, error: studentError } = await supabase
-        .from(TABLES.STUDENTS)
-        .select('id, class_id, section_id')
-        .eq('user_id', user.id)
-        .single();
-      if (studentError) throw studentError;
-      // Get teacher assignments
+      // Get student data using the helper function
+      const { data: studentUserData, error: studentError } = await dbHelpers.getStudentByUserId(user.id);
+      if (studentError || !studentUserData) {
+        throw new Error('Student data not found');
+      }
+
+      // Get student details from the linked student
+      const student = studentUserData.students;
+      if (!student) {
+        throw new Error('Student profile not found');
+      }
+      // Get teacher assignments for the student's class
       const { data: assignments, error: assignError } = await supabase
         .from(TABLES.TEACHER_SUBJECTS)
-        .select('teacher_id, subjects(name), teachers(name, id)')
-        .eq('class_id', student.class_id)
-        .eq('section_id', student.section_id);
+        .select(`
+          teacher_id,
+          subjects(
+            name,
+            class_id
+          ),
+          teachers(name, id)
+        `)
+        .eq('subjects.class_id', student.class_id);
       if (assignError) throw assignError;
       // Unique teachers
       const uniqueTeachers = [];
@@ -53,7 +63,7 @@ const StudentChatWithTeacher = () => {
         if (!seen.has(a.teacher_id)) {
           uniqueTeachers.push({
             id: a.teachers.id,
-            name: a.teachers.full_name,
+            name: a.teachers.name,
             subject: a.subjects.name,
           });
           seen.add(a.teacher_id);
@@ -75,21 +85,34 @@ const StudentChatWithTeacher = () => {
       setLoading(true);
       setError(null);
       setSelectedTeacher(teacher);
-      // Get student info
-      const { data: student, error: studentError } = await supabase
-        .from(TABLES.STUDENTS)
-        .select('id')
-        .eq('user_id', user.id)
-        .single();
-      if (studentError) throw studentError;
-      // Get messages
-      const { data: msgs, error: msgError } = await supabase
-        .from(TABLES.MESSAGES)
-        .select('*')
-        .or(`(sender_id.eq.${student.id},receiver_id.eq.${teacher.id}),(sender_id.eq.${teacher.id},receiver_id.eq.${student.id})`)
-        .order('created_at', { ascending: true });
-      if (msgError) throw msgError;
-      setMessages(msgs || []);
+
+      // Get student data using the helper function
+      const { data: studentUserData, error: studentError } = await dbHelpers.getStudentByUserId(user.id);
+      if (studentError || !studentUserData) {
+        throw new Error('Student data not found');
+      }
+
+      const student = studentUserData.students;
+      if (!student) {
+        throw new Error('Student profile not found');
+      }
+
+      // Get messages with error handling
+      try {
+        const { data: msgs, error: msgError } = await supabase
+          .from(TABLES.MESSAGES)
+          .select('*')
+          .or(`(sender_id.eq.${user.id},receiver_id.eq.${teacher.id}),(sender_id.eq.${teacher.id},receiver_id.eq.${user.id})`)
+          .order('sent_at', { ascending: true });
+
+        if (msgError && msgError.code !== '42P01') {
+          throw msgError;
+        }
+        setMessages(msgs || []);
+      } catch (err) {
+        console.log('Messages error:', err);
+        setMessages([]);
+      }
     } catch (err) {
       setError(err.message);
       setMessages([]);
@@ -134,23 +157,21 @@ const StudentChatWithTeacher = () => {
     if (!input.trim() || !selectedTeacher) return;
     setSending(true);
     try {
-      // Get student info
-      const { data: student } = await supabase
-        .from(TABLES.STUDENTS)
-        .select('id')
-        .eq('user_id', user.id)
-        .single();
       const newMsg = {
-        sender_id: student.id,
+        sender_id: user.id,
         receiver_id: selectedTeacher.id,
-        text: input,
-        type: 'text',
-        created_at: new Date().toISOString(),
+        message: input,
+        sent_at: new Date().toISOString(),
       };
+
       const { error: sendError } = await supabase
         .from(TABLES.MESSAGES)
         .insert(newMsg);
-      if (sendError) throw sendError;
+
+      if (sendError && sendError.code !== '42P01') {
+        throw sendError;
+      }
+
       setInput('');
       // fetchMessages(selectedTeacher); // Real-time will update
     } catch (err) {

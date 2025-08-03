@@ -9,7 +9,7 @@ import * as ImagePicker from 'expo-image-picker';
 import * as FileSystem from 'expo-file-system';
 import * as Sharing from 'expo-sharing';
 import { useAuth } from '../../utils/AuthContext';
-import { supabase, TABLES } from '../../utils/supabase';
+import { supabase, TABLES, dbHelpers } from '../../utils/supabase';
 
 const UploadHomework = () => {
   const [classes, setClasses] = useState([]);
@@ -29,6 +29,7 @@ const UploadHomework = () => {
   const [showModal, setShowModal] = useState(false);
   const [editingHomework, setEditingHomework] = useState(null);
   const [showEditModal, setShowEditModal] = useState(false);
+  const [teacherData, setTeacherData] = useState(null);
   const { user } = useAuth();
 
   // Fetch teacher's assigned classes and subjects
@@ -37,24 +38,26 @@ const UploadHomework = () => {
       setLoading(true);
       setError(null);
 
-      // Get teacher info
-      const { data: teacherData, error: teacherError } = await supabase
-        .from(TABLES.TEACHERS)
-        .select('*')
-        .eq('user_id', user.id)
-        .single();
+      // Get teacher info using the helper function
+      const { data: fetchedTeacherData, error: teacherError } = await dbHelpers.getTeacherByUserId(user.id);
 
-      if (teacherError) throw new Error('Teacher not found');
+      if (teacherError || !fetchedTeacherData) throw new Error('Teacher not found');
+
+      setTeacherData(fetchedTeacherData);
 
       // Get assigned classes and subjects
       const { data: assignedData, error: assignedError } = await supabase
         .from(TABLES.TEACHER_SUBJECTS)
         .select(`
           *,
-          classes(id, class_name, section),
-          subjects(id, name)
+          subjects(
+            id,
+            name,
+            class_id,
+            classes(id, class_name, section)
+          )
         `)
-        .eq('teacher_id', teacherData.id);
+        .eq('teacher_id', fetchedTeacherData.id);
 
       if (assignedError) throw assignedError;
 
@@ -62,25 +65,27 @@ const UploadHomework = () => {
       const classMap = new Map();
       
       assignedData.forEach(assignment => {
-        const classKey = assignment.classes.id;
-        
-        if (!classMap.has(classKey)) {
+        const classKey = assignment.subjects?.classes?.id;
+
+        if (classKey && !classMap.has(classKey)) {
           classMap.set(classKey, {
-            id: assignment.classes.id,
-            name: `${assignment.classes.class_name} - ${assignment.classes.section}`,
-            classId: assignment.classes.id,
-            section: assignment.classes.section,
+            id: assignment.subjects.classes.id,
+            name: `${assignment.subjects.classes.class_name} - ${assignment.subjects.classes.section}`,
+            classId: assignment.subjects.classes.id,
+            section: assignment.subjects.classes.section,
             subjects: [],
             students: []
           });
         }
-        
-        const classData = classMap.get(classKey);
-        if (!classData.subjects.find(s => s.id === assignment.subjects.id)) {
-          classData.subjects.push({
-            id: assignment.subjects.id,
-            name: assignment.subjects.name
-          });
+
+        if (classKey) {
+          const classData = classMap.get(classKey);
+          if (!classData.subjects.find(s => s.id === assignment.subjects.id)) {
+            classData.subjects.push({
+              id: assignment.subjects.id,
+              name: assignment.subjects.name
+            });
+          }
         }
       });
 
@@ -90,7 +95,7 @@ const UploadHomework = () => {
           .from(TABLES.STUDENTS)
           .select(`
             id,
-            full_name,
+            name,
             roll_no
           `)
           .eq('class_id', classData.classId)
@@ -114,20 +119,25 @@ const UploadHomework = () => {
   const fetchHomework = async () => {
     try {
       const { data: homeworkData, error: homeworkError } = await supabase
-        .from(TABLES.HOMEWORK)
-        .select(`
-          *,
-          classes(class_name, section),
-          subjects(name)
-        `)
+        .from(TABLES.HOMEWORKS)
+        .select('*')
         .order('created_at', { ascending: false });
 
-      if (homeworkError) throw homeworkError;
+      if (homeworkError) {
+        // If table doesn't exist, just set empty array
+        if (homeworkError.code === '42P01') {
+          console.log('Homeworks table does not exist - using empty array');
+          setHomework([]);
+          return;
+        }
+        throw homeworkError;
+      }
 
       setHomework(homeworkData || []);
 
     } catch (err) {
       console.error('Error fetching homework:', err);
+      setHomework([]); // Fallback to empty array
     }
   };
 
@@ -253,7 +263,7 @@ const UploadHomework = () => {
         class_id: selectedClassData.id,
         section: selectedClassData.section,
         subject_id: selectedSubject,
-        teacher_id: user.id,
+        teacher_id: teacherData.id,
         assigned_students: selectedStudents,
         files: uploadedFiles,
         created_at: new Date().toISOString(),
@@ -261,10 +271,16 @@ const UploadHomework = () => {
       };
 
       const { error: insertError } = await supabase
-        .from(TABLES.HOMEWORK)
+        .from(TABLES.HOMEWORKS)
         .insert(homeworkData);
 
-      if (insertError) throw insertError;
+      if (insertError) {
+        if (insertError.code === '42P01') {
+          Alert.alert('Error', 'Homeworks table does not exist. Please contact your administrator to set up the database.');
+          return;
+        }
+        throw insertError;
+      }
 
       Alert.alert('Success', 'Homework assigned successfully!');
       
@@ -297,7 +313,7 @@ const UploadHomework = () => {
           onPress: async () => {
             try {
               const { error } = await supabase
-                .from(TABLES.HOMEWORK)
+                .from(TABLES.HOMEWORKS)
                 .delete()
                 .eq('id', homeworkId);
 

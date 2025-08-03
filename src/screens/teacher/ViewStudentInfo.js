@@ -8,7 +8,7 @@ import DropDownPicker from 'react-native-dropdown-picker';
 import { useNavigation } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '../../utils/AuthContext';
-import { supabase, TABLES } from '../../utils/supabase';
+import { supabase, TABLES, dbHelpers } from '../../utils/supabase';
 
 const ViewStudentInfo = () => {
   const [students, setStudents] = useState([]);
@@ -29,49 +29,54 @@ const ViewStudentInfo = () => {
       setLoading(true);
       setError(null);
 
-      // Get teacher info
-      const { data: teacherData, error: teacherError } = await supabase
-        .from(TABLES.TEACHERS)
-        .select('*')
-        .eq('user_id', user.id)
-        .single();
+      // Get teacher info using the helper function
+      const { data: teacherData, error: teacherError } = await dbHelpers.getTeacherByUserId(user.id);
 
-      if (teacherError) throw new Error('Teacher not found');
+      if (teacherError || !teacherData) throw new Error('Teacher not found');
 
       // Get assigned classes and subjects
       const { data: assignedData, error: assignedError } = await supabase
         .from(TABLES.TEACHER_SUBJECTS)
         .select(`
           *,
-          classes(id, class_name, section)
+          subjects(
+            id,
+            name,
+            class_id,
+            classes(id, class_name, section)
+          )
         `)
         .eq('teacher_id', teacherData.id);
 
       if (assignedError) throw assignedError;
 
       // Get unique classes
-      const uniqueClasses = [...new Set(assignedData.map(a => `${a.classes.class_name} - ${a.classes.section}`))];
+      const uniqueClasses = [...new Set(assignedData
+        .filter(a => a.subjects?.classes)
+        .map(a => `${a.subjects.classes.class_name} - ${a.subjects.classes.section}`))];
       setClasses(['All', ...uniqueClasses]);
 
       // Get students from assigned classes
-      const studentPromises = assignedData.map(assignment => 
-        supabase
-          .from(TABLES.STUDENTS)
-          .select(`
-            id,
-            full_name,
-            roll_no,
-            email,
-            phone,
-            address,
-            date_of_birth,
-            gender,
-            classes(class_name, section),
-            users!students_parent_id_fkey(full_name, phone, email)
-          `)
-          .eq('class_id', assignment.classes.id)
-          .order('roll_no')
-      );
+      const studentPromises = assignedData
+        .filter(assignment => assignment.subjects?.classes?.id)
+        .map(assignment =>
+          supabase
+            .from(TABLES.STUDENTS)
+            .select(`
+              id,
+              name,
+              roll_no,
+              email,
+              phone,
+              address,
+              dob,
+              gender,
+              classes(class_name, section),
+              users!students_parent_id_fkey(full_name, phone, email)
+            `)
+            .eq('class_id', assignment.subjects.classes.id)
+            .order('roll_no')
+        );
 
       const studentResults = await Promise.all(studentPromises);
       const allStudents = [];
@@ -168,7 +173,7 @@ const ViewStudentInfo = () => {
     // Filter by search query
     if (searchQuery.trim()) {
       filtered = filtered.filter(student =>
-        student.full_name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        student.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
         student.roll_no.toString().includes(searchQuery) ||
         student.email?.toLowerCase().includes(searchQuery.toLowerCase())
       );
@@ -269,7 +274,7 @@ const ViewStudentInfo = () => {
     >
       <View style={styles.studentHeader}>
         <View style={styles.studentInfo}>
-          <Text style={styles.studentName}>{item.full_name}</Text>
+          <Text style={styles.studentName}>{item.name}</Text>
           <Text style={styles.studentDetails}>
             Roll: {item.roll_no} | ${item.classSection}
           </Text>
@@ -408,7 +413,7 @@ const ViewStudentInfo = () => {
                   <Text style={styles.detailTitle}>Personal Information</Text>
                   <View style={styles.detailRow}>
                     <Text style={styles.detailLabel}>Name:</Text>
-                    <Text style={styles.detailValue}>{selectedStudent.full_name}</Text>
+                    <Text style={styles.detailValue}>{selectedStudent.name}</Text>
                   </View>
                   <View style={styles.detailRow}>
                     <Text style={styles.detailLabel}>Roll No:</Text>

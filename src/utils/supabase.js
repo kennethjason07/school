@@ -24,10 +24,13 @@ export const TABLES = {
   EXAMS: 'exams',
   MARKS: 'marks',
   HOMEWORKS: 'homeworks',
+  HOMEWORK: 'homeworks', // Alias for backward compatibility
   ASSIGNMENTS: 'assignments',
   TIMETABLE: 'timetable_entries',
   NOTIFICATIONS: 'notifications',
+  NOTIFICATION_RECIPIENTS: 'notification_recipients',
   TASKS: 'tasks',
+  SCHOOL_DETAILS: 'school_details',
 };
 
 // Authentication helper functions
@@ -703,7 +706,12 @@ export const dbHelpers = {
         .from(TABLES.TEACHER_SUBJECTS)
         .select(`
           *,
-          subjects(id, name, class_id)
+          subjects(
+            id,
+            name,
+            class_id,
+            classes(id, class_name, section)
+          )
         `)
         .eq('teacher_id', teacherId);
       return { data, error };
@@ -720,7 +728,7 @@ export const dbHelpers = {
         .select(`
           *,
           students(
-            full_name,
+            name,
             roll_no,
             classes(class_name, section)
           )
@@ -820,26 +828,178 @@ export const dbHelpers = {
   },
 
   // Homework management
-  async getHomeworks(classId, sectionId = null) {
+  async getHomeworks(classId) {
     try {
       let query = supabase
         .from(TABLES.HOMEWORKS)
-        .select(`
-          *,
-          subjects(name),
-          teachers(full_name),
-          classes(section)
-        `)
+        .select('*')
         .eq('class_id', classId);
-      
-      if (sectionId) {
-        query = query.eq('classes.section', sectionId);
-      }
-      
+
       const { data, error } = await query.order('due_date');
+
+      // Handle case where homeworks table doesn't exist
+      if (error && error.code === '42P01') {
+        console.log('Homeworks table does not exist');
+        return { data: [], error: null };
+      }
+
       return { data, error };
     } catch (error) {
       return { data: null, error };
+    }
+  },
+
+  // Parent management
+  async getParentByUserId(userId) {
+    try {
+      // Get user data with linked student information
+      const { data: userData, error: userError } = await supabase
+        .from(TABLES.USERS)
+        .select(`
+          *,
+          roles(role_name),
+          students!users_linked_parent_of_fkey(
+            id,
+            name,
+            admission_no,
+            roll_no,
+            dob,
+            gender,
+            address,
+            class_id,
+            classes(id, class_name, section)
+          )
+        `)
+        .eq('id', userId)
+        .single();
+
+      if (userError) {
+        return { data: null, error: userError };
+      }
+
+      if (!userData.linked_parent_of) {
+        return { data: null, error: new Error('No student linked to this user') };
+      }
+
+      return { data: userData, error: null };
+    } catch (error) {
+      return { data: null, error };
+    }
+  },
+
+  async getStudentsByParentId(userId) {
+    try {
+      // Get all students linked to this parent user
+      const { data: userData, error: userError } = await supabase
+        .from(TABLES.USERS)
+        .select('linked_parent_of')
+        .eq('id', userId)
+        .single();
+
+      if (userError || !userData.linked_parent_of) {
+        return { data: [], error: userError || new Error('No students linked to this parent') };
+      }
+
+      // Get student details
+      const { data: studentData, error: studentError } = await supabase
+        .from(TABLES.STUDENTS)
+        .select(`
+          *,
+          classes(id, class_name, section)
+        `)
+        .eq('id', userData.linked_parent_of)
+        .single();
+
+      if (studentError) {
+        return { data: [], error: studentError };
+      }
+
+      return { data: [studentData], error: null };
+    } catch (error) {
+      return { data: [], error };
+    }
+  },
+
+  // Student management
+  async getStudentByUserId(userId) {
+    try {
+      // Get user data with linked student information
+      const { data: userData, error: userError } = await supabase
+        .from(TABLES.USERS)
+        .select(`
+          *,
+          roles(role_name),
+          students!users_linked_student_id_fkey(
+            id,
+            name,
+            admission_no,
+            roll_no,
+            dob,
+            gender,
+            address,
+            class_id,
+            classes(id, class_name, section)
+          )
+        `)
+        .eq('id', userId)
+        .single();
+
+      if (userError) {
+        return { data: null, error: userError };
+      }
+
+      if (!userData.linked_student_id) {
+        return { data: null, error: new Error('No student linked to this user') };
+      }
+
+      return { data: userData, error: null };
+    } catch (error) {
+      return { data: null, error };
+    }
+  },
+
+  async getStudentAttendance(studentId, startDate = null, endDate = null) {
+    try {
+      let query = supabase
+        .from(TABLES.STUDENT_ATTENDANCE)
+        .select('*')
+        .eq('student_id', studentId)
+        .order('date', { ascending: false });
+
+      if (startDate) {
+        query = query.gte('date', startDate);
+      }
+      if (endDate) {
+        query = query.lte('date', endDate);
+      }
+
+      const { data, error } = await query;
+      return { data: data || [], error };
+    } catch (error) {
+      return { data: [], error };
+    }
+  },
+
+  async getStudentMarks(studentId, examId = null) {
+    try {
+      let query = supabase
+        .from(TABLES.MARKS)
+        .select(`
+          *,
+          subjects(name),
+          exams(name, date)
+        `)
+        .eq('student_id', studentId)
+        .order('created_at', { ascending: false });
+
+      if (examId) {
+        query = query.eq('exam_id', examId);
+      }
+
+      const { data, error } = await query;
+      return { data: data || [], error };
+    } catch (error) {
+      return { data: [], error };
     }
   },
 
@@ -927,19 +1087,47 @@ export const dbHelpers = {
   },
 
   // Notifications
+  async getNotificationsByUserId(userId) {
+    try {
+      const { data, error } = await supabase
+        .from(TABLES.NOTIFICATIONS)
+        .select(`
+          *,
+          notification_recipients!inner(recipient_id, recipient_type)
+        `)
+        .eq('notification_recipients.recipient_id', userId)
+        .order('created_at', { ascending: false });
+
+      return { data, error };
+    } catch (error) {
+      return { data: null, error };
+    }
+  },
+
   async getNotificationsByRole(role, userId = null) {
     try {
-      let query = supabase
-        .from(TABLES.NOTIFICATIONS)
-        .select('*')
-        .eq('sent_to_role', role)
-        .order('created_at', { ascending: false });
-      
+      // For backward compatibility, redirect to user-based query if userId provided
       if (userId) {
-        query = query.eq('sent_to_id', userId);
+        return this.getNotificationsByUserId(userId);
       }
-      
-      const { data, error } = await query;
+
+      // For role-based queries, we need to join through users and roles
+      const { data, error } = await supabase
+        .from(TABLES.NOTIFICATIONS)
+        .select(`
+          *,
+          notification_recipients!inner(
+            recipient_id,
+            recipient_type,
+            users!notification_recipients_recipient_id_fkey(
+              id,
+              roles(role_name)
+            )
+          )
+        `)
+        .eq('notification_recipients.users.roles.role_name', role)
+        .order('created_at', { ascending: false });
+
       return { data, error };
     } catch (error) {
       return { data: null, error };
@@ -985,6 +1173,67 @@ export const dbHelpers = {
         },
         error: studentsError || teachersError || classesError || attendanceError
       };
+    } catch (error) {
+      return { data: null, error };
+    }
+  },
+
+  // School Details management
+  async getSchoolDetails() {
+    try {
+      const { data, error } = await supabase
+        .from(TABLES.SCHOOL_DETAILS)
+        .select('*')
+        .limit(1);
+
+      if (error) {
+        return { data: null, error };
+      }
+
+      // Return the first record if exists, otherwise null
+      return { data: data && data.length > 0 ? data[0] : null, error: null };
+    } catch (error) {
+      return { data: null, error };
+    }
+  },
+
+  async updateSchoolDetails(schoolData) {
+    try {
+      // First check if school details exist
+      const { data: existing, error: getError } = await this.getSchoolDetails();
+
+      if (getError) {
+        return { data: null, error: getError };
+      }
+
+      if (existing && existing.id) {
+        // Update existing record
+        const { data, error } = await supabase
+          .from(TABLES.SCHOOL_DETAILS)
+          .update(schoolData)
+          .eq('id', existing.id)
+          .select()
+          .limit(1);
+
+        if (error) {
+          return { data: null, error };
+        }
+
+        return { data: data && data.length > 0 ? data[0] : null, error: null };
+      } else {
+        // Create new record
+        const { data, error } = await supabase
+          .from(TABLES.SCHOOL_DETAILS)
+          .insert(schoolData)
+          .select()
+          .limit(1);
+
+        if (error) {
+          return { data: null, error };
+        }
+
+        return { data: data && data.length > 0 ? data[0] : null, error: null };
+      }
     } catch (error) {
       return { data: null, error };
     }

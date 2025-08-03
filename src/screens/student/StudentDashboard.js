@@ -3,7 +3,7 @@ import { View, Text, StyleSheet, TouchableOpacity, FlatList, ActivityIndicator, 
 import { Ionicons } from '@expo/vector-icons';
 import Header from '../../components/Header';
 import { useAuth } from '../../utils/AuthContext';
-import { supabase, TABLES } from '../../utils/supabase';
+import { supabase, TABLES, dbHelpers } from '../../utils/supabase';
 
 const StudentDashboard = ({ navigation }) => {
   const { user } = useAuth();
@@ -20,35 +20,45 @@ const StudentDashboard = ({ navigation }) => {
       setLoading(true);
       setError(null);
 
-      // Get user profile to find the linked student
-      const { data: userData, error: userError } = await supabase
-        .from(TABLES.USERS)
-        .select('linked_id')
-        .eq('id', user.id)
-        .single();
-      if (userError) throw userError;
+      // Get student data using the helper function
+      const { data: studentUserData, error: studentError } = await dbHelpers.getStudentByUserId(user.id);
+      if (studentError || !studentUserData) {
+        throw new Error('Student data not found');
+      }
 
-      // Get student profile
-      const { data: studentData, error: studentError } = await supabase
-        .from(TABLES.STUDENTS)
-        .select('*')
-        .eq('id', userData.linked_id)
-        .single();
-      if (studentError) throw studentError;
+      // Get student details from the linked student
+      const studentData = studentUserData.students;
+      if (!studentData) {
+        throw new Error('Student profile not found');
+      }
+
       setStudentProfile({
         name: studentData.name,
-        class: studentData.class_name || studentData.class_id,
+        class: studentData.classes?.class_name || 'N/A',
         roll: studentData.roll_no,
         avatarColor: '#9C27B0',
       });
 
       // Get assignments count (active assignments)
-      const { data: assignmentsData, error: assignmentsError } = await supabase
-        .from(TABLES.HOMEWORK)
-        .select('*')
-        .contains('assigned_students', [studentData.id]);
-      if (assignmentsError) throw assignmentsError;
-      const assignmentsCount = assignmentsData.length;
+      let assignmentsCount = 0;
+      try {
+        const { data: assignmentsData, error: assignmentsError } = await supabase
+          .from(TABLES.HOMEWORKS)
+          .select('*')
+          .contains('assigned_students', [studentData.id]);
+
+        if (assignmentsError && assignmentsError.code === '42P01') {
+          console.log('Homeworks table does not exist - using 0 assignments');
+          assignmentsCount = 0;
+        } else if (assignmentsError) {
+          throw assignmentsError;
+        } else {
+          assignmentsCount = assignmentsData.length;
+        }
+      } catch (err) {
+        console.log('Error fetching assignments:', err);
+        assignmentsCount = 0;
+      }
 
       // Get attendance percentage
       const { data: attendanceData, error: attendanceError } = await supabase
@@ -60,35 +70,72 @@ const StudentDashboard = ({ navigation }) => {
       const presentDays = attendanceData.filter(a => a.status === 'Present').length;
       const attendancePercent = totalDays > 0 ? Math.round((presentDays / totalDays) * 100) : 0;
 
-      // Get marks percentage (average of all marks)
-      const { data: marksData, error: marksError } = await supabase
-        .from(TABLES.MARKS)
-        .select('*')
-        .eq('student_id', studentData.id);
-      if (marksError) throw marksError;
-      const marksPercent = marksData.length > 0
-        ? Math.round(marksData.reduce((sum, m) => sum + (m.marks_obtained || 0), 0) / marksData.length)
-        : 0;
+      // Get marks percentage (average percentage of all marks)
+      let marksPercent = 0;
+      try {
+        const { data: marksData, error: marksError } = await supabase
+          .from(TABLES.MARKS)
+          .select('*')
+          .eq('student_id', studentData.id);
 
-      // Get notifications (latest 5)
-      const { data: notificationsData, error: notificationsError } = await supabase
-        .from(TABLES.NOTIFICATIONS)
-        .select('*')
-        .eq('user_id', user.id)
-        .order('created_at', { ascending: false })
-        .limit(5);
-      if (notificationsError) throw notificationsError;
+        if (marksError && marksError.code !== '42P01') {
+          throw marksError;
+        }
+
+        if (marksData && marksData.length > 0) {
+          const totalPercentage = marksData.reduce((sum, mark) => {
+            const percentage = (mark.marks_obtained / mark.max_marks) * 100;
+            return sum + (percentage || 0);
+          }, 0);
+          marksPercent = Math.round(totalPercentage / marksData.length);
+        }
+      } catch (err) {
+        console.log('Marks error:', err);
+        marksPercent = 0;
+      }
+
+      // Get notifications (latest 5) - simplified approach
+      let notificationsData = [];
+      try {
+        const { data: notifications, error: notificationsError } = await supabase
+          .from(TABLES.NOTIFICATIONS)
+          .select('*')
+          .order('created_at', { ascending: false })
+          .limit(5);
+
+        if (notificationsError && notificationsError.code !== '42P01') {
+          throw notificationsError;
+        }
+        notificationsData = notifications || [];
+      } catch (err) {
+        console.log('Notifications error:', err);
+        notificationsData = [];
+      }
 
       // Get deadlines (upcoming homework)
-      const today = new Date().toISOString().split('T')[0];
-      const { data: deadlinesData, error: deadlinesError } = await supabase
-        .from(TABLES.HOMEWORK)
-        .select('*')
-        .contains('assigned_students', [studentData.id])
-        .gte('due_date', today)
-        .order('due_date', { ascending: true })
-        .limit(5);
-      if (deadlinesError) throw deadlinesError;
+      let deadlinesData = [];
+      try {
+        const today = new Date().toISOString().split('T')[0];
+        const { data: homeworkDeadlines, error: deadlinesError } = await supabase
+          .from(TABLES.HOMEWORKS)
+          .select('*')
+          .contains('assigned_students', [studentData.id])
+          .gte('due_date', today)
+          .order('due_date', { ascending: true })
+          .limit(5);
+
+        if (deadlinesError && deadlinesError.code === '42P01') {
+          console.log('Homeworks table does not exist - using empty deadlines');
+          deadlinesData = [];
+        } else if (deadlinesError) {
+          throw deadlinesError;
+        } else {
+          deadlinesData = homeworkDeadlines || [];
+        }
+      } catch (err) {
+        console.log('Error fetching deadlines:', err);
+        deadlinesData = [];
+      }
 
       setSummary([
         { key: 'assignments', label: 'Assignments', value: assignmentsCount, icon: 'book', color: '#1976d2' },
@@ -111,7 +158,7 @@ const StudentDashboard = ({ navigation }) => {
     // Real-time subscriptions (optional)
     const homeworkSub = supabase
       .channel('student-dashboard-homework')
-      .on('postgres_changes', { event: '*', schema: 'public', table: TABLES.HOMEWORK }, fetchDashboardData)
+      .on('postgres_changes', { event: '*', schema: 'public', table: TABLES.HOMEWORKS }, fetchDashboardData)
       .subscribe();
     const attendanceSub = supabase
       .channel('student-dashboard-attendance')

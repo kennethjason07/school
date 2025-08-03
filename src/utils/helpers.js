@@ -74,3 +74,95 @@ export const calculatePercentage = (value, total) => {
   if (!total || total === 0) return 0;
   return Math.round((value / total) * 100);
 };
+
+/**
+ * Get student fees with fee structure details using proper joins
+ * @param {string} academicYear - The academic year to filter by
+ * @returns {Promise} - Promise resolving to student fees data
+ */
+export const getStudentFeesWithStructure = async (supabase, academicYear = '2024-25') => {
+  try {
+    // Get all fee structures for the academic year
+    const { data: feeStructures, error: feeError } = await supabase
+      .from('fee_structure')
+      .select('*')
+      .eq('academic_year', academicYear);
+
+    if (feeError) throw feeError;
+
+    // Get all students with their classes
+    const { data: students, error: studentError } = await supabase
+      .from('students')
+      .select(`
+        id,
+        full_name,
+        admission_no,
+        class_id,
+        classes(class_name, section)
+      `);
+
+    if (studentError) throw studentError;
+
+    // Get all student fee payments - NO RELATIONSHIP QUERY
+    const { data: payments, error: paymentError } = await supabase
+      .from('student_fees')
+      .select('*');
+
+    if (paymentError) throw paymentError;
+
+    // Combine the data to show all student-fee combinations
+    const result = [];
+    
+    students.forEach(student => {
+      // Find fee structures for this student's class
+      const classFees = feeStructures.filter(fee => fee.class_id === student.class_id);
+      
+      classFees.forEach(fee => {
+        // Find payment for this student-fee combination
+        const payment = payments.find(p => 
+          p.student_id === student.id && p.fee_id === fee.id
+        );
+
+        result.push({
+          student_name: student.full_name,
+          admission_no: student.admission_no,
+          class_name: student.classes ? `${student.classes.class_name} ${student.classes.section || ''}`.trim() : 'Unknown',
+          academic_year: fee.academic_year,
+          fee_component: fee.type,
+          defined_amount: fee.amount,
+          amount_paid: payment ? payment.amount : 0,
+          payment_date: payment ? payment.payment_date : null,
+          payment_status: payment ? 
+            (payment.amount >= fee.amount ? 'paid' : 'partial') : 
+            'unpaid'
+        });
+      });
+    });
+
+    return { data: result, error: null };
+  } catch (error) {
+    return { data: null, error };
+  }
+};
+
+/**
+ * Get unpaid fees for students
+ * @param {string} academicYear - The academic year to filter by
+ * @returns {Promise} - Promise resolving to unpaid fees data
+ */
+export const getUnpaidFees = async (supabase, academicYear = '2024-25') => {
+  try {
+    const { data: allFees, error } = await getStudentFeesWithStructure(supabase, academicYear);
+    
+    if (error) throw error;
+    
+    // Filter for unpaid and partial fees
+    const unpaidFees = allFees.filter(fee => 
+      fee.payment_status === 'unpaid' || fee.payment_status === 'partial'
+    );
+    
+    return { data: unpaidFees, error: null };
+  } catch (error) {
+    return { data: null, error };
+  }
+};

@@ -6,7 +6,7 @@ import DateTimePicker from '@react-native-community/datetimepicker';
 import { supabase, TABLES } from '../../utils/supabase';
 
 const roles = ['teacher', 'parent', 'student', 'admin'];
-const notificationTypes = ['general', 'urgent', 'fee reminder', 'event', 'homework', 'attendance'];
+const notificationTypes = ['General', 'Urgent', 'Fee Reminder', 'Event', 'Homework', 'Attendance', 'Absentee', 'Exam'];
 
 const NotificationManagement = () => {
   const [notifications, setNotifications] = useState([]);
@@ -14,11 +14,8 @@ const NotificationManagement = () => {
   const [modal, setModal] = useState({ visible: false, mode: 'view', notification: null });
   const [createForm, setCreateForm] = useState({ 
     type: notificationTypes[0], 
-    title: '',
     message: '', 
-    sent_to_role: '', 
-    sent_to_id: null,
-    status: 'Scheduled' 
+    status: 'Pending' 
   });
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [showTimePicker, setShowTimePicker] = useState(false);
@@ -37,9 +34,19 @@ const NotificationManagement = () => {
     setLoading(true);
     setError(null);
     try {
+      // Load from notifications table with recipients
       const { data, error } = await supabase
-        .from(TABLES.NOTIFICATIONS)
-        .select('*')
+        .from('notifications')
+        .select(`
+          *,
+          notification_recipients(
+            id,
+            recipient_id,
+            recipient_type,
+            delivery_status,
+            sent_at
+          )
+        `)
         .order('created_at', { ascending: false });
       
       if (error) throw error;
@@ -80,11 +87,8 @@ const NotificationManagement = () => {
     
     setCreateForm({
       type: notification.type || notificationTypes[0],
-      title: notification.title || '',
       message: notification.message || '',
-      sent_to_role: notification.sent_to_role || '',
-      sent_to_id: notification.sent_to_id || null,
-      status: notification.delivery_status || 'Scheduled'
+      status: notification.delivery_status || 'Pending'
     });
     
     setModal({ visible: true, mode: 'edit', notification });
@@ -95,16 +99,13 @@ const NotificationManagement = () => {
     setTime('');
     setCreateForm({ 
       type: notificationTypes[0], 
-      title: '',
       message: '', 
-      sent_to_role: '', 
-      sent_to_id: null,
-      status: 'Scheduled' 
+      status: 'Pending' 
     });
     setModal({ visible: true, mode: 'create', notification: null });
   };
   
-  const handleDelete = (id) => {
+  const handleDelete = (notificationId) => {
     Alert.alert('Delete Notification', 'Are you sure?', [
       { text: 'Cancel', style: 'cancel' },
       { 
@@ -113,15 +114,16 @@ const NotificationManagement = () => {
         onPress: async () => {
           try {
             setLoading(true);
+            
+            // Delete from notifications table (will cascade to notification_recipients)
             const { error } = await supabase
               .from(TABLES.NOTIFICATIONS)
               .delete()
-              .eq('id', id);
+              .eq('id', notificationId);
             
             if (error) throw error;
             
-            // Update local state
-            setNotifications(notifications.filter(n => n.id !== id));
+            loadNotifications(); // Refresh the list
             Alert.alert('Success', 'Notification deleted successfully');
           } catch (err) {
             console.error('Error deleting notification:', err);
@@ -138,27 +140,29 @@ const NotificationManagement = () => {
     try {
       setLoading(true);
       
-      // Create a new notification based on the existing one
-      const newNotification = {
-        type: notification.type,
-        title: notification.title,
-        message: notification.message,
-        sent_to_role: notification.sent_to_role,
-        sent_to_id: notification.sent_to_id,
-        delivery_status: 'Sent',
-        sent_at: new Date().toISOString(),
-        created_at: new Date().toISOString()
-      };
+      // Update delivery status for all recipients of this notification
+      const { error: updateError } = await supabase
+        .from('notification_recipients')
+        .update({ 
+          delivery_status: 'Sent',
+          sent_at: new Date().toISOString()
+        })
+        .eq('notification_id', notification.id);
       
-      const { data, error } = await supabase
+      if (updateError) throw updateError;
+      
+      // Also update the main notification
+      const { error: notifUpdateError } = await supabase
         .from(TABLES.NOTIFICATIONS)
-        .insert(newNotification)
-        .select();
+        .update({ 
+          delivery_status: 'Sent',
+          sent_at: new Date().toISOString()
+        })
+        .eq('id', notification.id);
       
-      if (error) throw error;
+      if (notifUpdateError) throw notifUpdateError;
       
-      // Update local state
-      setNotifications([...(data || []), ...notifications]);
+      loadNotifications(); // Refresh the list
       Alert.alert('Success', 'Notification resent successfully');
     } catch (err) {
       console.error('Error resending notification:', err);
@@ -203,8 +207,8 @@ const NotificationManagement = () => {
   
   // Create/Edit logic
   const handleSave = async () => {
-    if (!createForm.message || !createForm.sent_to_role || !createForm.title) {
-      Alert.alert('Error', 'Please fill all required fields');
+    if (!createForm.message.trim()) {
+      Alert.alert('Error', 'Message is required');
       return;
     }
     
@@ -216,62 +220,64 @@ const NotificationManagement = () => {
         scheduledAt = new Date(`${date}T${time}`).toISOString();
       }
       
+      // Step 1: Create notification record
       const notificationData = {
         type: createForm.type,
-        title: createForm.title,
         message: createForm.message,
-        sent_to_role: createForm.sent_to_role,
-        sent_to_id: createForm.sent_to_id,
+        delivery_mode: 'InApp',
         delivery_status: createForm.status,
         scheduled_at: scheduledAt,
-        created_at: new Date().toISOString()
+        sent_by: null // Add current user ID if available
       };
       
-      if (modal.mode === 'edit') {
-        // Update existing notification
-        const { data, error } = await supabase
-          .from(TABLES.NOTIFICATIONS)
-          .update(notificationData)
-          .eq('id', modal.notification.id)
-          .select();
+      const { data: notificationResult, error: notificationError } = await supabase
+        .from(TABLES.NOTIFICATIONS)
+        .insert(notificationData)
+        .select()
+        .single();
+      
+      if (notificationError) throw notificationError;
+      
+      // Step 2: Get all users to create recipients
+      const { data: users, error: usersError } = await supabase
+        .from('users')
+        .select('id, role_id');
+      
+      if (usersError) throw usersError;
+      
+      // Step 3: Create recipients for students and parents
+      const recipients = users
+        .filter(user => user.role_id === 2 || user.role_id === 3)
+        .map(user => ({
+          notification_id: notificationResult.id,
+          recipient_id: user.id,
+          recipient_type: user.role_id === 2 ? 'Student' : 'Parent',
+          delivery_status: 'Pending'
+        }));
+      
+      // Step 4: Insert into notification_recipients table
+      if (recipients.length > 0) {
+        const { error: recipientsError } = await supabase
+          .from('notification_recipients')
+          .insert(recipients);
         
-        if (error) throw error;
-        
-        // Update local state
-        setNotifications(notifications.map(n => 
-          n.id === modal.notification.id ? { ...n, ...notificationData } : n
-        ));
-        
-        Alert.alert('Success', 'Notification updated successfully');
-      } else {
-        // Create new notification
-        const { data, error } = await supabase
-          .from(TABLES.NOTIFICATIONS)
-          .insert(notificationData)
-          .select();
-        
-        if (error) throw error;
-        
-        // Update local state
-        setNotifications([...(data || []), ...notifications]);
-        Alert.alert('Success', 'Notification created successfully');
+        if (recipientsError) throw recipientsError;
       }
       
-      // Reset form and close modal
+      loadNotifications(); // Refresh the list
+      Alert.alert('Success', `Notification created and sent to ${recipients.length} recipients`);
+      
       setModal({ visible: false, mode: 'view', notification: null });
       setCreateForm({ 
         type: notificationTypes[0], 
-        title: '',
         message: '', 
-        sent_to_role: '', 
-        sent_to_id: null,
-        status: 'Scheduled' 
+        status: 'Pending' 
       });
       setDate('');
       setTime('');
     } catch (err) {
       console.error('Error saving notification:', err);
-      Alert.alert('Error', 'Failed to save notification');
+      Alert.alert('Error', `Failed to save notification: ${err.message}`);
     } finally {
       setLoading(false);
     }
@@ -347,26 +353,28 @@ const NotificationManagement = () => {
             <TouchableOpacity style={styles.notificationCard} onPress={() => openViewModal(item)}>
               <View style={{ flex: 1 }}>
                 <Text style={styles.notificationType}>{(item.type || 'general').toUpperCase()}</Text>
-                <Text style={styles.notificationTitle}>{item.title || 'No Title'}</Text>
                 <Text style={styles.notificationMsg}>{item.message}</Text>
                 <Text style={styles.notificationMeta}>
-                  To: {item.sent_to_role || 'Unknown'} 
-                  {item.scheduled_at ? ` | ${new Date(item.scheduled_at).toLocaleString()}` : ''}
+                  Recipients: {item.notification_recipients?.length || 0}
+                  {item.scheduled_at ? ` | Scheduled: ${new Date(item.scheduled_at).toLocaleString()}` : ''}
                   {item.sent_at ? ` | Sent: ${new Date(item.sent_at).toLocaleString()}` : ''}
+                </Text>
+                <Text style={styles.notificationStatus}>
+                  Status: {item.delivery_status || 'Pending'}
+                  {item.notification_recipients && (
+                    ` | Sent: ${item.notification_recipients.filter(r => r.delivery_status === 'Sent').length}/${item.notification_recipients.length}`
+                  )}
                 </Text>
               </View>
               <View style={styles.iconCol}>
                 <TouchableOpacity onPress={() => openEditModal(item)}>
-                  <Ionicons name="create-outline" size={22} color="#1976d2" style={styles.actionIcon} />
+                  <Ionicons name="pencil" size={20} color="#1976d2" />
                 </TouchableOpacity>
-                <TouchableOpacity onPress={() => handleDelete(item.id)}>
-                  <Ionicons name="trash-outline" size={22} color="#d32f2f" style={styles.actionIcon} />
+                <TouchableOpacity onPress={() => handleResend(item)} style={{ marginTop: 8 }}>
+                  <Ionicons name="send" size={20} color="#4caf50" />
                 </TouchableOpacity>
-                <TouchableOpacity onPress={() => handleResend(item)}>
-                  <Ionicons name="refresh-outline" size={22} color="#388e3c" style={styles.actionIcon} />
-                </TouchableOpacity>
-                <TouchableOpacity onPress={() => handleDuplicate(item)}>
-                  <Ionicons name="copy-outline" size={22} color="#ff9800" style={styles.actionIcon} />
+                <TouchableOpacity onPress={() => handleDelete(item.id)} style={{ marginTop: 8 }}>
+                  <Ionicons name="trash" size={20} color="#f44336" />
                 </TouchableOpacity>
               </View>
             </TouchableOpacity>

@@ -6,7 +6,7 @@ import { useRef } from 'react';
 import * as ImagePicker from 'expo-image-picker';
 import { useFocusEffect } from '@react-navigation/native';
 import { useAuth } from '../../utils/AuthContext';
-import { dbHelpers } from '../../utils/supabase';
+import { supabase, TABLES, dbHelpers } from '../../utils/supabase';
 
 const ChatWithTeacher = () => {
   const [selectedTeacher, setSelectedTeacher] = useState(null);
@@ -24,44 +24,60 @@ const ChatWithTeacher = () => {
       setLoading(true);
       setError(null);
 
-      // Get parent data
-      const parentData = await dbHelpers.read('parents', { user_id: user.id });
-      if (!parentData || parentData.length === 0) {
+      // Get parent's student data using the helper function
+      const { data: parentUserData, error: parentError } = await dbHelpers.getParentByUserId(user.id);
+      if (parentError || !parentUserData) {
         throw new Error('Parent data not found');
       }
-      const parent = parentData[0];
 
-      // Get student data
-      const studentData = await dbHelpers.getStudentById(parent.student_id);
+      // Get student details from the linked student
+      const studentData = parentUserData.students;
       if (!studentData) {
         throw new Error('Student data not found');
       }
 
-      // Get teachers for the student's class
-      const classTeachers = await dbHelpers.getTeacherSubjects(studentData.class_id);
-      
-      // Get chat messages for the parent
-      const chatMessages = await dbHelpers.read('chat_messages', { 
-        parent_id: parent.id 
-      });
+      // Get teachers for the student's class (simplified approach)
+      const { data: classTeachers, error: teachersError } = await supabase
+        .from(TABLES.TEACHER_SUBJECTS)
+        .select(`
+          teachers(id, name)
+        `)
+        .eq('class_id', studentData.class_id);
 
-      // Organize messages by teacher
+      if (teachersError && teachersError.code !== '42P01') {
+        console.log('Teachers error:', teachersError);
+      }
+
+      // Get chat messages (simplified - using messages table)
+      const { data: chatMessages, error: messagesError } = await supabase
+        .from(TABLES.MESSAGES)
+        .select('*')
+        .or(`sender_id.eq.${user.id},receiver_id.eq.${user.id}`)
+        .order('sent_at', { ascending: true });
+
+      if (messagesError && messagesError.code !== '42P01') {
+        console.log('Messages error:', messagesError);
+      }
+
+      // Organize messages by sender/receiver (simplified approach)
       const messagesByTeacher = {};
-      chatMessages.forEach(msg => {
-        if (!messagesByTeacher[msg.teacher_id]) {
-          messagesByTeacher[msg.teacher_id] = [];
-        }
-        messagesByTeacher[msg.teacher_id].push({
-          id: msg.id,
-          sender: msg.sender_type,
-          text: msg.message,
-          timestamp: new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-          type: msg.message_type || 'text',
-          uri: msg.attachment_url,
-          fileName: msg.file_name,
-          created_at: msg.created_at
+      if (chatMessages && chatMessages.length > 0) {
+        chatMessages.forEach(msg => {
+          // Use sender_id or receiver_id to group messages
+          const teacherId = msg.sender_id === user.id ? msg.receiver_id : msg.sender_id;
+          if (!messagesByTeacher[teacherId]) {
+            messagesByTeacher[teacherId] = [];
+          }
+          messagesByTeacher[teacherId].push({
+            id: msg.id,
+            sender: msg.sender_id === user.id ? 'parent' : 'teacher',
+            text: msg.message,
+            timestamp: new Date(msg.sent_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+            type: 'text',
+            created_at: msg.sent_at
+          });
         });
-      });
+      }
 
       // Sort messages by timestamp
       Object.keys(messagesByTeacher).forEach(teacherId => {
@@ -69,11 +85,11 @@ const ChatWithTeacher = () => {
       });
 
       // Combine teacher data with their messages
-      const teachersWithChats = classTeachers.map(teacher => ({
-        id: teacher.teacher_id,
-        name: teacher.teacher_name,
-        subject: teacher.subject_name,
-        messages: messagesByTeacher[teacher.teacher_id] || []
+      const teachersWithChats = (classTeachers || []).map(assignment => ({
+        id: assignment.teachers?.id,
+        name: assignment.teachers?.name || 'Unknown Teacher',
+        subject: 'Subject', // Simplified for now
+        messages: messagesByTeacher[assignment.teachers?.id] || []
       }));
 
       setTeachers(teachersWithChats);

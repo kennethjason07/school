@@ -3,7 +3,7 @@ import { View, Text, StyleSheet, FlatList, TouchableOpacity, TextInput, Activity
 import { Ionicons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
 import { useAuth } from '../../utils/AuthContext';
-import { supabase, TABLES } from '../../utils/supabase';
+import { supabase, TABLES, dbHelpers } from '../../utils/supabase';
 
 const FILTERS = [
   { key: 'all', label: 'All' },
@@ -26,12 +26,18 @@ const StudentNotifications = () => {
     try {
       setLoading(true);
       setError(null);
+
+      // Get general notifications (simplified approach for students)
       const { data, error: notifError } = await supabase
         .from(TABLES.NOTIFICATIONS)
         .select('*')
-        .eq('user_id', user.id)
-        .order('created_at', { ascending: false });
-      if (notifError) throw notifError;
+        .order('created_at', { ascending: false })
+        .limit(50);
+
+      if (notifError && notifError.code !== '42P01') {
+        throw notifError;
+      }
+
       setNotifications(data || []);
     } catch (err) {
       setError(err.message);
@@ -65,13 +71,19 @@ const StudentNotifications = () => {
 
   const markAsRead = async (id) => {
     try {
+      // Try to update is_read field if it exists
       const { error: updateError } = await supabase
         .from(TABLES.NOTIFICATIONS)
-        .update({ read: true })
+        .update({ is_read: true })
         .eq('id', id);
-      if (updateError) throw updateError;
+
+      if (updateError && updateError.code !== '42703') { // Ignore column doesn't exist error
+        throw updateError;
+      }
+
+      // Update local state regardless
       setNotifications(notifications =>
-        notifications.map(n => n.id === id ? { ...n, read: true } : n)
+        notifications.map(n => n.id === id ? { ...n, is_read: true, read: true } : n)
       );
     } catch (err) {
       Alert.alert('Error', 'Failed to mark as read.');

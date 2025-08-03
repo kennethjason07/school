@@ -14,7 +14,7 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import Header from '../../components/Header';
-import { dbHelpers } from '../../utils/supabase';
+import { supabase, TABLES, dbHelpers } from '../../utils/supabase';
 import { useAuth } from '../../utils/AuthContext';
 
 const { width } = Dimensions.get('window');
@@ -32,18 +32,16 @@ const Notifications = ({ navigation }) => {
       setLoading(true);
       setError(null);
       try {
-        // Get parent's data
-        const parentData = await dbHelpers.read('parents', { user_id: user.id });
-        if (!parentData || parentData.length === 0) {
-          throw new Error('Parent data not found');
+        // Get notifications (simplified approach for parents)
+        const { data: parentNotifications, error: notificationsError } = await supabase
+          .from(TABLES.NOTIFICATIONS)
+          .select('*')
+          .order('created_at', { ascending: false })
+          .limit(50);
+
+        if (notificationsError && notificationsError.code !== '42P01') {
+          throw notificationsError;
         }
-        const parent = parentData[0];
-        
-        // Get notifications for parent
-        const parentNotifications = await dbHelpers.read('notifications', { 
-          recipient_type: 'parent', 
-          recipient_id: parent.id 
-        });
         
         // Transform the data to match the expected format
         const transformedNotifications = (parentNotifications || []).map(notification => ({

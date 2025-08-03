@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator, Alert } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '../../utils/AuthContext';
-import { supabase, TABLES } from '../../utils/supabase';
+import { supabase, TABLES, dbHelpers } from '../../utils/supabase';
 import Header from '../../components/Header';
 
 export default function MarksEntrySelectScreen({ navigation }) {
@@ -17,14 +17,10 @@ export default function MarksEntrySelectScreen({ navigation }) {
       setLoading(true);
       setError(null);
 
-      // Get teacher info
-      const { data: teacherData, error: teacherError } = await supabase
-        .from(TABLES.TEACHERS)
-        .select('*')
-        .eq('user_id', user.id)
-        .single();
+      // Get teacher info using the helper function
+      const { data: teacherData, error: teacherError } = await dbHelpers.getTeacherByUserId(user.id);
 
-      if (teacherError) throw new Error('Teacher not found');
+      if (teacherError || !teacherData) throw new Error('Teacher not found');
 
       // Get assigned subjects
       const { data: assignedSubjects, error: subjectsError } = await supabase

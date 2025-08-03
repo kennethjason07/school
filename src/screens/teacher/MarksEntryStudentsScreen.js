@@ -3,7 +3,7 @@ import { View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput, Alert,
 import { Ionicons } from '@expo/vector-icons';
 import Header from '../../components/Header';
 import { useAuth } from '../../utils/AuthContext';
-import { supabase, TABLES } from '../../utils/supabase';
+import { supabase, TABLES, dbHelpers } from '../../utils/supabase';
 
 export default function MarksEntryStudentsScreen({ navigation, route }) {
   const { subject, subjectId } = route.params;
@@ -20,14 +20,10 @@ export default function MarksEntryStudentsScreen({ navigation, route }) {
       setLoading(true);
       setError(null);
 
-      // Get teacher info
-      const { data: teacherData, error: teacherError } = await supabase
-        .from(TABLES.TEACHERS)
-        .select('*')
-        .eq('user_id', user.id)
-        .single();
+      // Get teacher info using the helper function
+      const { data: teacherData, error: teacherError } = await dbHelpers.getTeacherByUserId(user.id);
 
-      if (teacherError) throw new Error('Teacher not found');
+      if (teacherError || !teacherData) throw new Error('Teacher not found');
 
       // Get classes and sections where teacher teaches this subject
       const { data: teacherAssignments, error: assignmentsError } = await supabase
@@ -52,7 +48,7 @@ export default function MarksEntryStudentsScreen({ navigation, route }) {
           .from(TABLES.STUDENTS)
           .select(`
             id,
-            full_name,
+            name,
             roll_no,
             classes(class_name, section)
           `)
@@ -133,12 +129,12 @@ export default function MarksEntryStudentsScreen({ navigation, route }) {
       // Validate all marks are entered
       for (let student of students) {
         if (!marks[student.id] || marks[student.id].trim() === '') {
-          Alert.alert('Validation Error', `Please enter marks for ${student.full_name}`);
+          Alert.alert('Validation Error', `Please enter marks for ${student.name}`);
           return;
         }
         const markValue = parseInt(marks[student.id]);
         if (isNaN(markValue) || markValue < 0 || markValue > 100) {
-          Alert.alert('Validation Error', `Invalid marks for ${student.full_name}. Marks should be between 0-100.`);
+          Alert.alert('Validation Error', `Invalid marks for ${student.name}. Marks should be between 0-100.`);
           return;
         }
       }
@@ -148,19 +144,17 @@ export default function MarksEntryStudentsScreen({ navigation, route }) {
         student_id: student.id,
         subject_id: subjectId,
         marks_obtained: parseInt(marks[student.id]),
-        total_marks: 100,
-        exam_name: 'Class Test', // Default exam name
-        exam_date: new Date().toISOString().split('T')[0],
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString()
+        max_marks: 100,
+        exam_id: null, // Will need to create exam records separately
+        created_at: new Date().toISOString()
       }));
 
       // Upsert marks (insert or update)
       const { error: upsertError } = await supabase
         .from(TABLES.MARKS)
-        .upsert(marksData, { 
-          onConflict: 'student_id,subject_id,exam_name',
-          ignoreDuplicates: false 
+        .upsert(marksData, {
+          onConflict: 'student_id,subject_id',
+          ignoreDuplicates: false
         });
 
       if (upsertError) throw upsertError;

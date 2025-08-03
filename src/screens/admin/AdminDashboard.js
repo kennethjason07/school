@@ -13,6 +13,7 @@ import {
   Platform,
   RefreshControl,
   FlatList,
+  Image,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { LineChart, BarChart, PieChart } from 'react-native-chart-kit';
@@ -21,7 +22,7 @@ import StatCard from '../../components/StatCard';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import CrossPlatformPieChart from '../../components/CrossPlatformPieChart';
 import CrossPlatformBarChart from '../../components/CrossPlatformBarChart';
-import { supabase } from '../../utils/supabase';
+import { supabase, dbHelpers } from '../../utils/supabase';
 import { format, addMonths } from 'date-fns';
 
 const { width } = Dimensions.get('window');
@@ -32,12 +33,17 @@ const AdminDashboard = ({ navigation }) => {
   const [stats, setStats] = useState([]);
   const [refreshing, setRefreshing] = useState(false);
   const [selectedDate, setSelectedDate] = useState(new Date());
+  const [schoolDetails, setSchoolDetails] = useState(null);
 
   // Load real-time data from Supabase using actual schema
   const loadDashboardData = async () => {
     try {
       setLoading(true);
       setError(null);
+
+      // Load school details
+      const { data: schoolData } = await dbHelpers.getSchoolDetails();
+      setSchoolDetails(schoolData);
 
       // Load students count with gender breakdown
       const { data: studentsData, error: studentError, count: studentCount } = await supabase
@@ -300,6 +306,7 @@ const AdminDashboard = ({ navigation }) => {
   };
 
   const quickActions = [
+    { title: 'School Details', icon: 'business', color: '#673AB7', screen: 'SchoolDetails' }, // Stack screen
     { title: 'Manage Classes', icon: 'school', color: '#2196F3', screen: 'Classes' }, // Tab name
     { title: 'Manage Students', icon: 'people', color: '#4CAF50', screen: 'Students' }, // Tab name
     { title: 'Manage Teachers', icon: 'person', color: '#FF9800', screen: 'Teachers' }, // Tab name
@@ -706,12 +713,28 @@ const AdminDashboard = ({ navigation }) => {
       >
         {/* Welcome Section */}
         <View style={styles.welcomeSection}>
-          <Text style={styles.welcomeText}>Welcome back, Admin!</Text>
-          <Text style={styles.dateText}>{new Date().toLocaleDateString('en-US', { 
-            weekday: 'long', 
-            year: 'numeric', 
-            month: 'long', 
-            day: 'numeric' 
+          <View style={styles.schoolHeader}>
+            {schoolDetails?.logo_url ? (
+              <Image source={{ uri: schoolDetails.logo_url }} style={styles.schoolLogo} />
+            ) : (
+              <View style={styles.logoPlaceholder}>
+                <Ionicons name="school" size={40} color="#2196F3" />
+              </View>
+            )}
+            <View style={styles.schoolInfo}>
+              <Text style={styles.schoolName}>
+                {schoolDetails?.name || 'School Management System'}
+              </Text>
+              <Text style={styles.schoolType}>
+                {schoolDetails?.type || 'Educational Institution'}
+              </Text>
+            </View>
+          </View>
+          <Text style={styles.dateText}>{new Date().toLocaleDateString('en-US', {
+            weekday: 'long',
+            year: 'numeric',
+            month: 'long',
+            day: 'numeric'
           })}</Text>
         </View>
 
@@ -1308,18 +1331,52 @@ const styles = StyleSheet.create({
   },
   welcomeSection: {
     padding: 20,
-    backgroundColor: '#fff',
+    backgroundColor: '#2196F3',
     marginBottom: 8,
+    borderRadius: 12,
+  },
+  schoolHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 10,
+  },
+  schoolLogo: {
+    width: 60,
+    height: 60,
+    borderRadius: 30,
+    marginRight: 15,
+  },
+  logoPlaceholder: {
+    width: 60,
+    height: 60,
+    borderRadius: 30,
+    backgroundColor: 'rgba(255, 255, 255, 0.2)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 15,
+  },
+  schoolInfo: {
+    flex: 1,
+  },
+  schoolName: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    color: '#fff',
+    marginBottom: 2,
+  },
+  schoolType: {
+    fontSize: 14,
+    color: 'rgba(255, 255, 255, 0.8)',
   },
   welcomeText: {
     fontSize: 24,
     fontWeight: 'bold',
-    color: '#333',
+    color: '#fff',
     marginBottom: 4,
   },
   dateText: {
     fontSize: 16,
-    color: '#666',
+    color: 'rgba(255, 255, 255, 0.9)',
   },
   statsContainer: {
     paddingHorizontal: 16,

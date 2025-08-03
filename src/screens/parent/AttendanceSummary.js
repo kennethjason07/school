@@ -18,7 +18,7 @@ import * as Print from 'expo-print';
 import * as Sharing from 'expo-sharing';
 import Header from '../../components/Header';
 import { useAuth } from '../../utils/AuthContext';
-import { dbHelpers } from '../../utils/supabase';
+import { supabase, TABLES, dbHelpers } from '../../utils/supabase';
 
 const { width } = Dimensions.get('window');
 
@@ -78,42 +78,49 @@ const AttendanceSummary = () => {
       setLoading(true);
       setError(null);
 
-      // Get parent data
-      const parentData = await dbHelpers.read('parents', { user_id: user.id });
-      if (!parentData || parentData.length === 0) {
+      // Get parent's student data using the helper function
+      const { data: parentUserData, error: parentError } = await dbHelpers.getParentByUserId(user.id);
+      if (parentError || !parentUserData) {
         throw new Error('Parent data not found');
       }
-      const parent = parentData[0];
 
-      // Get student data
-      const student = await dbHelpers.getStudentById(parent.student_id);
+      // Get student details from the linked student
+      const student = parentUserData.students;
       if (!student) {
         throw new Error('Student data not found');
       }
       setStudentData(student);
 
       // Get attendance records for the student
-      const attendanceRecords = await dbHelpers.read('attendance', { 
-        student_id: student.id 
-      });
+      const { data: attendanceRecords, error: attendanceError } = await supabase
+        .from(TABLES.STUDENT_ATTENDANCE)
+        .select('*')
+        .eq('student_id', student.id)
+        .order('date', { ascending: false });
+
+      if (attendanceError && attendanceError.code !== '42P01') {
+        throw attendanceError;
+      }
 
       // Organize attendance data by month
       const organizedData = {};
-      attendanceRecords.forEach(record => {
-        const date = new Date(record.date);
-        const monthKey = format(date, 'yyyy-MM');
-        const dateKey = format(date, 'yyyy-MM-dd');
-        
-        if (!organizedData[monthKey]) {
-          organizedData[monthKey] = {};
-        }
-        
-        organizedData[monthKey][dateKey] = {
-          status: record.status,
-          subject: record.subject_name || 'All',
-          reason: record.reason || null
-        };
-      });
+      if (attendanceRecords && attendanceRecords.length > 0) {
+        attendanceRecords.forEach(record => {
+          const date = new Date(record.date);
+          const monthKey = format(date, 'yyyy-MM');
+          const dateKey = format(date, 'yyyy-MM-dd');
+
+          if (!organizedData[monthKey]) {
+            organizedData[monthKey] = {};
+          }
+
+          organizedData[monthKey][dateKey] = {
+            status: record.status,
+            subject: 'All', // No subject-wise attendance in current schema
+            reason: null
+          };
+        });
+      }
 
       setAttendanceData(organizedData);
     } catch (err) {

@@ -42,14 +42,10 @@ const TakeAttendance = () => {
       setLoading(true);
       setError(null);
       
-      // Get teacher info
-      const { data: teacherData, error: teacherError } = await supabase
-        .from(TABLES.TEACHERS)
-        .select('*')
-        .eq('user_id', user.id)
-        .single();
+      // Get teacher info using the helper function
+      const { data: teacherData, error: teacherError } = await dbHelpers.getTeacherByUserId(user.id);
 
-      if (teacherError) throw new Error('Teacher not found');
+      if (teacherError || !teacherData) throw new Error('Teacher not found');
       setTeacherInfo(teacherData);
 
       // Get assigned classes and subjects
@@ -57,7 +53,12 @@ const TakeAttendance = () => {
         .from(TABLES.TEACHER_SUBJECTS)
         .select(`
           *,
-          classes(class_name, id, section)
+          subjects(
+            id,
+            name,
+            class_id,
+            classes(class_name, id, section)
+          )
         `)
         .eq('teacher_id', teacherData.id);
 
@@ -65,13 +66,13 @@ const TakeAttendance = () => {
 
       // Extract unique classes
       const classMap = new Map();
-      
+
       assignedSubjects.forEach(subject => {
-        if (subject.classes) {
-          classMap.set(subject.classes.id, { 
-            id: subject.classes.id, 
-            class_name: subject.classes.class_name, 
-            section: subject.classes.section 
+        if (subject.subjects?.classes) {
+          classMap.set(subject.subjects.classes.id, {
+            id: subject.subjects.classes.id,
+            class_name: subject.subjects.classes.class_name,
+            section: subject.subjects.classes.section
           });
         }
       });
@@ -215,9 +216,10 @@ const TakeAttendance = () => {
       // Prepare attendance records
       const attendanceRecords = students.map(student => ({
         student_id: student.id,
+        class_id: selectedClass,
         date: selectedDate,
         status: attendanceMark[student.id] || 'Absent',
-        marked_by: teacherInfo.id,
+        marked_by: user.id, // Use user.id instead of teacherInfo.id for consistency
         created_at: new Date().toISOString()
       }));
 
@@ -251,7 +253,7 @@ const TakeAttendance = () => {
       // Get students for the view class
       const { data: viewStudents } = await supabase
         .from(TABLES.STUDENTS)
-        .select('id, full_name, roll_no')
+        .select('id, name, roll_no')
         .eq('class_id', viewClass);
 
       if (!viewStudents || viewStudents.length === 0) {

@@ -16,7 +16,7 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import Header from '../../components/Header';
-import { supabase, TABLES } from '../../utils/supabase';
+import { supabase, TABLES, dbHelpers } from '../../utils/supabase';
 import { useAuth } from '../../utils/AuthContext';
 import { format } from 'date-fns';
 import * as Animatable from 'react-native-animatable';
@@ -41,14 +41,10 @@ export default function MarksEntry({ navigation }) {
       setLoading(true);
       setError(null);
       
-      // Get teacher info
-      const { data: teacherData, error: teacherError } = await supabase
-        .from(TABLES.TEACHERS)
-        .select('*')
-        .eq('user_id', user.id)
-        .single();
+      // Get teacher info using the helper function
+      const { data: teacherData, error: teacherError } = await dbHelpers.getTeacherByUserId(user.id);
 
-      if (teacherError) throw new Error('Teacher not found');
+      if (teacherError || !teacherData) throw new Error('Teacher not found');
 
       // Get assigned classes and subjects
       const { data: assignedData, error: assignedError } = await supabase
@@ -93,7 +89,7 @@ export default function MarksEntry({ navigation }) {
           .from(TABLES.STUDENTS)
           .select(`
             id,
-            full_name,
+            name,
             roll_no,
             classes(class_name, section)
           `)

@@ -263,3 +263,24 @@ CREATE TABLE public.users (
   CONSTRAINT users_role_id_fkey FOREIGN KEY (role_id) REFERENCES public.roles(id),
   CONSTRAINT users_linked_student_id_fkey FOREIGN KEY (linked_student_id) REFERENCES public.students(id)
 );
+
+CREATE TABLE public.school_details (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  name text NOT NULL,
+  type text DEFAULT 'School',
+  address text,
+  city text,
+  state text,
+  pincode text,
+  phone text,
+  email text,
+  website text,
+  principal_name text,
+  established_year text,
+  affiliation text,
+  logo_url text,
+  description text,
+  created_at timestamp without time zone DEFAULT CURRENT_TIMESTAMP,
+  updated_at timestamp without time zone DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT school_details_pkey PRIMARY KEY (id)
+);

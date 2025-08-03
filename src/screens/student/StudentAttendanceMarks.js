@@ -5,7 +5,7 @@ import * as Print from 'expo-print';
 import * as Sharing from 'expo-sharing';
 import { LineChart } from 'react-native-chart-kit';
 import { useAuth } from '../../utils/AuthContext';
-import { supabase, TABLES } from '../../utils/supabase';
+import { supabase, TABLES, dbHelpers } from '../../utils/supabase';
 
 const MONTHS = [
   { label: 'January', value: '2024-01' },
@@ -67,30 +67,25 @@ export default function StudentAttendanceMarks() {
       setError(null);
 
       // Get student id from user context
-      const { data: userData, error: userError } = await supabase
-        .from(TABLES.USERS)
-        .select('linked_student_id')
-        .eq('id', user.id)
-        .single();
+      // Get student data using the helper function
+      const { data: studentUserData, error: studentError } = await dbHelpers.getStudentByUserId(user.id);
+      if (studentError || !studentUserData) {
+        throw new Error('Student data not found');
+      }
 
-      if (userError) throw userError;
-      if (!userData?.linked_student_id) throw new Error('Student profile not linked to this user.');
+      // Get student details from the linked student
+      const student = studentUserData.students;
+      if (!student) {
+        throw new Error('Student profile not found');
+      }
 
-      const studentId = userData.linked_student_id;
-
-      // Get student profile
-      const { data: student, error: studentError } = await supabase
-        .from(TABLES.STUDENTS)
-        .select('*')
-        .eq('id', studentId)
-        .single();
-      if (studentError) throw studentError;
+      const studentId = student.id;
 
       setStudentInfo({
         name: student.name,
-        class: student.class_id,
+        class: student.classes?.class_name || 'N/A',
         rollNo: student.roll_no,
-        section: student.section || '',
+        section: student.classes?.section || '',
         profilePicUrl: '',
       });
 

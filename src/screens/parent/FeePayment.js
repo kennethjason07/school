@@ -17,7 +17,7 @@ import Header from '../../components/Header';
 import * as FileSystem from 'expo-file-system';
 import * as Sharing from 'expo-sharing';
 import * as Print from 'expo-print';
-import { dbHelpers } from '../../utils/supabase';
+import { supabase, TABLES, dbHelpers } from '../../utils/supabase';
 import { useAuth } from '../../utils/AuthContext';
 
 const { width } = Dimensions.get('window');
@@ -40,38 +40,51 @@ const FeePayment = () => {
       setLoading(true);
       setError(null);
       try {
-        // Get parent's student data
-        const parentData = await dbHelpers.read('parents', { user_id: user.id });
-        if (!parentData || parentData.length === 0) {
+        // Get parent's student data using the helper function
+        const { data: parentUserData, error: parentError } = await dbHelpers.getParentByUserId(user.id);
+        if (parentError || !parentUserData) {
           throw new Error('Parent data not found');
         }
-        const parent = parentData[0];
-        
-        // Get student details
-        const studentDetails = await dbHelpers.getStudentById(parent.student_id);
+
+        // Get student details from the linked student
+        const studentDetails = parentUserData.students;
         setStudentData(studentDetails);
-        
+
         // Get fee structure for student's class
-        const classFees = await dbHelpers.read('fees', { class_id: studentDetails.class_id });
-        
+        const { data: classFees, error: feesError } = await supabase
+          .from(TABLES.FEE_STRUCTURE)
+          .select('*')
+          .eq('class_id', studentDetails.class_id);
+
+        if (feesError && feesError.code !== '42P01') {
+          console.log('Fee structure error:', feesError);
+        }
+
         // Get payment history for the student
-        const studentPayments = await dbHelpers.read('payments', { student_id: parent.student_id });
+        const { data: studentPayments, error: paymentsError } = await supabase
+          .from(TABLES.STUDENT_FEES)
+          .select('*')
+          .eq('student_id', studentDetails.id);
+
+        if (paymentsError && paymentsError.code !== '42P01') {
+          console.log('Student payments error:', paymentsError);
+        }
         
         // Transform fee structure data
         const transformedFees = (classFees || []).map(fee => {
           const payment = studentPayments?.find(p => p.fee_id === fee.id);
-          const paidAmount = payment ? payment.amount : 0;
-          const status = paidAmount === 0 ? 'unpaid' : paidAmount >= fee.amount ? 'paid' : 'partial';
-          
+          const paidAmount = payment ? payment.amount_paid : 0;
+          const status = payment ? payment.status : 'unpaid';
+
           return {
             id: fee.id,
-            name: fee.fee_name,
+            name: 'School Fee', // Simplified name
             amount: fee.amount,
             dueDate: fee.due_date,
             status: status,
             paidAmount: paidAmount,
-            description: fee.description || 'Fee payment',
-            category: fee.category || 'general'
+            description: 'School fee payment',
+            category: 'general'
           };
         });
         
@@ -82,7 +95,7 @@ const FeePayment = () => {
         
         setFeeStructure({
           studentName: studentDetails.name,
-          class: studentDetails.class_name,
+          class: studentDetails.classes?.class_name || 'N/A',
           academicYear: '2024-2025', // This could be fetched from settings
           totalDue: totalDue,
           totalPaid: totalPaid,

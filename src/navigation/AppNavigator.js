@@ -32,6 +32,7 @@ import AccountTestScreen from '../screens/admin/AccountTestScreen';
 import DatabaseCleanup from '../screens/admin/DatabaseCleanup';
 import FeeClassDetails from '../screens/admin/FeeClassDetails';
 import AssignTaskToTeacher from '../screens/admin/AssignTaskToTeacher';
+import SchoolDetails from '../screens/admin/SchoolDetails';
 
 // Report Screens
 import AttendanceReport from '../screens/admin/reports/AttendanceReport';
@@ -260,6 +261,7 @@ export default function AppNavigator() {
             {userType === 'admin' && (
               <>
                 <Stack.Screen name="AdminTabs" component={AdminTabNavigator} />
+                <Stack.Screen name="SchoolDetails" component={SchoolDetails} />
                 <Stack.Screen name="SubjectsTimetable" component={SubjectsTimetable} />
                 <Stack.Screen name="AttendanceManagement" component={AttendanceManagement} />
                 <Stack.Screen name="FeeManagement" component={FeeManagement} />
