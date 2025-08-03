@@ -91,28 +91,29 @@ const ViewReportCard = () => {
                 maxTotalMarks += mark.max_marks;
               }
             
-            if (subjectsData.length > 0) {
-              const averagePercentage = Math.round((totalMarks / maxTotalMarks) * 100);
-              const overallGrade = calculateGrade(totalMarks, maxTotalMarks);
-              
-              reportCardsData.push({
-                id: exam.id,
-                examName: exam.name,
-                examDate: exam.date,
-                academicYear: '2024-2025',
-                class: studentDetails.classes?.class_name || 'N/A',
-                studentName: studentDetails.name,
-                rollNumber: studentDetails.roll_no,
-                subjects: subjectsData,
-                totalMarks: totalMarks,
-                maxTotalMarks: maxTotalMarks,
-                averagePercentage: averagePercentage,
-                overallGrade: overallGrade,
-                rank: 1, // Simplified for now
-                classTeacher: 'Class Teacher', // Simplified for now
-                principal: 'Principal' // Simplified for now
-              });
-            }
+              if (subjectsData.length > 0) {
+                const averagePercentage = Math.round((totalMarks / maxTotalMarks) * 100);
+                const overallGrade = calculateGrade(totalMarks, maxTotalMarks);
+
+                reportCardsData.push({
+                  id: exam.id,
+                  examName: exam.name,
+                  examDate: exam.date,
+                  academicYear: '2024-2025',
+                  class: studentDetails.classes?.class_name || 'N/A',
+                  studentName: studentDetails.name,
+                  rollNumber: studentDetails.roll_no,
+                  subjects: subjectsData,
+                  totalMarks: totalMarks,
+                  maxTotalMarks: maxTotalMarks,
+                  averagePercentage: averagePercentage,
+                  overallGrade: overallGrade,
+                  rank: 1, // Simplified for now
+                  classTeacher: 'Class Teacher', // Simplified for now
+                  principal: 'Principal' // Simplified for now
+                });
+              }
+            } // Added missing closing brace for marks check
           }
         }
         
