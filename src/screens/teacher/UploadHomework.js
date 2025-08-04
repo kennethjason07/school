@@ -120,7 +120,11 @@ const UploadHomework = () => {
     try {
       const { data: homeworkData, error: homeworkError } = await supabase
         .from(TABLES.HOMEWORKS)
-        .select('*')
+        .select(`
+          *,
+          classes(id, class_name, section),
+          subjects(id, name)
+        `)
         .order('created_at', { ascending: false });
 
       if (homeworkError) {
@@ -261,37 +265,51 @@ const UploadHomework = () => {
         instructions: homeworkInstructions,
         due_date: dueDate.toISOString().split('T')[0],
         class_id: selectedClassData.id,
-        section: selectedClassData.section,
         subject_id: selectedSubject,
         teacher_id: teacherData.id,
         assigned_students: selectedStudents,
-        files: uploadedFiles,
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString()
+        files: uploadedFiles
       };
 
-      const { error: insertError } = await supabase
-        .from(TABLES.HOMEWORKS)
-        .insert(homeworkData);
+      let error;
 
-      if (insertError) {
-        if (insertError.code === '42P01') {
+      if (editingHomework) {
+        // Update existing homework
+        const { error: updateError } = await supabase
+          .from(TABLES.HOMEWORKS)
+          .update({
+            ...homeworkData,
+            updated_at: new Date().toISOString()
+          })
+          .eq('id', editingHomework.id);
+        error = updateError;
+      } else {
+        // Create new homework
+        const { error: insertError } = await supabase
+          .from(TABLES.HOMEWORKS)
+          .insert(homeworkData);
+        error = insertError;
+      }
+
+      if (error) {
+        if (error.code === '42P01') {
           Alert.alert('Error', 'Homeworks table does not exist. Please contact your administrator to set up the database.');
           return;
         }
-        throw insertError;
+        throw error;
       }
 
-      Alert.alert('Success', 'Homework assigned successfully!');
-      
+      Alert.alert('Success', `Homework ${editingHomework ? 'updated' : 'assigned'} successfully!`);
+
       // Reset form
       setHomeworkTitle('');
       setHomeworkDescription('');
       setHomeworkInstructions('');
       setSelectedStudents([]);
       setUploadedFiles([]);
+      setEditingHomework(null);
       setShowModal(false);
-      
+
       // Refresh homework list
       await fetchHomework();
 
@@ -299,6 +317,42 @@ const UploadHomework = () => {
       Alert.alert('Error', err.message);
       console.error('Error submitting homework:', err);
     }
+  };
+
+  const handleEditHomework = (homework) => {
+    // Populate form with existing homework data
+    setEditingHomework(homework);
+    setHomeworkTitle(homework.title);
+    setHomeworkDescription(homework.description || '');
+    setHomeworkInstructions(homework.instructions || '');
+    setDueDate(new Date(homework.due_date));
+    setUploadedFiles(homework.files || []);
+
+    // Set the class and subject
+    setSelectedClass(homework.class_id);
+    setSelectedSubject(homework.subject_id);
+
+    // Set selected students
+    setSelectedStudents(homework.assigned_students || []);
+
+    // Find and set students for the class
+    const classData = classes.find(c => c.id === homework.class_id);
+    if (classData) {
+      setStudents(classData.students);
+    }
+
+    setShowModal(true);
+  };
+
+  const handleNewHomework = () => {
+    // Clear form for new homework
+    setEditingHomework(null);
+    setHomeworkTitle('');
+    setHomeworkDescription('');
+    setHomeworkInstructions('');
+    setDueDate(new Date());
+    setUploadedFiles([]);
+    setShowModal(true);
   };
 
   const handleDeleteHomework = async (homeworkId) => {
@@ -442,37 +496,128 @@ const UploadHomework = () => {
 
             {/* Student Selection */}
             {selectedClass && students.length > 0 && (
-              <View style={styles.section}>
-                <Text style={styles.sectionTitle}>Select Students</Text>
-                <View style={styles.studentActions}>
-                  <TouchableOpacity style={styles.actionButton} onPress={handleSelectAllStudents}>
-                    <Text style={styles.actionButtonText}>Select All</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity style={styles.actionButton} onPress={handleClearAllStudents}>
-                    <Text style={styles.actionButtonText}>Clear All</Text>
-                  </TouchableOpacity>
+              <View style={styles.studentSelectionCard}>
+                <View style={styles.cardHeader}>
+                  <View style={styles.cardHeaderLeft}>
+                    <View style={styles.iconContainer}>
+                      <Ionicons name="people" size={24} color="#fff" />
+                    </View>
+                    <View style={styles.headerTextContainer}>
+                      <Text style={styles.cardTitle}>Select Students</Text>
+                      <Text style={styles.cardSubtitle}>
+                        Choose students for this homework assignment
+                      </Text>
+                    </View>
+                  </View>
+                  <View style={styles.studentCountContainer}>
+                    <View style={styles.studentCountBadge}>
+                      <Text style={styles.studentCountText}>
+                        {selectedStudents.length}/{students.length}
+                      </Text>
+                    </View>
+                  </View>
                 </View>
-                <ScrollView style={styles.studentList}>
-                  {students.map(student => (
+
+                <View style={styles.cardContent}>
+                  <View style={styles.studentActions}>
                     <TouchableOpacity
-                      key={student.id}
-                      style={[
-                        styles.studentItem,
-                        selectedStudents.includes(student.id) && styles.selectedStudentItem
-                      ]}
-                      onPress={() => handleStudentSelection(student.id)}
+                      style={[styles.actionButton, styles.selectAllButton]}
+                      onPress={handleSelectAllStudents}
+                      activeOpacity={0.8}
                     >
-                      <Text style={styles.studentName}>{student.name}</Text>
-                      <Text style={styles.studentRoll}>Roll: {student.roll_no}</Text>
+                      <View style={styles.buttonIconContainer}>
+                        <Ionicons name="checkmark-done" size={14} color="#fff" />
+                      </View>
+                      <Text style={styles.actionButtonText}>Select All</Text>
                     </TouchableOpacity>
-                  ))}
-                </ScrollView>
+                    <TouchableOpacity
+                      style={[styles.actionButton, styles.clearAllButton]}
+                      onPress={handleClearAllStudents}
+                      activeOpacity={0.8}
+                    >
+                      <View style={styles.buttonIconContainer}>
+                        <Ionicons name="close-circle" size={14} color="#fff" />
+                      </View>
+                      <Text style={styles.actionButtonText}>Clear All</Text>
+                    </TouchableOpacity>
+                  </View>
+
+                  <View style={styles.studentListWrapper}>
+                    <View style={styles.studentListContainer}>
+                      <ScrollView
+                        style={styles.studentList}
+                        showsVerticalScrollIndicator={true}
+                        nestedScrollEnabled={true}
+                      >
+                        {students.map((student, index) => (
+                          <TouchableOpacity
+                            key={student.id}
+                            style={[
+                              styles.studentItem,
+                              selectedStudents.includes(student.id) && styles.selectedStudentItem,
+                              index === students.length - 1 && styles.lastStudentItem
+                            ]}
+                            onPress={() => handleStudentSelection(student.id)}
+                            activeOpacity={0.7}
+                          >
+                            <View style={styles.studentItemContent}>
+                              <View style={[
+                                styles.studentAvatar,
+                                selectedStudents.includes(student.id) && styles.selectedStudentAvatar
+                              ]}>
+                                <Text style={styles.studentAvatarText}>
+                                  {student.name.charAt(0).toUpperCase()}
+                                </Text>
+                              </View>
+                              <View style={styles.studentInfo}>
+                                <Text style={[
+                                  styles.studentName,
+                                  selectedStudents.includes(student.id) && styles.selectedStudentName
+                                ]}>
+                                  {student.name}
+                                </Text>
+                                <Text style={styles.studentRoll}>Roll No: {student.roll_no}</Text>
+                              </View>
+                              <View style={styles.studentCheckbox}>
+                                <Ionicons
+                                  name={selectedStudents.includes(student.id) ? "checkmark-circle" : "ellipse-outline"}
+                                  size={24}
+                                  color={selectedStudents.includes(student.id) ? "#4CAF50" : "#ccc"}
+                                />
+                              </View>
+                            </View>
+                          </TouchableOpacity>
+                        ))}
+                      </ScrollView>
+
+                      {students.length > 5 && (
+                        <View style={styles.scrollIndicator}>
+                          <Text style={styles.scrollIndicatorText}>
+                            Scroll to see more students
+                          </Text>
+                          <Ionicons name="chevron-down" size={16} color="#666" />
+                        </View>
+                      )}
+                    </View>
+                  </View>
+
+                  {selectedStudents.length > 0 && (
+                    <View style={styles.selectionSummary}>
+                      <View style={styles.summaryIcon}>
+                        <Ionicons name="checkmark-circle" size={20} color="#4CAF50" />
+                      </View>
+                      <Text style={styles.summaryText}>
+                        {selectedStudents.length} student{selectedStudents.length !== 1 ? 's' : ''} selected
+                      </Text>
+                    </View>
+                  )}
+                </View>
               </View>
             )}
 
             {/* Upload Button */}
             {selectedClass && selectedSubject && selectedStudents.length > 0 && (
-              <TouchableOpacity style={styles.uploadButton} onPress={() => setShowModal(true)}>
+              <TouchableOpacity style={styles.uploadButton} onPress={handleNewHomework}>
                 <Ionicons name="add" size={24} color="#fff" />
                 <Text style={styles.uploadButtonText}>Upload Homework</Text>
               </TouchableOpacity>
@@ -489,8 +634,17 @@ const UploadHomework = () => {
                     <View style={styles.homeworkHeader}>
                       <Text style={styles.homeworkTitle}>{hw.title}</Text>
                       <View style={styles.homeworkActions}>
-                        <TouchableOpacity onPress={() => handleDeleteHomework(hw.id)}>
-                          <Ionicons name="trash" size={20} color="#f44336" />
+                        <TouchableOpacity
+                          style={styles.actionButton}
+                          onPress={() => handleEditHomework(hw)}
+                        >
+                          <Ionicons name="pencil" size={18} color="#1976d2" />
+                        </TouchableOpacity>
+                        <TouchableOpacity
+                          style={styles.actionButton}
+                          onPress={() => handleDeleteHomework(hw.id)}
+                        >
+                          <Ionicons name="trash" size={18} color="#f44336" />
                         </TouchableOpacity>
                       </View>
                     </View>
@@ -520,7 +674,9 @@ const UploadHomework = () => {
         <View style={styles.modalOverlay}>
           <View style={styles.modalContent}>
             <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>Upload Homework</Text>
+              <Text style={styles.modalTitle}>
+                {editingHomework ? 'Edit Homework' : 'Upload Homework'}
+              </Text>
               <TouchableOpacity onPress={() => setShowModal(false)}>
                 <Ionicons name="close" size={24} color="#1976d2" />
               </TouchableOpacity>
@@ -602,7 +758,9 @@ const UploadHomework = () => {
               </View>
 
               <TouchableOpacity style={styles.submitButton} onPress={handleSubmitHomework}>
-                <Text style={styles.submitButtonText}>Submit Homework</Text>
+                <Text style={styles.submitButtonText}>
+                  {editingHomework ? 'Update Homework' : 'Submit Homework'}
+                </Text>
               </TouchableOpacity>
             </ScrollView>
           </View>
@@ -642,45 +800,223 @@ const styles = StyleSheet.create({
   picker: {
     height: 50,
   },
+  // Enhanced Student Selection Card Layout
+  studentSelectionCard: {
+    backgroundColor: '#fff',
+    borderRadius: 16,
+    marginBottom: 24,
+    elevation: 4,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 8,
+    overflow: 'hidden',
+  },
+  cardHeader: {
+    backgroundColor: '#1976d2',
+    paddingHorizontal: 20,
+    paddingVertical: 16,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  cardHeaderLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
+  },
+  iconContainer: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: 'rgba(255, 255, 255, 0.2)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 16,
+  },
+  headerTextContainer: {
+    flex: 1,
+  },
+  cardTitle: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    color: '#fff',
+    marginBottom: 4,
+  },
+  cardSubtitle: {
+    fontSize: 14,
+    color: 'rgba(255, 255, 255, 0.8)',
+  },
+  studentCountContainer: {
+    alignItems: 'flex-end',
+  },
+  studentCountBadge: {
+    backgroundColor: 'rgba(255, 255, 255, 0.2)',
+    borderRadius: 16,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.3)',
+  },
+  studentCountText: {
+    fontSize: 14,
+    fontWeight: 'bold',
+    color: '#fff',
+  },
+  cardContent: {
+    padding: 20,
+  },
   studentActions: {
     flexDirection: 'row',
-    marginBottom: 12,
+    justifyContent: 'flex-end',
+    marginBottom: 16,
+    gap: 10,
   },
   actionButton: {
-    backgroundColor: '#1976d2',
-    borderRadius: 8,
-    paddingHorizontal: 16,
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderRadius: 10,
+    paddingHorizontal: 12,
     paddingVertical: 8,
-    marginRight: 12,
+    gap: 6,
+    justifyContent: 'center',
+    elevation: 2,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.1,
+    shadowRadius: 2,
+    minWidth: 90,
+  },
+  selectAllButton: {
+    backgroundColor: '#4CAF50',
+    borderColor: '#45a049',
+  },
+  clearAllButton: {
+    backgroundColor: '#f44336',
+    borderColor: '#da190b',
+  },
+  buttonIconContainer: {
+    width: 18,
+    height: 18,
+    borderRadius: 9,
+    backgroundColor: 'rgba(255, 255, 255, 0.2)',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   actionButtonText: {
     color: '#fff',
-    fontWeight: 'bold',
+    fontWeight: '600',
+    fontSize: 12,
+    letterSpacing: 0.3,
+  },
+  studentListWrapper: {
+    marginBottom: 16,
+  },
+  studentListContainer: {
+    backgroundColor: '#f8f9fa',
+    borderRadius: 12,
+    padding: 8,
+    borderWidth: 1,
+    borderColor: '#e9ecef',
   },
   studentList: {
-    maxHeight: 200,
+    maxHeight: 240,
   },
   studentItem: {
     backgroundColor: '#fff',
-    borderRadius: 8,
-    padding: 12,
-    marginBottom: 8,
+    borderRadius: 10,
+    marginBottom: 4,
     elevation: 1,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.1,
+    shadowRadius: 2,
+  },
+  lastStudentItem: {
+    marginBottom: 0,
   },
   selectedStudentItem: {
-    backgroundColor: '#e3f2fd',
-    borderColor: '#1976d2',
-    borderWidth: 1,
+    backgroundColor: '#e8f5e8',
+    borderColor: '#4CAF50',
+    borderWidth: 2,
+    elevation: 2,
+  },
+  studentItemContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 12,
+  },
+  studentAvatar: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: '#1976d2',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 12,
+    borderWidth: 2,
+    borderColor: 'transparent',
+  },
+  selectedStudentAvatar: {
+    backgroundColor: '#4CAF50',
+    borderColor: '#4CAF50',
+  },
+  studentAvatarText: {
+    color: '#fff',
+    fontWeight: 'bold',
+    fontSize: 16,
+  },
+  studentInfo: {
+    flex: 1,
   },
   studentName: {
     fontSize: 16,
-    fontWeight: 'bold',
+    fontWeight: '600',
     color: '#333',
+    marginBottom: 2,
+  },
+  selectedStudentName: {
+    color: '#2e7d32',
   },
   studentRoll: {
-    fontSize: 14,
+    fontSize: 13,
     color: '#666',
-    marginTop: 2,
+  },
+  studentCheckbox: {
+    marginLeft: 8,
+  },
+  scrollIndicator: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 12,
+    gap: 4,
+    backgroundColor: 'rgba(0, 0, 0, 0.02)',
+    borderRadius: 8,
+    marginTop: 4,
+  },
+  scrollIndicatorText: {
+    fontSize: 12,
+    color: '#666',
+    fontStyle: 'italic',
+  },
+  selectionSummary: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#e8f5e8',
+    borderRadius: 12,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: '#c8e6c9',
+  },
+  summaryIcon: {
+    marginRight: 12,
+  },
+  summaryText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#2e7d32',
+    flex: 1,
   },
   uploadButton: {
     flexDirection: 'row',
@@ -723,6 +1059,14 @@ const styles = StyleSheet.create({
   },
   homeworkActions: {
     flexDirection: 'row',
+    gap: 12,
+  },
+  actionButton: {
+    padding: 8,
+    borderRadius: 8,
+    backgroundColor: '#f5f5f5',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   homeworkDetails: {
     fontSize: 14,

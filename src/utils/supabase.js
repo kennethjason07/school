@@ -30,6 +30,7 @@ export const TABLES = {
   NOTIFICATIONS: 'notifications',
   NOTIFICATION_RECIPIENTS: 'notification_recipients',
   TASKS: 'tasks',
+  PERSONAL_TASKS: 'personal_tasks',
   SCHOOL_DETAILS: 'school_details',
 };
 

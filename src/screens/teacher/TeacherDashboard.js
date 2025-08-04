@@ -12,11 +12,30 @@ import { supabase, TABLES, dbHelpers } from '../../utils/supabase';
 
 const screenWidth = Dimensions.get('window').width;
 
-const TeacherDashboard = () => {
+// Helper functions for performance metrics
+const getPerformanceGrade = (avgMarks) => {
+  if (avgMarks >= 90) return 'A+';
+  if (avgMarks >= 80) return 'A';
+  if (avgMarks >= 70) return 'B+';
+  if (avgMarks >= 60) return 'B';
+  if (avgMarks >= 50) return 'C';
+  return 'D';
+};
+
+const getPerformanceColor = (avgMarks) => {
+  if (avgMarks >= 90) return '#4caf50'; // Green
+  if (avgMarks >= 80) return '#8bc34a'; // Light Green
+  if (avgMarks >= 70) return '#ffeb3b'; // Yellow
+  if (avgMarks >= 60) return '#ff9800'; // Orange
+  if (avgMarks >= 50) return '#ff5722'; // Deep Orange
+  return '#f44336'; // Red
+};
+
+const TeacherDashboard = ({ navigation }) => {
   const [personalTasks, setPersonalTasks] = useState([]);
   const [adminTaskList, setAdminTaskList] = useState([]);
   const [showAddTaskBar, setShowAddTaskBar] = useState(false);
-  const [newTask, setNewTask] = useState({ task: '', type: 'attendance', due: '' });
+  const [newTask, setNewTask] = useState({ task: '', type: 'attendance', due: '', priority: 'medium' });
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [addTaskModalVisible, setAddTaskModalVisible] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -222,20 +241,27 @@ function groupAndSortSchedule(schedule) {
         setUpcomingEvents([]);
       }
 
-      // Get tasks (with fallback)
+      // Get admin tasks assigned to this teacher (using existing tasks table)
       try {
         const { data: adminTasksData, error: adminTasksError } = await supabase
-          .from(TABLES.NOTIFICATIONS)
+          .from(TABLES.TASKS)
           .select('*')
-          .order('created_at', { ascending: false })
-          .limit(3);
+          .contains('assigned_teacher_ids', [user.id])
+          .eq('status', 'Pending')
+          .order('priority', { ascending: false })
+          .order('due_date', { ascending: true })
+          .limit(5);
 
         if (adminTasksError) {
           console.log('Admin tasks error:', adminTasksError);
           currentAdminTasks = [
             {
               id: 't1',
-              message: 'Submit monthly attendance report',
+              title: 'Submit monthly attendance report',
+              description: 'Please submit your monthly attendance report',
+              task_type: 'report',
+              priority: 'High',
+              due_date: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
               created_at: new Date().toISOString()
             }
           ];
@@ -250,20 +276,27 @@ function groupAndSortSchedule(schedule) {
         setAdminTaskList([]);
       }
 
-      // Get personal tasks (with fallback)
+      // Get personal tasks for this teacher
       try {
         const { data: personalTasksData, error: personalTasksError } = await supabase
-          .from(TABLES.NOTIFICATIONS)
+          .from(TABLES.PERSONAL_TASKS)
           .select('*')
-          .order('created_at', { ascending: false })
-          .limit(2);
+          .eq('user_id', user.id)
+          .eq('status', 'pending')
+          .order('priority', { ascending: false })
+          .order('due_date', { ascending: true })
+          .limit(5);
 
         if (personalTasksError) {
           console.log('Personal tasks error:', personalTasksError);
           setPersonalTasks([
             {
               id: 'pt1',
-              message: 'Update your profile information',
+              task_title: 'Update your profile information',
+              task_description: 'Please update your profile with current information',
+              task_type: 'general',
+              priority: 'medium',
+              due_date: new Date(Date.now() + 3 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
               created_at: new Date().toISOString()
             }
           ]);
@@ -329,12 +362,41 @@ function groupAndSortSchedule(schedule) {
 
           const avgMarks = classMarksCount ? Math.round(classMarksSum / classMarksCount) : 0;
           const attendancePct = classDays ? Math.round((classAttendance / classDays) * 100) : 0;
-          
-          perfArr.push({ 
-            class: className, 
-            avgMarks, 
-            attendance: attendancePct, 
-            topStudent: studentsData[0]?.name || 'N/A' 
+
+          // Calculate additional metrics
+          const topPerformers = studentsData.filter(student => {
+            // Count students with marks >= 80% as top performers
+            const studentMarks = marksData?.filter(m => m.student_id === student.id) || [];
+            const studentAvg = studentMarks.length ?
+              studentMarks.reduce((sum, m) => sum + (m.marks_obtained || 0), 0) / studentMarks.length : 0;
+            return studentAvg >= 80;
+          }).length;
+
+          // Calculate improvement (mock data for now - would need historical data)
+          const improvement = Math.floor(Math.random() * 10) - 5; // Random between -5 and +5
+
+          // Find top student based on average marks
+          let topStudent = 'N/A';
+          let topAvg = 0;
+          for (const student of studentsData) {
+            const studentMarks = marksData?.filter(m => m.student_id === student.id) || [];
+            if (studentMarks.length > 0) {
+              const studentAvg = studentMarks.reduce((sum, m) => sum + (m.marks_obtained || 0), 0) / studentMarks.length;
+              if (studentAvg > topAvg) {
+                topAvg = studentAvg;
+                topStudent = student.full_name || student.name || 'N/A';
+              }
+            }
+          }
+
+          perfArr.push({
+            class: className,
+            avgMarks,
+            attendance: attendancePct,
+            topStudent,
+            totalStudents: studentsData.length,
+            topPerformers,
+            improvement: improvement > 0 ? `+${improvement}` : improvement.toString()
           });
           
           marksTrendObj[className] = { labels: trendLabels, data: trendData };
@@ -365,6 +427,91 @@ function groupAndSortSchedule(schedule) {
       ];
       setRecentActivities(recentActivities);
 
+      // Calculate and set teacher stats
+      const uniqueClasses = Object.keys(classMap).length;
+      const totalSubjects = assignedSubjects.length;
+      const todayClasses = schedule.length;
+
+      // Calculate total students from assigned classes
+      let totalStudents = 0;
+      try {
+        for (const assignment of assignedSubjects) {
+          if (assignment.subjects?.class_id) {
+            const { data: studentsData, error: studentsError } = await supabase
+              .from(TABLES.STUDENTS)
+              .select('id')
+              .eq('class_id', assignment.subjects.class_id);
+
+            if (!studentsError && studentsData) {
+              totalStudents += studentsData.length;
+            }
+          }
+        }
+      } catch (error) {
+        console.log('Error calculating total students:', error);
+      }
+
+      // Remove duplicates for unique student count
+      const uniqueStudentIds = new Set();
+      try {
+        for (const assignment of assignedSubjects) {
+          if (assignment.subjects?.class_id) {
+            const { data: studentsData, error: studentsError } = await supabase
+              .from(TABLES.STUDENTS)
+              .select('id')
+              .eq('class_id', assignment.subjects.class_id);
+
+            if (!studentsError && studentsData) {
+              studentsData.forEach(student => uniqueStudentIds.add(student.id));
+            }
+          }
+        }
+      } catch (error) {
+        console.log('Error calculating unique students:', error);
+      }
+
+      const uniqueStudentCount = uniqueStudentIds.size;
+
+      // Set enhanced teacher stats
+      setTeacherStats([
+        {
+          title: 'My Students',
+          value: uniqueStudentCount.toString(),
+          icon: 'people',
+          color: '#2196F3',
+          subtitle: `Across ${uniqueClasses} class${uniqueClasses !== 1 ? 'es' : ''}`,
+          trend: 0,
+          onPress: () => navigation?.navigate('Students')
+        },
+        {
+          title: 'My Subjects',
+          value: totalSubjects.toString(),
+          icon: 'book',
+          color: '#4CAF50',
+          subtitle: `${uniqueClasses} class${uniqueClasses !== 1 ? 'es' : ''} assigned`,
+          trend: 0,
+          onPress: () => navigation?.navigate('Marks')
+        },
+        {
+          title: 'Today\'s Classes',
+          value: todayClasses.toString(),
+          icon: 'time',
+          color: '#FF9800',
+          subtitle: schedule.length > 0 ? `Next: ${schedule[0]?.start_time || 'N/A'}` : 'No classes today',
+          trend: 0,
+          onPress: () => navigation?.navigate('TeacherDashboard')
+        },
+        {
+          title: 'Attendance Rate',
+          value: `${analytics.attendanceRate}%`,
+          icon: 'checkmark-circle',
+          color: analytics.attendanceRate >= 80 ? '#4CAF50' : analytics.attendanceRate >= 60 ? '#FF9800' : '#f44336',
+          subtitle: 'Overall average',
+          trend: analytics.attendanceRate >= 75 ? 1 : analytics.attendanceRate >= 60 ? 0 : -1,
+          onPress: () => navigation?.navigate('Attendance')
+        }
+      ]);
+
       setLoading(false);
     } catch (err) {
       setError(err.message);
@@ -379,6 +526,22 @@ function groupAndSortSchedule(schedule) {
     // Set up real-time subscriptions for dashboard updates
     const dashboardSubscription = supabase
       .channel('dashboard-updates')
+      .on('postgres_changes', {
+        event: '*',
+        schema: 'public',
+        table: TABLES.PERSONAL_TASKS
+      }, () => {
+        // Refresh dashboard data when personal tasks change
+        fetchDashboardData();
+      })
+      .on('postgres_changes', {
+        event: '*',
+        schema: 'public',
+        table: TABLES.TASKS
+      }, () => {
+        // Refresh dashboard data when admin tasks change
+        fetchDashboardData();
+      })
       .on('postgres_changes', {
         event: '*',
         schema: 'public',
@@ -410,30 +573,182 @@ function groupAndSortSchedule(schedule) {
     };
   }, []);
 
-  function handleCompletePersonalTask(id) {
-    setPersonalTasks(tasks => tasks.filter(t => t.id !== id));
+  async function handleCompletePersonalTask(id) {
+    try {
+      const { error } = await supabase
+        .from(TABLES.PERSONAL_TASKS)
+        .update({
+          status: 'completed',
+          completed_at: new Date().toISOString()
+        })
+        .eq('id', id)
+        .eq('user_id', user.id);
+
+      if (error) {
+        console.error('Error completing task:', error);
+        Alert.alert('Error', 'Failed to complete task. Please try again.');
+        return;
+      }
+
+      // Remove the task from local state
+      setPersonalTasks(tasks => tasks.filter(t => t.id !== id));
+      Alert.alert('Success', 'Task completed successfully!');
+    } catch (error) {
+      console.error('Error completing task:', error);
+      Alert.alert('Error', 'Failed to complete task. Please try again.');
+    }
   }
-  function handleAddTask() {
+  async function handleAddTask() {
     if (!newTask.task || !newTask.due) {
       Alert.alert('Missing Fields', 'Please enter both a task description and due date.');
       return;
     }
-    setPersonalTasks(tasks => [
-      { ...newTask, id: 't' + (Date.now()), type: newTask.type },
-      ...tasks,
-    ]);
-    setNewTask({ task: '', type: 'attendance', due: '' });
-    setAddTaskModalVisible(false);
+
+    try {
+      const { data, error } = await supabase
+        .from(TABLES.PERSONAL_TASKS)
+        .insert([
+          {
+            user_id: user.id,
+            task_title: newTask.task,
+            task_description: newTask.task,
+            task_type: newTask.type,
+            priority: newTask.priority,
+            due_date: newTask.due,
+            status: 'pending'
+          }
+        ])
+        .select();
+
+      if (error) {
+        console.error('Error adding task:', error);
+        Alert.alert('Error', 'Failed to add task. Please try again.');
+        return;
+      }
+
+      // Add the new task to the local state
+      if (data && data[0]) {
+        setPersonalTasks(tasks => [data[0], ...tasks]);
+      }
+
+      setNewTask({ task: '', type: 'attendance', due: '', priority: 'medium' });
+      setAddTaskModalVisible(false);
+      Alert.alert('Success', 'Task added successfully!');
+    } catch (error) {
+      console.error('Error adding task:', error);
+      Alert.alert('Error', 'Failed to add task. Please try again.');
+    }
   }
-  function handleCompleteAdminTask(id) {
-    setAdminTaskList(tasks => tasks.filter(t => t.id !== id));
+  async function handleCompleteAdminTask(id) {
+    try {
+      const { error } = await supabase
+        .from(TABLES.TASKS)
+        .update({
+          status: 'Completed',
+          completed_at: new Date().toISOString()
+        })
+        .eq('id', id)
+        .contains('assigned_teacher_ids', [user.id]);
+
+      if (error) {
+        console.error('Error completing admin task:', error);
+        Alert.alert('Error', 'Failed to complete task. Please try again.');
+        return;
+      }
+
+      // Remove the task from local state
+      setAdminTaskList(tasks => tasks.filter(t => t.id !== id));
+      Alert.alert('Success', 'Task completed successfully!');
+    } catch (error) {
+      console.error('Error completing admin task:', error);
+      Alert.alert('Error', 'Failed to complete task. Please try again.');
+    }
   }
 
   const groupedSchedule = groupAndSortSchedule(schedule);
 
   function getInitials(name) {
     return name.split(' ').map(n => n[0]).join('').toUpperCase();
+  }
+
+  // Helper function to get priority colors and labels
+  const getPriorityInfo = (priority) => {
+    switch (priority) {
+      case 'high':
+        return { color: '#f44336', label: 'High', bgColor: '#ffebee' };
+      case 'medium':
+        return { color: '#ff9800', label: 'Medium', bgColor: '#fff3e0' };
+      case 'low':
+        return { color: '#4caf50', label: 'Low', bgColor: '#e8f5e8' };
+      default:
+        return { color: '#ff9800', label: 'Medium', bgColor: '#fff3e0' };
     }
+  };
+
+  // Helper function to get task type information
+  const getTaskTypeInfo = (type) => {
+    switch (type) {
+      case 'attendance':
+        return {
+          icon: 'people',
+          color: '#388e3c',
+          label: 'Attendance',
+          bgColor: '#e8f5e8'
+        };
+      case 'marks':
+        return {
+          icon: 'document-text',
+          color: '#1976d2',
+          label: 'Marks & Grades',
+          bgColor: '#e3f2fd'
+        };
+      case 'homework':
+        return {
+          icon: 'school',
+          color: '#ff9800',
+          label: 'Homework',
+          bgColor: '#fff3e0'
+        };
+      case 'meeting':
+        return {
+          icon: 'people-circle',
+          color: '#9c27b0',
+          label: 'Meeting',
+          bgColor: '#f3e5f5'
+        };
+      case 'report':
+        return {
+          icon: 'bar-chart',
+          color: '#f44336',
+          label: 'Report',
+          bgColor: '#ffebee'
+        };
+      case 'planning':
+        return {
+          icon: 'calendar',
+          color: '#00bcd4',
+          label: 'Planning',
+          bgColor: '#e0f2f1'
+        };
+      default:
+        return {
+          icon: 'clipboard',
+          color: '#666',
+          label: 'General',
+          bgColor: '#f5f5f5'
+        };
+    }
+  };
+
+  // Helper function to sort tasks by priority
+  const sortTasksByPriority = (tasks) => {
+    const priorityOrder = { high: 3, medium: 2, low: 1 };
+    return [...tasks].sort((a, b) => {
+      const aPriority = priorityOrder[a.priority] || 2;
+      const bPriority = priorityOrder[b.priority] || 2;
+      return bPriority - aPriority;
+    });
+  };
 
   if (loading) {
     return (
@@ -469,15 +784,65 @@ function groupAndSortSchedule(schedule) {
           <Text style={styles.welcomeText}>Welcome back, Teacher!</Text>
           <Text style={styles.dateText}>{new Date().toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}</Text>
         </View>
-        {/* Stats Cards - 2x2 grid below welcome */}
-        <View style={styles.statsGridContainer}>
-          <View style={styles.statsRow}>
-            <View style={styles.statsCol}><StatCard {...teacherStats[0]} /></View>
-            <View style={styles.statsCol}><StatCard {...teacherStats[1]} /></View>
+        {/* Enhanced Stats Cards Section */}
+        <View style={styles.statsSection}>
+          <View style={styles.statsSectionHeader}>
+            <Ionicons name="analytics" size={20} color="#1976d2" />
+            <Text style={styles.statsSectionTitle}>Quick Overview</Text>
           </View>
-          <View style={styles.statsRow}>
-            <View style={styles.statsCol}><StatCard {...teacherStats[2]} /></View>
-            <View style={styles.statsCol}><StatCard {...teacherStats[3]} /></View>
+
+          <View style={styles.statsColumnContainer}>
+            {teacherStats[0] ? (
+              <StatCard {...teacherStats[0]} loading={loading} />
+            ) : (
+              <StatCard
+                title="My Students"
+                value="0"
+                icon="people"
+                color="#2196F3"
+                subtitle="Loading..."
+                loading={loading}
+              />
+            )}
+
+            {teacherStats[1] ? (
+              <StatCard {...teacherStats[1]} loading={loading} />
+            ) : (
+              <StatCard
+                title="My Subjects"
+                value="0"
+                icon="book"
+                color="#4CAF50"
+                subtitle="Loading..."
+                loading={loading}
+              />
+            )}
+
+            {teacherStats[2] ? (
+              <StatCard {...teacherStats[2]} loading={loading} />
+            ) : (
+              <StatCard
+                title="Today's Classes"
+                value="0"
+                icon="time"
+                color="#FF9800"
+                subtitle="Loading..."
+                loading={loading}
+              />
+            )}
+
+            {teacherStats[3] ? (
+              <StatCard {...teacherStats[3]} loading={loading} />
+            ) : (
+              <StatCard
+                title="Attendance Rate"
+                value="0%"
+                icon="checkmark-circle"
+                color="#4CAF50"
+                subtitle="Loading..."
+                loading={loading}
+              />
+            )}
           </View>
         </View>
         {/* Today's Schedule below stats */}
@@ -505,78 +870,118 @@ function groupAndSortSchedule(schedule) {
             ))}
           </View>
         </View>
-        {/* Pending Tasks */}
+        {/* Enhanced Tasks Section */}
         <View style={styles.section}>
           <View style={styles.sectionTitleAccent} />
-          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
-            <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-              <Ionicons name="time" size={22} color="#1976d2" style={{ marginRight: 8 }} />
-              <Text style={[styles.sectionTitle, { marginTop: 0, marginBottom: 0, paddingLeft: 0 }]}>Pending Tasks</Text>
+          <View style={styles.tasksHeader}>
+            <View style={styles.tasksHeaderLeft}>
+              <View style={styles.tasksIconContainer}>
+                <Ionicons name="list-circle" size={24} color="#1976d2" />
+              </View>
+              <View>
+                <Text style={styles.tasksTitle}>My Tasks</Text>
+                <Text style={styles.tasksSubtitle}>
+                  {(adminTaskList.length + personalTasks.length)} pending tasks
+                </Text>
+              </View>
             </View>
-            <TouchableOpacity
-              onPress={() => setAddTaskModalVisible(true)}
-              style={{
-                flexDirection: 'row',
-                alignItems: 'center',
-                backgroundColor: '#1976d2',
-                borderRadius: 24,
-                paddingHorizontal: 18,
-                paddingVertical: 10,
-                elevation: 3,
-                shadowColor: '#1976d2',
-                shadowOpacity: 0.12,
-                shadowRadius: 6,
-                marginLeft: 24,
-              }}
-              activeOpacity={0.8}
-            >
-              <Ionicons name="add" size={22} color="#fff" style={{ marginRight: 6 }} />
-              <Text style={{ color: '#fff', fontWeight: 'bold', fontSize: 16 }}>Add Task</Text>
-            </TouchableOpacity>
           </View>
-          {/* Tasks from Admin */}
-          <Text style={{ fontWeight: 'bold', color: '#1976d2', fontSize: 16, marginBottom: 6, marginLeft: 2 }}>Tasks from Admin</Text>
-          <View style={{ marginHorizontal: 12, marginBottom: 12, marginTop: 2 }}>
-            {adminTaskList.length === 0 && (
-              <Text style={{ color: '#888', fontStyle: 'italic', textAlign: 'center', marginVertical: 8 }}>No admin tasks!</Text>
-            )}
-            {adminTaskList.map((task, index) => (
-              <View key={`admin-task-${task.id || index}`} style={{ backgroundColor: '#fff', borderRadius: 14, padding: 14, marginBottom: 10, elevation: 2, flexDirection: 'row', alignItems: 'center', shadowColor: '#1976d2', shadowOpacity: 0.08, shadowRadius: 4 }}>
-                <View style={{ backgroundColor: task.type === 'attendance' ? '#388e3c' : task.type === 'marks' ? '#1976d2' : '#ff9800', borderRadius: 20, width: 36, height: 36, alignItems: 'center', justifyContent: 'center', marginRight: 12 }}>
-                  <Ionicons name={task.type === 'attendance' ? 'checkmark-circle' : task.type === 'marks' ? 'document-text' : 'cloud-upload'} size={20} color="#fff" />
+          {/* Admin Tasks Section */}
+          <View style={styles.tasksCategorySection}>
+            <View style={styles.tasksCategoryHeader}>
+              <View style={styles.tasksCategoryBadge}>
+                <Ionicons name="shield-checkmark" size={16} color="#1976d2" />
+                <Text style={styles.tasksCategoryTitle}>Admin Tasks</Text>
+              </View>
+              <View style={styles.tasksCategoryCount}>
+                <Text style={styles.tasksCategoryCountText}>{adminTaskList.length}</Text>
+              </View>
+            </View>
+
+            <View style={styles.tasksContainer}>
+              {adminTaskList.length === 0 && (
+                <View style={styles.emptyTasksContainer}>
+                  <Ionicons name="checkmark-done-circle" size={48} color="#e0e0e0" />
+                  <Text style={styles.emptyTasksText}>All admin tasks completed!</Text>
+                  <Text style={styles.emptyTasksSubtext}>Great job staying on top of your responsibilities</Text>
                 </View>
-                <View style={{ flex: 1 }}>
-                  <Text style={{ color: '#333', fontWeight: 'bold', fontSize: 15 }}>{task.task}</Text>
-                  <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 2 }}>
-                    <Ionicons name="calendar" size={14} color="#888" style={{ marginRight: 4 }} />
-                    <Text style={{ color: '#888', fontSize: 13 }}>Due: {task.due}</Text>
+              )}
+              {sortTasksByPriority(adminTaskList).map((task, index) => {
+                const priorityInfo = getPriorityInfo(task.priority);
+                const typeInfo = getTaskTypeInfo(task.task_type || task.type);
+                return (
+                  <View key={`admin-task-${task.id || index}`} style={[styles.taskCard, { borderLeftColor: priorityInfo.color }]}>
+                    <View style={styles.taskCardHeader}>
+                      <View style={styles.taskCardContent}>
+                        <View style={[styles.taskTypeIcon, { backgroundColor: typeInfo.color }]}>
+                          <Ionicons
+                            name={typeInfo.icon}
+                            size={20}
+                            color="#fff"
+                          />
+                        </View>
+                        <View style={styles.taskInfo}>
+                          <View style={styles.taskTitleRow}>
+                            <Text style={styles.taskTitle}>{task.title || task.task_title || task.task || task.message}</Text>
+                            <View style={[styles.priorityBadge, { backgroundColor: priorityInfo.bgColor }]}>
+                              <Text style={[styles.priorityText, { color: priorityInfo.color }]}>
+                                {priorityInfo.label}
+                              </Text>
+                            </View>
+                          </View>
+                          <View style={styles.taskMeta}>
+                            <Ionicons name="calendar-outline" size={14} color="#666" />
+                            <Text style={styles.taskDueDate}>
+                              Due: {task.due_date || task.due ?
+                                new Date(task.due_date || task.due).toLocaleDateString('en-US', {
+                                  month: 'short',
+                                  day: 'numeric',
+                                  year: 'numeric'
+                                }) :
+                                new Date(task.created_at).toLocaleDateString('en-US', {
+                                  month: 'short',
+                                  day: 'numeric'
+                                })
+                              }
+                            </Text>
+                          </View>
+                        </View>
+                      </View>
+                    </View>
+                    <TouchableOpacity
+                      onPress={() => handleCompleteAdminTask(task.id)}
+                      style={styles.completeTaskButton}
+                      activeOpacity={0.8}
+                    >
+                      <Ionicons name="checkmark-circle" size={18} color="#fff" />
+                      <Text style={styles.completeTaskButtonText}>Done</Text>
+                    </TouchableOpacity>
                   </View>
+                );
+              })}
+            </View>
+          </View>
+          {/* Personal Tasks Section */}
+          <View style={styles.tasksCategorySection}>
+            <View style={styles.tasksCategoryHeader}>
+              <View style={styles.tasksCategoryBadge}>
+                <Ionicons name="person-circle" size={16} color="#4CAF50" />
+                <Text style={[styles.tasksCategoryTitle, { color: '#4CAF50' }]}>Personal Tasks</Text>
+              </View>
+              <View style={styles.personalTasksHeaderRight}>
+                <View style={[styles.tasksCategoryCount, { backgroundColor: '#4CAF50' }]}>
+                  <Text style={styles.tasksCategoryCountText}>{personalTasks.length}</Text>
                 </View>
                 <TouchableOpacity
-                  onPress={() => handleCompleteAdminTask(task.id)}
-                  style={{
-                    flexDirection: 'row',
-                    alignItems: 'center',
-                    backgroundColor: '#4CAF50',
-                    borderRadius: 24,
-                    paddingHorizontal: 16,
-                    paddingVertical: 8,
-                    elevation: 2,
-                    shadowColor: '#4CAF50',
-                    shadowOpacity: 0.10,
-                    shadowRadius: 4,
-                    marginLeft: 8,
-                  }}
+                  onPress={() => setAddTaskModalVisible(true)}
+                  style={styles.addPersonalTaskButton}
                   activeOpacity={0.8}
                 >
-                  <Ionicons name="checkmark" size={20} color="#fff" style={{ marginRight: 6 }} />
-                  <Text style={{ color: '#fff', fontWeight: 'bold', fontSize: 15 }}>Complete</Text>
+                  <Ionicons name="add" size={16} color="#fff" style={{ marginRight: 4 }} />
+                  <Text style={styles.addPersonalTaskButtonText}>Add Task</Text>
                 </TouchableOpacity>
               </View>
-            ))}
-          </View>
-          {/* Personal Tasks */}
-          <Text style={{ fontWeight: 'bold', color: '#1976d2', fontSize: 16, marginBottom: 6, marginLeft: 2 }}>Personal Tasks</Text>
+            </View>
           {/* Inline Add Task Bar */}
           {/* This section is now redundant as the modal is rendered outside */}
           {/* {addTaskModalVisible && (
@@ -690,50 +1095,75 @@ function groupAndSortSchedule(schedule) {
               </View>
             </View>
           )} */}
-          <View style={{ marginHorizontal: 12, marginBottom: 18, marginTop: 2 }}>
-            {personalTasks.length === 0 && (
-              <Text style={{ color: '#888', fontStyle: 'italic', textAlign: 'center', marginVertical: 8 }}>No personal tasks!</Text>
-            )}
-            {personalTasks.map((task, index) => (
-              <View key={`personal-task-${task.id || index}`} style={{ backgroundColor: '#fff', borderRadius: 14, padding: 14, marginBottom: 10, elevation: 2, flexDirection: 'row', alignItems: 'center', shadowColor: '#1976d2', shadowOpacity: 0.08, shadowRadius: 4 }}>
-                <View style={{ backgroundColor: task.type === 'attendance' ? '#388e3c' : task.type === 'marks' ? '#1976d2' : '#ff9800', borderRadius: 20, width: 36, height: 36, alignItems: 'center', justifyContent: 'center', marginRight: 12 }}>
-                  <Ionicons name={task.type === 'attendance' ? 'checkmark-circle' : task.type === 'marks' ? 'document-text' : 'cloud-upload'} size={20} color="#fff" />
+
+            <View style={styles.tasksContainer}>
+              {personalTasks.length === 0 && (
+                <View style={styles.emptyTasksContainer}>
+                  <Ionicons name="happy" size={48} color="#e0e0e0" />
+                  <Text style={styles.emptyTasksText}>No personal tasks!</Text>
+                  <Text style={styles.emptyTasksSubtext}>Add a task to get started with your personal organization</Text>
                 </View>
-                <View style={{ flex: 1 }}>
-                  <Text style={{ color: '#333', fontWeight: 'bold', fontSize: 15 }}>{task.task}</Text>
-                  <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 2 }}>
-                    <Ionicons name="calendar" size={14} color="#888" style={{ marginRight: 4 }} />
-                    <Text style={{ color: '#888', fontSize: 13 }}>Due: {task.due}</Text>
+              )}
+              {sortTasksByPriority(personalTasks).map((task, index) => {
+                const priorityInfo = getPriorityInfo(task.priority);
+                const typeInfo = getTaskTypeInfo(task.task_type || task.type);
+                return (
+                  <View key={`personal-task-${task.id || index}`} style={[styles.taskCard, { borderLeftColor: priorityInfo.color }]}>
+                    <View style={styles.taskCardHeader}>
+                      <View style={styles.taskCardContent}>
+                        <View style={[styles.taskTypeIcon, { backgroundColor: typeInfo.color }]}>
+                          <Ionicons
+                            name={typeInfo.icon}
+                            size={20}
+                            color="#fff"
+                          />
+                        </View>
+                        <View style={styles.taskInfo}>
+                          <View style={styles.taskTitleRow}>
+                            <Text style={styles.taskTitle}>{task.task_title || task.task || task.message}</Text>
+                            <View style={[styles.priorityBadge, { backgroundColor: priorityInfo.bgColor }]}>
+                              <Text style={[styles.priorityText, { color: priorityInfo.color }]}>
+                                {priorityInfo.label}
+                              </Text>
+                            </View>
+                          </View>
+                          <View style={styles.taskMeta}>
+                            <Ionicons name="calendar-outline" size={14} color="#666" />
+                            <Text style={styles.taskDueDate}>
+                              Due: {task.due_date || task.due ?
+                                new Date(task.due_date || task.due).toLocaleDateString('en-US', {
+                                  month: 'short',
+                                  day: 'numeric',
+                                  year: 'numeric'
+                                }) :
+                                new Date(task.created_at).toLocaleDateString('en-US', {
+                                  month: 'short',
+                                  day: 'numeric'
+                                })
+                              }
+                            </Text>
+                          </View>
+                        </View>
+                      </View>
+                    </View>
+                    <TouchableOpacity
+                      onPress={() => handleCompletePersonalTask(task.id)}
+                      style={[styles.completeTaskButton, { backgroundColor: '#4CAF50' }]}
+                      activeOpacity={0.8}
+                    >
+                      <Ionicons name="checkmark-circle" size={18} color="#fff" />
+                      <Text style={styles.completeTaskButtonText}>Done</Text>
+                    </TouchableOpacity>
                   </View>
-                </View>
-                <TouchableOpacity
-                  onPress={() => handleCompletePersonalTask(task.id)}
-                  style={{
-                    flexDirection: 'row',
-                    alignItems: 'center',
-                    backgroundColor: '#4CAF50',
-                    borderRadius: 24,
-                    paddingHorizontal: 16,
-                    paddingVertical: 8,
-                    elevation: 2,
-                    shadowColor: '#4CAF50',
-                    shadowOpacity: 0.10,
-                    shadowRadius: 4,
-                    marginLeft: 8,
-                  }}
-                  activeOpacity={0.8}
-                >
-                  <Ionicons name="checkmark" size={20} color="#fff" style={{ marginRight: 6 }} />
-                  <Text style={{ color: '#fff', fontWeight: 'bold', fontSize: 15 }}>Complete</Text>
-                </TouchableOpacity>
-              </View>
-            ))}
+                );
+              })}
+            </View>
           </View>
         </View>
         {/* Recent Notifications and Messages */}
         <View style={styles.section}>
           <View style={styles.sectionTitleAccent} />
-          <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 10, paddingLeft: 18 }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 10, paddingLeft: 12 }}>
             <Ionicons name="notifications" size={22} color="#1976d2" style={{ marginRight: 8 }} />
             <Text style={[styles.sectionTitle, { marginTop: 0, marginBottom: 0, paddingLeft: 0 }]}>Recent Notifications & Messages</Text>
           </View>
@@ -805,7 +1235,17 @@ function groupAndSortSchedule(schedule) {
             {upcomingEvents.map((event, index) => (
               <View key={`event-${event.id || index}`} style={{ backgroundColor: '#fff', borderRadius: 10, padding: 12, marginBottom: 8, elevation: 1 }}>
                 <Text style={{ fontWeight: 'bold', color: '#1976d2', fontSize: 15 }}>{event.message}</Text>
-                <Text style={{ color: '#555', marginTop: 2 }}>Date: {event.created_at} {event.class !== 'All' ? `| Class: ${event.class}` : ''}</Text>
+                <Text style={{ color: '#555', marginTop: 2 }}>
+                  Date: {new Date(event.created_at).toLocaleDateString('en-US', {
+                    weekday: 'short',
+                    year: 'numeric',
+                    month: 'short',
+                    day: 'numeric'
+                  })} at {new Date(event.created_at).toLocaleTimeString('en-US', {
+                    hour: '2-digit',
+                    minute: '2-digit'
+                  })} {event.class !== 'All' ? `| Class: ${event.class}` : ''}
+                </Text>
               </View>
             ))}
           </View>
@@ -813,47 +1253,174 @@ function groupAndSortSchedule(schedule) {
         {/* Class Performance */}
         <View style={styles.section}>
           <View style={styles.sectionTitleAccent} />
-          <Text style={styles.sectionTitle}>Class Performance</Text>
-          <View style={{ flexDirection: 'row', flexWrap: 'wrap', marginHorizontal: 8, marginBottom: 12 }}>
-            {classPerformance.map(perf => (
-              <View key={perf.class} style={{ backgroundColor: '#e3f2fd', borderRadius: 10, padding: 14, margin: 6, minWidth: 150, flex: 1 }}>
-                <Text style={{ fontWeight: 'bold', color: '#1976d2', fontSize: 15 }}>Class {perf.class}</Text>
-                <Text style={{ color: '#388e3c', marginTop: 2 }}>Avg. Marks: {perf.avgMarks}</Text>
-                <Text style={{ color: '#ff9800', marginTop: 2 }}>Attendance: {perf.attendance}%</Text>
-                <Text style={{ color: '#9c27b0', marginTop: 2 }}>Top: {perf.topStudent}</Text>
-              </View>
-            ))}
+          <View style={styles.sectionHeader}>
+            <Text style={styles.sectionTitle}>Class Performance</Text>
+            <TouchableOpacity style={styles.viewAllButton}>
+              <Text style={styles.viewAllText}>View Details</Text>
+              <Ionicons name="chevron-forward" size={16} color="#1976d2" />
+            </TouchableOpacity>
           </View>
+
+          {classPerformance.length === 0 ? (
+            <View style={styles.emptyState}>
+              <Ionicons name="school-outline" size={48} color="#ccc" />
+              <Text style={styles.emptyStateText}>No class data available</Text>
+              <Text style={styles.emptyStateSubtext}>Performance metrics will appear here once you have students and grades</Text>
+            </View>
+          ) : (
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={styles.performanceScrollContainer}
+            >
+              {classPerformance.map((perf, index) => (
+                <TouchableOpacity
+                  key={perf.class}
+                  style={[styles.performanceCard, { marginLeft: index === 0 ? 12 : 8, marginRight: index === classPerformance.length - 1 ? 12 : 0 }]}
+                  activeOpacity={0.8}
+                >
+                  <View style={styles.performanceCardHeader}>
+                    <View style={styles.classInfo}>
+                      <Text style={styles.className}>Class {perf.class}</Text>
+                      <Text style={styles.studentCount}>{perf.totalStudents || 0} students</Text>
+                    </View>
+                    <View style={[styles.performanceGrade, { backgroundColor: getPerformanceColor(perf.avgMarks) }]}>
+                      <Text style={styles.performanceGradeText}>{getPerformanceGrade(perf.avgMarks)}</Text>
+                    </View>
+                  </View>
+
+                  <View style={styles.performanceMetrics}>
+                    <View style={styles.metricRow}>
+                      <View style={styles.metricItem}>
+                        <View style={styles.metricIconContainer}>
+                          <Ionicons name="trophy" size={16} color="#ff9800" />
+                        </View>
+                        <View style={styles.metricContent}>
+                          <Text style={styles.metricValue}>{perf.avgMarks}%</Text>
+                          <Text style={styles.metricLabel}>Avg. Score</Text>
+                        </View>
+                      </View>
+
+                      <View style={styles.metricItem}>
+                        <View style={styles.metricIconContainer}>
+                          <Ionicons name="people" size={16} color="#4caf50" />
+                        </View>
+                        <View style={styles.metricContent}>
+                          <Text style={styles.metricValue}>{perf.attendance}%</Text>
+                          <Text style={styles.metricLabel}>Attendance</Text>
+                        </View>
+                      </View>
+                    </View>
+
+                    <View style={styles.metricRow}>
+                      <View style={styles.metricItem}>
+                        <View style={styles.metricIconContainer}>
+                          <Ionicons name="trending-up" size={16} color="#2196f3" />
+                        </View>
+                        <View style={styles.metricContent}>
+                          <Text style={styles.metricValue}>{perf.improvement || '+0'}%</Text>
+                          <Text style={styles.metricLabel}>Improvement</Text>
+                        </View>
+                      </View>
+
+                      <View style={styles.metricItem}>
+                        <View style={styles.metricIconContainer}>
+                          <Ionicons name="star" size={16} color="#9c27b0" />
+                        </View>
+                        <View style={styles.metricContent}>
+                          <Text style={styles.metricValue}>{perf.topPerformers || 0}</Text>
+                          <Text style={styles.metricLabel}>Top Performers</Text>
+                        </View>
+                      </View>
+                    </View>
+                  </View>
+
+                  <View style={styles.performanceFooter}>
+                    <Text style={styles.topStudentLabel}>Top Student:</Text>
+                    <Text style={styles.topStudentName}>{perf.topStudent}</Text>
+                  </View>
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+          )}
         </View>
         {/* Marks Trend per Class */}
         <View style={styles.section}>
           <View style={styles.sectionTitleAccent} />
-          <Text style={styles.sectionTitle}>Marks Trend per Class</Text>
-          {Object.entries(marksTrend).map(([cls, trend]) => (
-            <View key={cls} style={{ backgroundColor: '#fff', borderRadius: 10, padding: 10, marginHorizontal: 12, marginBottom: 14, elevation: 1 }}>
-              <Text style={{ fontWeight: 'bold', color: '#1976d2', fontSize: 15, marginBottom: 4 }}>Class {cls}</Text>
-              <LineChart
-                data={{
-                  labels: trend.labels,
-                  datasets: [{ data: trend.data }],
-                }}
-                width={screenWidth - 48}
-                height={160}
-                chartConfig={{
-                  backgroundColor: '#fff',
-                  backgroundGradientFrom: '#fff',
-                  backgroundGradientTo: '#fff',
-                  decimalPlaces: 0,
-                  color: (opacity = 1) => `rgba(33, 150, 243, ${opacity})`,
-                  labelColor: (opacity = 1) => `rgba(0,0,0,${opacity})`,
-                  style: { borderRadius: 8 },
-                  propsForDots: { r: '4', strokeWidth: '2', stroke: '#1976d2' },
-                }}
-                bezier
-                style={{ borderRadius: 8 }}
-              />
+          <View style={styles.sectionHeader}>
+            <Text style={styles.sectionTitle}>Performance Analytics</Text>
+            <TouchableOpacity style={styles.viewAllButton}>
+              <Text style={styles.viewAllText}>View Reports</Text>
+              <Ionicons name="analytics-outline" size={16} color="#1976d2" />
+            </TouchableOpacity>
+          </View>
+
+          {Object.keys(marksTrend).length === 0 ? (
+            <View style={styles.emptyState}>
+              <Ionicons name="analytics-outline" size={48} color="#ccc" />
+              <Text style={styles.emptyStateText}>No performance data available</Text>
+              <Text style={styles.emptyStateSubtext}>Charts will appear here once students complete assessments</Text>
             </View>
-          ))}
+          ) : (
+            Object.entries(marksTrend).map(([cls, trend]) => (
+              <View key={cls} style={styles.trendCard}>
+                <View style={styles.trendCardHeader}>
+                  <Text style={styles.trendClassName}>Class {cls}</Text>
+                  <View style={styles.trendStats}>
+                    <Text style={styles.trendStatsText}>
+                      {trend.data && trend.data.length > 0 ? `${Math.max(...trend.data)}% Peak` : 'No data'}
+                    </Text>
+                  </View>
+                </View>
+
+                {trend.labels && trend.labels.length > 0 && trend.data && trend.data.length > 0 ? (
+                  <LineChart
+                    data={{
+                      labels: trend.labels.slice(0, 6), // Limit to 6 labels for better display
+                      datasets: [{
+                        data: trend.data.slice(0, 6),
+                        color: (opacity = 1) => `rgba(33, 150, 243, ${opacity})`,
+                        strokeWidth: 3
+                      }],
+                    }}
+                    width={screenWidth - 48}
+                    height={180}
+                    chartConfig={{
+                      backgroundColor: '#fff',
+                      backgroundGradientFrom: '#fff',
+                      backgroundGradientTo: '#fff',
+                      decimalPlaces: 0,
+                      color: (opacity = 1) => `rgba(33, 150, 243, ${opacity})`,
+                      labelColor: (opacity = 1) => `rgba(102, 102, 102, ${opacity})`,
+                      style: { borderRadius: 8 },
+                      propsForDots: {
+                        r: '5',
+                        strokeWidth: '2',
+                        stroke: '#1976d2',
+                        fill: '#fff'
+                      },
+                      propsForBackgroundLines: {
+                        strokeDasharray: '',
+                        stroke: '#e0e0e0',
+                        strokeWidth: 1
+                      },
+                    }}
+                    bezier
+                    style={{ borderRadius: 8, marginVertical: 8 }}
+                    withHorizontalLabels={true}
+                    withVerticalLabels={true}
+                    withDots={true}
+                    withShadow={false}
+                  />
+                ) : (
+                  <View style={styles.noDataChart}>
+                    <Ionicons name="bar-chart-outline" size={32} color="#ccc" />
+                    <Text style={styles.noDataText}>No assessment data available</Text>
+                  </View>
+                )}
+              </View>
+            ))
+          )}
         </View>
         {/* Recent Activities */}
         <View style={styles.section}>
@@ -894,100 +1461,178 @@ function groupAndSortSchedule(schedule) {
           alignItems: 'center',
           zIndex: 1000
         }}>
-          <View style={{
-            backgroundColor: '#fff',
-            borderRadius: 14,
-            padding: 20,
-            width: '85%',
-            elevation: 4,
-            maxWidth: 400,
-          }}>
-            <Text style={{ fontWeight: 'bold', fontSize: 18, marginBottom: 12 }}>Add New Task</Text>
-            <TextInput
-              placeholder="Task description"
-              value={newTask.task}
-              onChangeText={text => setNewTask(t => ({ ...t, task: text }))}
-              style={{ borderWidth: 1, borderColor: '#e0e0e0', borderRadius: 8, padding: 10, marginBottom: 10, fontSize: 15 }}
-            />
-            <View style={{ flexDirection: 'row', marginBottom: 10 }}>
-              <TouchableOpacity onPress={() => setNewTask(t => ({ ...t, type: 'attendance' }))} style={{ backgroundColor: newTask.type === 'attendance' ? '#388e3c' : '#eee', borderRadius: 8, padding: 8, marginRight: 8 }}>
-                <Ionicons name="checkmark-circle" size={18} color={newTask.type === 'attendance' ? '#fff' : '#888'} />
-                <Text style={{ color: newTask.type === 'attendance' ? '#fff' : '#333', marginLeft: 4 }}>Attendance</Text>
-              </TouchableOpacity>
-              <TouchableOpacity onPress={() => setNewTask(t => ({ ...t, type: 'marks' }))} style={{ backgroundColor: newTask.type === 'marks' ? '#1976d2' : '#eee', borderRadius: 8, padding: 8, marginRight: 8 }}>
-                <Ionicons name="document-text" size={18} color={newTask.type === 'marks' ? '#fff' : '#888'} />
-                <Text style={{ color: newTask.type === 'marks' ? '#fff' : '#333', marginLeft: 4 }}>Marks</Text>
-              </TouchableOpacity>
-              <TouchableOpacity onPress={() => setNewTask(t => ({ ...t, type: 'homework' }))} style={{ backgroundColor: newTask.type === 'homework' ? '#ff9800' : '#eee', borderRadius: 8, padding: 8 }}>
-                <Ionicons name="cloud-upload" size={18} color={newTask.type === 'homework' ? '#fff' : '#888'} />
-                <Text style={{ color: newTask.type === 'homework' ? '#fff' : '#333', marginLeft: 4 }}>Homework</Text>
+          <View style={styles.addTaskModal}>
+            <View style={styles.addTaskModalHeader}>
+              <Text style={styles.addTaskModalTitle}>Create New Task</Text>
+              <TouchableOpacity
+                onPress={() => {
+                  setAddTaskModalVisible(false);
+                  setNewTask({ task: '', type: 'attendance', due: '', priority: 'medium' });
+                }}
+                style={styles.addTaskModalClose}
+              >
+                <Ionicons name="close" size={24} color="#666" />
               </TouchableOpacity>
             </View>
-            <TouchableOpacity
-              onPress={() => setShowDatePicker(true)}
-              style={{
-                borderWidth: 1,
-                borderColor: '#e0e0e0',
-                borderRadius: 8,
-                padding: 10,
-                marginBottom: 10,
-                fontSize: 15,
-                backgroundColor: '#fafafa',
-              }}
+
+            <ScrollView
+              style={styles.addTaskModalScrollView}
+              contentContainerStyle={styles.addTaskModalContent}
+              showsVerticalScrollIndicator={false}
+              keyboardShouldPersistTaps="handled"
             >
-              <Text style={{ color: newTask.due ? '#333' : '#aaa', fontSize: 15 }}>
-                {newTask.due ? newTask.due : 'Select Due Date'}
-              </Text>
-            </TouchableOpacity>
-            {showDatePicker && (
-              <DateTimePicker
-                value={newTask.due ? new Date(newTask.due) : new Date()}
-                mode="date"
-                display={Platform.OS === 'ios' ? 'spinner' : 'default'}
-                onChange={(event, selectedDate) => {
-                  setShowDatePicker(false);
-                  if (selectedDate) {
-                    const yyyy = selectedDate.getFullYear();
-                    const mm = String(selectedDate.getMonth() + 1).padStart(2, '0');
-                    const dd = String(selectedDate.getDate()).padStart(2, '0');
-                    setNewTask(t => ({ ...t, due: `${yyyy}-${mm}-${dd}` }));
-                  }
-                }}
+              <Text style={styles.addTaskFieldLabel}>Task Description</Text>
+              <TextInput
+                placeholder="Enter task description..."
+                value={newTask.task}
+                onChangeText={text => setNewTask(t => ({ ...t, task: text }))}
+                style={styles.addTaskInput}
+                multiline={true}
+                numberOfLines={3}
               />
-            )}
-            <View style={{ flexDirection: 'row', justifyContent: 'flex-end', marginTop: 8 }}>
+
+              <Text style={styles.addTaskFieldLabel}>Category</Text>
+              <View style={styles.addTaskTypeGrid}>
+                <TouchableOpacity
+                  onPress={() => setNewTask(t => ({ ...t, type: 'attendance' }))}
+                  style={[styles.addTaskTypeButton, newTask.type === 'attendance' && { backgroundColor: '#388e3c' }]}
+                >
+                  <Ionicons name="people" size={18} color={newTask.type === 'attendance' ? '#fff' : '#388e3c'} />
+                  <Text style={[styles.addTaskTypeText, newTask.type === 'attendance' && styles.addTaskTypeTextActive]}>
+                    Attendance
+                  </Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  onPress={() => setNewTask(t => ({ ...t, type: 'marks' }))}
+                  style={[styles.addTaskTypeButton, newTask.type === 'marks' && { backgroundColor: '#1976d2' }]}
+                >
+                  <Ionicons name="document-text" size={18} color={newTask.type === 'marks' ? '#fff' : '#1976d2'} />
+                  <Text style={[styles.addTaskTypeText, newTask.type === 'marks' && styles.addTaskTypeTextActive]}>
+                    Marks
+                  </Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  onPress={() => setNewTask(t => ({ ...t, type: 'homework' }))}
+                  style={[styles.addTaskTypeButton, newTask.type === 'homework' && { backgroundColor: '#ff9800' }]}
+                >
+                  <Ionicons name="school" size={18} color={newTask.type === 'homework' ? '#fff' : '#ff9800'} />
+                  <Text style={[styles.addTaskTypeText, newTask.type === 'homework' && styles.addTaskTypeTextActive]}>
+                    Homework
+                  </Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  onPress={() => setNewTask(t => ({ ...t, type: 'meeting' }))}
+                  style={[styles.addTaskTypeButton, newTask.type === 'meeting' && { backgroundColor: '#9c27b0' }]}
+                >
+                  <Ionicons name="people-circle" size={18} color={newTask.type === 'meeting' ? '#fff' : '#9c27b0'} />
+                  <Text style={[styles.addTaskTypeText, newTask.type === 'meeting' && styles.addTaskTypeTextActive]}>
+                    Meeting
+                  </Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  onPress={() => setNewTask(t => ({ ...t, type: 'report' }))}
+                  style={[styles.addTaskTypeButton, newTask.type === 'report' && { backgroundColor: '#f44336' }]}
+                >
+                  <Ionicons name="bar-chart" size={18} color={newTask.type === 'report' ? '#fff' : '#f44336'} />
+                  <Text style={[styles.addTaskTypeText, newTask.type === 'report' && styles.addTaskTypeTextActive]}>
+                    Report
+                  </Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  onPress={() => setNewTask(t => ({ ...t, type: 'planning' }))}
+                  style={[styles.addTaskTypeButton, newTask.type === 'planning' && { backgroundColor: '#00bcd4' }]}
+                >
+                  <Ionicons name="calendar" size={18} color={newTask.type === 'planning' ? '#fff' : '#00bcd4'} />
+                  <Text style={[styles.addTaskTypeText, newTask.type === 'planning' && styles.addTaskTypeTextActive]}>
+                    Planning
+                  </Text>
+                </TouchableOpacity>
+              </View>
+
+              <Text style={styles.addTaskFieldLabel}>Priority</Text>
+              <View style={styles.addTaskPriorityContainer}>
+                <TouchableOpacity
+                  onPress={() => setNewTask(t => ({ ...t, priority: 'high' }))}
+                  style={[styles.addTaskPriorityButton, newTask.priority === 'high' && { backgroundColor: '#ffebee', borderColor: '#f44336' }]}
+                >
+                  <View style={[styles.addTaskPriorityDot, { backgroundColor: '#f44336' }]} />
+                  <Text style={[styles.addTaskPriorityText, newTask.priority === 'high' && { color: '#f44336', fontWeight: '600' }]}>
+                    High Priority
+                  </Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  onPress={() => setNewTask(t => ({ ...t, priority: 'medium' }))}
+                  style={[styles.addTaskPriorityButton, newTask.priority === 'medium' && { backgroundColor: '#fff3e0', borderColor: '#ff9800' }]}
+                >
+                  <View style={[styles.addTaskPriorityDot, { backgroundColor: '#ff9800' }]} />
+                  <Text style={[styles.addTaskPriorityText, newTask.priority === 'medium' && { color: '#ff9800', fontWeight: '600' }]}>
+                    Medium Priority
+                  </Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  onPress={() => setNewTask(t => ({ ...t, priority: 'low' }))}
+                  style={[styles.addTaskPriorityButton, newTask.priority === 'low' && { backgroundColor: '#e8f5e8', borderColor: '#4caf50' }]}
+                >
+                  <View style={[styles.addTaskPriorityDot, { backgroundColor: '#4caf50' }]} />
+                  <Text style={[styles.addTaskPriorityText, newTask.priority === 'low' && { color: '#4caf50', fontWeight: '600' }]}>
+                    Low Priority
+                  </Text>
+                </TouchableOpacity>
+              </View>
+
+              <Text style={styles.addTaskFieldLabel}>Due Date</Text>
               <TouchableOpacity
-                onPress={() => { setAddTaskModalVisible(false); setNewTask({ task: '', type: 'attendance', due: '' }); }}
-                style={{
-                  backgroundColor: '#aaa',
-                  borderRadius: 24,
-                  paddingHorizontal: 20,
-                  paddingVertical: 10,
-                  marginRight: 10,
-                  elevation: 2,
-                  shadowColor: '#aaa',
-                  shadowOpacity: 0.10,
-                  shadowRadius: 4,
+                onPress={() => setShowDatePicker(true)}
+                style={styles.addTaskDatePicker}
+              >
+                <Ionicons name="calendar-outline" size={20} color="#666" />
+                <Text style={[styles.addTaskDateText, newTask.due && styles.addTaskDateTextSelected]}>
+                  {newTask.due ? new Date(newTask.due).toLocaleDateString('en-US', {
+                    weekday: 'short',
+                    year: 'numeric',
+                    month: 'short',
+                    day: 'numeric'
+                  }) : 'Select Due Date'}
+                </Text>
+                <Ionicons name="chevron-down" size={16} color="#666" />
+              </TouchableOpacity>
+              {showDatePicker && (
+                <DateTimePicker
+                  value={newTask.due ? new Date(newTask.due) : new Date()}
+                  mode="date"
+                  display={Platform.OS === 'ios' ? 'spinner' : 'default'}
+                  onChange={(event, selectedDate) => {
+                    setShowDatePicker(false);
+                    if (selectedDate) {
+                      const yyyy = selectedDate.getFullYear();
+                      const mm = String(selectedDate.getMonth() + 1).padStart(2, '0');
+                      const dd = String(selectedDate.getDate()).padStart(2, '0');
+                      setNewTask(t => ({ ...t, due: `${yyyy}-${mm}-${dd}` }));
+                    }
+                  }}
+                />
+              )}
+            </ScrollView>
+
+            <View style={styles.addTaskModalActions}>
+              <TouchableOpacity
+                onPress={() => {
+                  setAddTaskModalVisible(false);
+                  setNewTask({ task: '', type: 'attendance', due: '', priority: 'medium' });
                 }}
+                style={styles.addTaskCancelButton}
                 activeOpacity={0.8}
               >
-                <Text style={{ color: '#fff', fontWeight: 'bold', fontSize: 16 }}>Cancel</Text>
+                <Text style={styles.addTaskCancelButtonText}>Cancel</Text>
               </TouchableOpacity>
               <TouchableOpacity
                 onPress={handleAddTask}
-                style={{
-                  backgroundColor: '#1976d2',
-                  borderRadius: 24,
-                  paddingHorizontal: 20,
-                  paddingVertical: 10,
-                  elevation: 2,
-                  shadowColor: '#1976d2',
-                  shadowOpacity: 0.10,
-                  shadowRadius: 4,
-                }}
+                style={[styles.addTaskCreateButton, (!newTask.task || !newTask.due) && styles.addTaskCreateButtonDisabled]}
                 activeOpacity={0.8}
+                disabled={!newTask.task || !newTask.due}
               >
-                <Text style={{ color: '#fff', fontWeight: 'bold', fontSize: 16 }}>Add</Text>
+                <Ionicons name="add-circle" size={20} color="#fff" style={{ marginRight: 6 }} />
+                <Text style={styles.addTaskCreateButtonText}>Create Task</Text>
               </TouchableOpacity>
             </View>
           </View>
@@ -1021,18 +1666,31 @@ const styles = StyleSheet.create({
     color: '#666',
     marginTop: 4,
   },
-  statsGridContainer: {
-    paddingHorizontal: 8,
-    marginBottom: 18,
+  statsSection: {
+    backgroundColor: '#f8f9fa',
+    borderRadius: 16,
+    padding: 16,
+    marginHorizontal: 16,
+    marginBottom: 20,
+    elevation: 2,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.08,
+    shadowRadius: 4,
   },
-  statsRow: {
+  statsSectionHeader: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginBottom: 12,
+    alignItems: 'center',
+    marginBottom: 16,
   },
-  statsCol: {
-    flex: 1,
-    marginHorizontal: 4,
+  statsSectionTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#333',
+    marginLeft: 8,
+  },
+  statsColumnContainer: {
+    paddingHorizontal: 8,
   },
   quickActionsGrid: {
     flexDirection: 'row',
@@ -1086,7 +1744,7 @@ const styles = StyleSheet.create({
     marginTop: 22,
     marginBottom: 10,
     marginLeft: 0,
-    paddingLeft: 18,
+    paddingLeft: 12, // Reduced from 18 to 12 for better alignment
     position: 'relative',
   },
   sectionTitleAccent: {
@@ -1136,6 +1794,577 @@ const styles = StyleSheet.create({
   scheduleRoom: {
     fontSize: 13,
     color: '#888',
+  },
+  // Enhanced Tasks Section Styles
+  tasksHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 20,
+    paddingHorizontal: 4,
+  },
+  tasksHeaderLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
+  },
+  tasksIconContainer: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: '#e3f2fd',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 12,
+  },
+  tasksTitle: {
+    fontSize: 20,
+    fontWeight: '700',
+    color: '#1976d2',
+    marginBottom: 2,
+  },
+  tasksSubtitle: {
+    fontSize: 14,
+    color: '#666',
+    fontWeight: '500',
+  },
+
+  tasksCategorySection: {
+    marginBottom: 24,
+  },
+  tasksCategoryHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 12,
+    paddingHorizontal: 4,
+  },
+  personalTasksHeaderRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  tasksCategoryBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#f8f9fa',
+    borderRadius: 20,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+  },
+  tasksCategoryTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#1976d2',
+    marginLeft: 6,
+  },
+  tasksCategoryCount: {
+    backgroundColor: '#1976d2',
+    borderRadius: 12,
+    minWidth: 24,
+    height: 24,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 8,
+  },
+  tasksCategoryCountText: {
+    color: '#fff',
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  addPersonalTaskButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#4CAF50',
+    borderRadius: 20,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    marginLeft: 8,
+    elevation: 2,
+    shadowColor: '#4CAF50',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.15,
+    shadowRadius: 4,
+  },
+  addPersonalTaskButtonText: {
+    color: '#fff',
+    fontSize: 12,
+    fontWeight: '600',
+  },
+
+
+  tasksContainer: {
+    paddingHorizontal: 8,
+  },
+  emptyTasksContainer: {
+    alignItems: 'center',
+    paddingVertical: 32,
+    paddingHorizontal: 20,
+  },
+  emptyTasksText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#666',
+    marginTop: 12,
+    marginBottom: 4,
+  },
+  emptyTasksSubtext: {
+    fontSize: 14,
+    color: '#999',
+    textAlign: 'center',
+    lineHeight: 20,
+  },
+  taskCard: {
+    backgroundColor: '#fff',
+    borderRadius: 16,
+    padding: 16,
+    marginBottom: 12,
+    elevation: 2,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.08,
+    shadowRadius: 8,
+    borderLeftWidth: 4,
+    borderLeftColor: '#e0e0e0',
+  },
+  taskCardHeader: {
+    marginBottom: 12,
+  },
+  taskCardContent: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+  },
+  taskTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 4,
+  },
+  taskTypeIcon: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 12,
+  },
+  taskInfo: {
+    flex: 1,
+  },
+  taskTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#333',
+    lineHeight: 22,
+    flex: 1,
+    marginRight: 8,
+  },
+  priorityBadge: {
+    borderRadius: 12,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    alignSelf: 'flex-start',
+  },
+  priorityText: {
+    fontSize: 11,
+    fontWeight: '600',
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+  },
+  taskMeta: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  taskDueDate: {
+    fontSize: 13,
+    color: '#666',
+    marginLeft: 6,
+    fontWeight: '500',
+  },
+  completeTaskButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#1976d2',
+    borderRadius: 20,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    alignSelf: 'flex-end',
+  },
+  completeTaskButtonText: {
+    color: '#fff',
+    fontWeight: '600',
+    fontSize: 14,
+    marginLeft: 4,
+  },
+  // Enhanced Add Task Modal Styles
+  addTaskModal: {
+    backgroundColor: '#fff',
+    borderRadius: 20,
+    width: '90%',
+    maxWidth: 420,
+    maxHeight: '80%',
+    elevation: 8,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.15,
+    shadowRadius: 12,
+  },
+  addTaskModalHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    padding: 20,
+    paddingBottom: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: '#f0f0f0',
+  },
+  addTaskModalTitle: {
+    fontSize: 20,
+    fontWeight: '700',
+    color: '#1976d2',
+  },
+  addTaskModalClose: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: '#f5f5f5',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  addTaskModalScrollView: {
+    maxHeight: '70%', // Limit height to allow for header and actions
+  },
+  addTaskModalContent: {
+    padding: 20,
+    paddingBottom: 10, // Reduced bottom padding since actions are outside
+  },
+  addTaskFieldLabel: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#333',
+    marginBottom: 8,
+    marginTop: 16,
+  },
+  addTaskInput: {
+    borderWidth: 1,
+    borderColor: '#e0e0e0',
+    borderRadius: 12,
+    padding: 12,
+    fontSize: 16,
+    backgroundColor: '#fafafa',
+    textAlignVertical: 'top',
+    minHeight: 80,
+  },
+  addTaskTypeGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'space-between',
+    marginBottom: 8,
+  },
+  addTaskTypeButton: {
+    width: '48%',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#f8f9fa',
+    borderRadius: 12,
+    padding: 10,
+    marginBottom: 8,
+    borderWidth: 2,
+    borderColor: 'transparent',
+  },
+  addTaskTypeText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#666',
+    marginLeft: 4,
+  },
+  addTaskTypeTextActive: {
+    color: '#fff',
+  },
+  addTaskPriorityContainer: {
+    marginBottom: 8,
+  },
+  addTaskPriorityButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#f8f9fa',
+    borderRadius: 12,
+    padding: 12,
+    marginBottom: 8,
+    borderWidth: 2,
+    borderColor: 'transparent',
+  },
+  addTaskPriorityDot: {
+    width: 12,
+    height: 12,
+    borderRadius: 6,
+    marginRight: 12,
+  },
+  addTaskPriorityText: {
+    fontSize: 15,
+    fontWeight: '500',
+    color: '#666',
+  },
+  addTaskDatePicker: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#fafafa',
+    borderWidth: 1,
+    borderColor: '#e0e0e0',
+    borderRadius: 12,
+    padding: 12,
+    marginBottom: 8,
+  },
+  addTaskDateText: {
+    flex: 1,
+    fontSize: 16,
+    color: '#aaa',
+    marginLeft: 8,
+  },
+  addTaskDateTextSelected: {
+    color: '#333',
+    fontWeight: '500',
+  },
+  addTaskModalActions: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    paddingHorizontal: 20,
+    paddingBottom: 20,
+    paddingTop: 8,
+  },
+  addTaskCancelButton: {
+    flex: 1,
+    backgroundColor: '#f5f5f5',
+    borderRadius: 12,
+    paddingVertical: 14,
+    alignItems: 'center',
+    marginRight: 8,
+  },
+  addTaskCancelButtonText: {
+    color: '#666',
+    fontWeight: '600',
+    fontSize: 16,
+  },
+  addTaskCreateButton: {
+    flex: 1,
+    flexDirection: 'row',
+    backgroundColor: '#1976d2',
+    borderRadius: 12,
+    paddingVertical: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginLeft: 8,
+    elevation: 2,
+    shadowColor: '#1976d2',
+    shadowOpacity: 0.15,
+    shadowRadius: 4,
+  },
+  addTaskCreateButtonDisabled: {
+    backgroundColor: '#ccc',
+    elevation: 0,
+    shadowOpacity: 0,
+  },
+  addTaskCreateButtonText: {
+    color: '#fff',
+    fontWeight: '600',
+    fontSize: 16,
+  },
+
+  // Enhanced Class Performance Styles
+  sectionHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginHorizontal: 0, // Remove horizontal margin to align with section padding
+    marginBottom: 12,
+    paddingHorizontal: 2, // Add small padding to prevent button from touching edges
+  },
+  viewAllButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    backgroundColor: '#e3f2fd',
+    borderRadius: 16,
+    maxWidth: 120, // Limit button width to prevent overflow
+    justifyContent: 'center',
+  },
+  viewAllText: {
+    color: '#1976d2',
+    fontSize: 13,
+    fontWeight: '600',
+    marginRight: 4,
+    textAlign: 'center',
+  },
+  emptyState: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 40,
+    paddingHorizontal: 20,
+  },
+  emptyStateText: {
+    fontSize: 18,
+    fontWeight: '600',
+    color: '#666',
+    marginTop: 12,
+    textAlign: 'center',
+  },
+  emptyStateSubtext: {
+    fontSize: 14,
+    color: '#999',
+    marginTop: 8,
+    textAlign: 'center',
+    lineHeight: 20,
+  },
+  performanceScrollContainer: {
+    paddingVertical: 8,
+  },
+  performanceCard: {
+    backgroundColor: '#fff',
+    borderRadius: 16,
+    padding: 16,
+    width: 280,
+    elevation: 3,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 8,
+  },
+  performanceCardHeader: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+    marginBottom: 16,
+  },
+  classInfo: {
+    flex: 1,
+  },
+  className: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#1976d2',
+    marginBottom: 4,
+  },
+  studentCount: {
+    fontSize: 14,
+    color: '#666',
+    fontWeight: '500',
+  },
+  performanceGrade: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 20,
+    minWidth: 40,
+    alignItems: 'center',
+  },
+  performanceGradeText: {
+    color: '#fff',
+    fontSize: 14,
+    fontWeight: '700',
+  },
+  performanceMetrics: {
+    marginBottom: 16,
+  },
+  metricRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: 12,
+  },
+  metricItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
+    marginHorizontal: 4,
+  },
+  metricIconContainer: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: '#f5f5f5',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 8,
+  },
+  metricContent: {
+    flex: 1,
+  },
+  metricValue: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#333',
+  },
+  metricLabel: {
+    fontSize: 12,
+    color: '#666',
+    marginTop: 2,
+  },
+  performanceFooter: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingTop: 12,
+    borderTopWidth: 1,
+    borderTopColor: '#f0f0f0',
+  },
+  topStudentLabel: {
+    fontSize: 14,
+    color: '#666',
+    marginRight: 8,
+  },
+  topStudentName: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#1976d2',
+    flex: 1,
+  },
+
+  // Enhanced Trend Chart Styles
+  trendCard: {
+    backgroundColor: '#fff',
+    borderRadius: 16,
+    padding: 16,
+    marginHorizontal: 12,
+    marginBottom: 16,
+    elevation: 2,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+  },
+  trendCardHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 12,
+  },
+  trendClassName: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#1976d2',
+  },
+  trendStats: {
+    backgroundColor: '#e3f2fd',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 12,
+  },
+  trendStatsText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#1976d2',
+  },
+  noDataChart: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 40,
+    backgroundColor: '#f9f9f9',
+    borderRadius: 8,
+    marginVertical: 8,
+  },
+  noDataText: {
+    fontSize: 14,
+    color: '#999',
+    marginTop: 8,
+    fontWeight: '500',
   },
 });
 

@@ -657,35 +657,57 @@ const ManageTeachers = ({ navigation }) => {
                 </View>
 
                 <Text style={styles.sectionDescription}>
-                  Select subjects this teacher will teach (filtered by selected classes)
+                  Select subjects this teacher will teach (grouped by selected classes)
                 </Text>
 
-                <View style={styles.checkboxGrid}>
-                  {subjects.filter(subject => form.classes.includes(subject.class_id)).map(subject => (
-                    <TouchableOpacity
-                      key={subject.id}
-                      style={[
-                        styles.checkboxCard,
-                        form.subjects.includes(subject.id) && styles.checkboxCardSelected
-                      ]}
-                      onPress={() => setForm({ ...form, subjects: toggleSelect(form.subjects, subject.id) })}
-                    >
-                      <View style={styles.checkboxCardContent}>
-                        <Ionicons
-                          name={form.subjects.includes(subject.id) ? 'checkmark-circle' : 'ellipse-outline'}
-                          size={24}
-                          color={form.subjects.includes(subject.id) ? '#4CAF50' : '#ccc'}
-                        />
-                        <Text style={[
-                          styles.checkboxCardText,
-                          form.subjects.includes(subject.id) && styles.checkboxCardTextSelected
-                        ]}>
-                          {subject.name}
-                        </Text>
+                {form.classes.map(classId => {
+                  const selectedClass = classes.find(c => c.id === classId);
+                  const classSubjects = subjects.filter(subject => subject.class_id === classId);
+
+                  if (classSubjects.length === 0) return null;
+
+                  return (
+                    <View key={classId} style={styles.classSubjectsGroup}>
+                      <Text style={styles.classSubjectsTitle}>
+                        📚 {selectedClass?.class_name} - Subjects
+                      </Text>
+                      <View style={styles.checkboxGrid}>
+                        {classSubjects.map(subject => (
+                          <TouchableOpacity
+                            key={subject.id}
+                            style={[
+                              styles.checkboxCard,
+                              form.subjects.includes(subject.id) && styles.checkboxCardSelected
+                            ]}
+                            onPress={() => setForm({ ...form, subjects: toggleSelect(form.subjects, subject.id) })}
+                          >
+                            <View style={styles.checkboxCardContent}>
+                              <Ionicons
+                                name={form.subjects.includes(subject.id) ? 'checkmark-circle' : 'ellipse-outline'}
+                                size={24}
+                                color={form.subjects.includes(subject.id) ? '#4CAF50' : '#ccc'}
+                              />
+                              <Text style={[
+                                styles.checkboxCardText,
+                                form.subjects.includes(subject.id) && styles.checkboxCardTextSelected
+                              ]}>
+                                {subject.name}
+                              </Text>
+                            </View>
+                          </TouchableOpacity>
+                        ))}
                       </View>
-                    </TouchableOpacity>
-                  ))}
-                </View>
+                    </View>
+                  );
+                })}
+
+                {form.classes.length === 0 && (
+                  <View style={styles.noSelectionContainer}>
+                    <Text style={styles.noSelectionText}>
+                      Please select classes first to see available subjects
+                    </Text>
+                  </View>
+                )}
               </View>
 
               {/* Section Assignment (if classes selected) */}
@@ -1276,6 +1298,39 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: '#666',
     marginLeft: 6,
+    fontStyle: 'italic',
+  },
+  // Class-grouped subjects styles
+  classSubjectsGroup: {
+    marginBottom: 20,
+    backgroundColor: '#f8f9fa',
+    borderRadius: 12,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: '#e9ecef',
+  },
+  classSubjectsTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#2c3e50',
+    marginBottom: 12,
+    paddingBottom: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: '#dee2e6',
+  },
+  noSelectionContainer: {
+    backgroundColor: '#f8f9fa',
+    borderRadius: 12,
+    padding: 20,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#e9ecef',
+    borderStyle: 'dashed',
+  },
+  noSelectionText: {
+    fontSize: 14,
+    color: '#6c757d',
+    textAlign: 'center',
     fontStyle: 'italic',
   },
 });

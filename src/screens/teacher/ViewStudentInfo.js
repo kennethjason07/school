@@ -32,7 +32,12 @@ const ViewStudentInfo = () => {
       // Get teacher info using the helper function
       const { data: teacherData, error: teacherError } = await dbHelpers.getTeacherByUserId(user.id);
 
-      if (teacherError || !teacherData) throw new Error('Teacher not found');
+      if (teacherError || !teacherData) {
+        console.error('ViewStudentInfo: Teacher not found:', teacherError);
+        throw new Error('Teacher not found');
+      }
+
+      console.log('ViewStudentInfo: Teacher data:', teacherData);
 
       // Get assigned classes and subjects
       const { data: assignedData, error: assignedError } = await supabase
@@ -50,56 +55,68 @@ const ViewStudentInfo = () => {
 
       if (assignedError) throw assignedError;
 
+      console.log('ViewStudentInfo: Assigned data:', assignedData);
+
       // Get unique classes
       const uniqueClasses = [...new Set(assignedData
         .filter(a => a.subjects?.classes)
         .map(a => `${a.subjects.classes.class_name} - ${a.subjects.classes.section}`))];
       setClasses(['All', ...uniqueClasses]);
 
+      console.log('ViewStudentInfo: Unique classes:', uniqueClasses);
+
       // Get students from assigned classes
-      const studentPromises = assignedData
-        .filter(assignment => assignment.subjects?.classes?.id)
-        .map(assignment =>
-          supabase
-            .from(TABLES.STUDENTS)
-            .select(`
-              id,
-              name,
-              roll_no,
-              email,
-              phone,
-              address,
-              dob,
-              gender,
-              classes(class_name, section),
-              users!students_parent_id_fkey(full_name, phone, email)
-            `)
-            .eq('class_id', assignment.subjects.classes.id)
-            .order('roll_no')
-        );
+      const validAssignments = assignedData.filter(assignment => assignment.subjects?.classes?.id);
+      console.log('ViewStudentInfo: Valid assignments:', validAssignments);
+
+      const studentPromises = validAssignments.map(assignment => {
+        console.log('ViewStudentInfo: Fetching students for class:', assignment.subjects.classes.id);
+        return supabase
+          .from(TABLES.STUDENTS)
+          .select(`
+            id,
+            name,
+            roll_no,
+            address,
+            dob,
+            gender,
+            admission_no,
+            academic_year,
+            classes(class_name, section),
+            users!students_parent_id_fkey(full_name, phone, email)
+          `)
+          .eq('class_id', assignment.subjects.classes.id)
+          .order('roll_no');
+      });
 
       const studentResults = await Promise.all(studentPromises);
+      console.log('ViewStudentInfo: Student results:', studentResults);
       const allStudents = [];
 
       studentResults.forEach((result, index) => {
-        if (result.data) {
-          const classSection = `${assignedData[index].classes.class_name} - ${assignedData[index].classes.section}`;
+        if (result.data && validAssignments[index]) {
+          const assignment = validAssignments[index];
+          const classSection = `${assignment.subjects.classes.class_name} - ${assignment.subjects.classes.section}`;
+          console.log('ViewStudentInfo: Processing students for class:', classSection, 'Count:', result.data.length);
+
           result.data.forEach(student => {
             allStudents.push({
               ...student,
               classSection,
-              className: assignedData[index].classes.class_name,
-              sectionName: assignedData[index].classes.section
+              className: assignment.subjects.classes.class_name,
+              sectionName: assignment.subjects.classes.section,
+              parents: student.users // Fix parent data access
             });
           });
         }
       });
 
       // Remove duplicates
-      const uniqueStudents = allStudents.filter((student, index, self) => 
+      const uniqueStudents = allStudents.filter((student, index, self) =>
         index === self.findIndex(s => s.id === student.id)
       );
 
+      console.log('ViewStudentInfo: Final unique students:', uniqueStudents.length);
       setStudents(uniqueStudents);
       setFilteredStudents(uniqueStudents);
 
@@ -165,20 +182,33 @@ const ViewStudentInfo = () => {
   useEffect(() => {
     let filtered = students;
 
+    console.log('ViewStudentInfo: Filtering - selectedClass:', selectedClass);
+    console.log('ViewStudentInfo: Total students before filter:', students.length);
+
     // Filter by class
     if (selectedClass !== 'All') {
-      filtered = filtered.filter(student => student.className === selectedClass);
+      filtered = filtered.filter(student => {
+        const match = student.classSection === selectedClass;
+        if (!match) {
+          console.log('ViewStudentInfo: Student class mismatch:', student.classSection, 'vs', selectedClass);
+        }
+        return match;
+      });
+      console.log('ViewStudentInfo: Students after class filter:', filtered.length);
     }
 
     // Filter by search query
     if (searchQuery.trim()) {
+      const beforeSearchFilter = filtered.length;
       filtered = filtered.filter(student =>
         student.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
         student.roll_no.toString().includes(searchQuery) ||
-        student.email?.toLowerCase().includes(searchQuery.toLowerCase())
+        student.admission_no?.toLowerCase().includes(searchQuery.toLowerCase())
       );
+      console.log('ViewStudentInfo: Students after search filter:', filtered.length, 'from', beforeSearchFilter);
     }
 
+    console.log('ViewStudentInfo: Final filtered students:', filtered.length);
     setFilteredStudents(filtered);
   }, [students, searchQuery, selectedClass]);
 
@@ -198,72 +228,251 @@ const ViewStudentInfo = () => {
 
   const handleExportCSV = async () => {
     try {
-      const csvData = [
-        ['Name', 'Roll No', 'Class', 'Email', 'Phone', 'Attendance %', 'Average Marks'],
-        ...filteredStudents.map(student => [
-          student.full_name,
-          student.roll_no,
-          `${student.className} - ${student.sectionName}`,
-          student.email || '',
-          student.phone || '',
-          student.attendance || 0,
-          student.marks || 0
-        ])
-      ].map(row => row.join(',')).join('\n');
+      Alert.alert(
+        'Export CSV',
+        `Export ${filteredStudents.length} students to CSV file?`,
+        [
+          { text: 'Cancel', style: 'cancel' },
+          {
+            text: 'Export',
+            onPress: async () => {
+              try {
+                const csvHeaders = [
+                  'Name',
+                  'Roll No',
+                  'Admission No',
+                  'Class',
+                  'Section',
+                  'Gender',
+                  'Date of Birth',
+                  'Address',
+                  'Parent Name',
+                  'Parent Phone',
+                  'Parent Email'
+                ];
 
-      const fileName = `students_${new Date().toISOString().split('T')[0]}.csv`;
-      const fileUri = `${FileSystem.documentDirectory}${fileName}`;
+                const csvRows = filteredStudents.map(student => [
+                  `"${student.name || ''}"`,
+                  student.roll_no || '',
+                  `"${student.admission_no || ''}"`,
+                  `"${student.className || ''}"`,
+                  `"${student.sectionName || ''}"`,
+                  `"${student.gender || ''}"`,
+                  student.dob || '',
+                  `"${student.address || ''}"`,
+                  `"${student.parents?.full_name || student.users?.full_name || ''}"`,
+                  student.parents?.phone || student.users?.phone || '',
+                  `"${student.parents?.email || student.users?.email || ''}"`
+                ]);
 
-      await FileSystem.writeAsStringAsync(fileUri, csvData);
-      
-      if (await Sharing.isAvailableAsync()) {
-        await Sharing.shareAsync(fileUri);
-      } else {
-        Alert.alert('Success', 'CSV file saved successfully!');
-      }
+                const csvContent = [csvHeaders.join(','), ...csvRows.map(row => row.join(','))].join('\n');
+
+                const timestamp = new Date().toISOString().split('T')[0];
+                const fileName = `students_export_${timestamp}.csv`;
+                const fileUri = `${FileSystem.documentDirectory}${fileName}`;
+
+                await FileSystem.writeAsStringAsync(fileUri, csvContent, {
+                  encoding: FileSystem.EncodingType.UTF8
+                });
+
+                if (await Sharing.isAvailableAsync()) {
+                  await Sharing.shareAsync(fileUri, {
+                    mimeType: 'text/csv',
+                    dialogTitle: 'Export Students CSV'
+                  });
+                } else {
+                  Alert.alert('Success', `CSV file saved as ${fileName}`);
+                }
+              } catch (error) {
+                Alert.alert('Error', 'Failed to export CSV file');
+                console.error('CSV export error:', error);
+              }
+            }
+          }
+        ]
+      );
     } catch (error) {
-      Alert.alert('Error', 'Failed to export CSV');
-      console.error('CSV export error:', error);
+      Alert.alert('Error', 'Failed to prepare CSV export');
+      console.error('CSV export preparation error:', error);
     }
   };
 
   const handleExportPDF = async () => {
     try {
-      const htmlContent = `
-        <html>
-          <head>
-            <style>
-              body { font-family: Arial, sans-serif; margin: 20px; }
-              .header { text-align: center; margin-bottom: 30px; }
-              table { width: 100%; border-collapse: collapse; margin-top: 20px; }
-              th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
-              th { background-color: #f2f2f2; }
-              .student-card { border: 1px solid #ddd; margin: 10px 0; padding: 15px; }
-            </style>
-          </head>
-          <body>
-            <div class="header">
-              <h1>Student Information Report</h1>
-              <p>Generated on: ${new Date().toLocaleDateString()}</p>
-            </div>
-            ${filteredStudents.map(student => `
-              <div class="student-card">
-                <h3>${student.full_name}</h3>
-                <p><strong>Roll No:</strong> ${student.roll_no}</p>
-                <p><strong>Class:</strong> ${student.className} - ${student.sectionName}</p>
-                <p><strong>Email:</strong> ${student.email || 'N/A'}</p>
-                <p><strong>Phone:</strong> ${student.phone || 'N/A'}</p>
-                <p><strong>Parent:</strong> ${student.parents?.full_name || 'N/A'}</p>
-              </div>
-            `).join('')}
-          </body>
-        </html>
-      `;
+      Alert.alert(
+        'Export PDF',
+        `Generate PDF report for ${filteredStudents.length} students?`,
+        [
+          { text: 'Cancel', style: 'cancel' },
+          {
+            text: 'Generate',
+            onPress: async () => {
+              try {
+                const currentDate = new Date().toLocaleDateString('en-US', {
+                  year: 'numeric',
+                  month: 'long',
+                  day: 'numeric'
+                });
 
-      await Print.printAsync({ html: htmlContent });
+                const htmlContent = `
+                  <!DOCTYPE html>
+                  <html>
+                    <head>
+                      <meta charset="UTF-8">
+                      <title>Students Report</title>
+                      <style>
+                        body {
+                          font-family: 'Arial', sans-serif;
+                          margin: 0;
+                          padding: 20px;
+                          color: #333;
+                          line-height: 1.4;
+                        }
+                        .header {
+                          text-align: center;
+                          margin-bottom: 40px;
+                          border-bottom: 3px solid #1976d2;
+                          padding-bottom: 20px;
+                        }
+                        .header h1 {
+                          color: #1976d2;
+                          margin: 0 0 10px 0;
+                          font-size: 28px;
+                        }
+                        .header p {
+                          margin: 5px 0;
+                          color: #666;
+                          font-size: 14px;
+                        }
+                        .summary {
+                          background: #f8f9fa;
+                          padding: 15px;
+                          border-radius: 8px;
+                          margin-bottom: 30px;
+                          text-align: center;
+                        }
+                        .summary h3 {
+                          margin: 0 0 10px 0;
+                          color: #1976d2;
+                        }
+                        table {
+                          width: 100%;
+                          border-collapse: collapse;
+                          margin-top: 20px;
+                          font-size: 12px;
+                        }
+                        th {
+                          background-color: #1976d2;
+                          color: white;
+                          padding: 12px 8px;
+                          text-align: left;
+                          font-weight: bold;
+                        }
+                        td {
+                          border: 1px solid #ddd;
+                          padding: 10px 8px;
+                          vertical-align: top;
+                        }
+                        tr:nth-child(even) {
+                          background-color: #f9f9f9;
+                        }
+                        tr:hover {
+                          background-color: #f0f8ff;
+                        }
+                        .student-name {
+                          font-weight: bold;
+                          color: #1976d2;
+                        }
+                        .footer {
+                          margin-top: 40px;
+                          text-align: center;
+                          font-size: 12px;
+                          color: #666;
+                          border-top: 1px solid #ddd;
+                          padding-top: 20px;
+                        }
+                        @media print {
+                          body { margin: 0; }
+                          .header { page-break-after: avoid; }
+                          table { page-break-inside: auto; }
+                          tr { page-break-inside: avoid; }
+                        }
+                      </style>
+                    </head>
+                    <body>
+                      <div class="header">
+                        <h1>Student Information Report</h1>
+                        <p>Generated on: ${currentDate}</p>
+                        <p>Teacher: ${user?.email || 'N/A'}</p>
+                      </div>
+
+                      <div class="summary">
+                        <h3>Report Summary</h3>
+                        <p>Total Students: <strong>${filteredStudents.length}</strong></p>
+                        <p>Classes: <strong>${[...new Set(filteredStudents.map(s => s.classSection))].join(', ')}</strong></p>
+                      </div>
+
+                      <table>
+                        <thead>
+                          <tr>
+                            <th>Name</th>
+                            <th>Roll No</th>
+                            <th>Admission No</th>
+                            <th>Class</th>
+                            <th>Gender</th>
+                            <th>DOB</th>
+                            <th>Parent Name</th>
+                            <th>Parent Contact</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          ${filteredStudents.map(student => `
+                            <tr>
+                              <td class="student-name">${student.name || 'N/A'}</td>
+                              <td>${student.roll_no || 'N/A'}</td>
+                              <td>${student.admission_no || 'N/A'}</td>
+                              <td>${student.classSection || 'N/A'}</td>
+                              <td>${student.gender || 'N/A'}</td>
+                              <td>${student.dob || 'N/A'}</td>
+                              <td>${student.parents?.full_name || student.users?.full_name || 'N/A'}</td>
+                              <td>${student.parents?.phone || student.users?.phone || 'N/A'}</td>
+                            </tr>
+                          `).join('')}
+                        </tbody>
+                      </table>
+
+                      <div class="footer">
+                        <p>This report was generated automatically by the School Management System</p>
+                        <p>© ${new Date().getFullYear()} School Management System</p>
+                      </div>
+                    </body>
+                  </html>
+                `;
+
+                const { uri } = await Print.printToFileAsync({
+                  html: htmlContent,
+                  base64: false
+                });
+
+                if (await Sharing.isAvailableAsync()) {
+                  await Sharing.shareAsync(uri, {
+                    mimeType: 'application/pdf',
+                    dialogTitle: 'Export Students PDF Report'
+                  });
+                } else {
+                  Alert.alert('Success', 'PDF report generated successfully!');
+                }
+              } catch (error) {
+                Alert.alert('Error', 'Failed to generate PDF report');
+                console.error('PDF export error:', error);
+              }
+            }
+          }
+        ]
+      );
     } catch (error) {
-      Alert.alert('Error', 'Failed to generate PDF');
-      console.error('PDF export error:', error);
+      Alert.alert('Error', 'Failed to prepare PDF export');
+      console.error('PDF export preparation error:', error);
     }
   };
 
@@ -284,12 +493,12 @@ const ViewStudentInfo = () => {
       
       <View style={styles.studentStats}>
         <View style={styles.statItem}>
-          <Text style={styles.statLabel}>Email</Text>
-          <Text style={styles.statValue}>{item.email || 'N/A'}</Text>
+          <Text style={styles.statLabel}>Admission No</Text>
+          <Text style={styles.statValue}>{item.admission_no || 'N/A'}</Text>
         </View>
         <View style={styles.statItem}>
           <Text style={styles.statLabel}>Parent</Text>
-          <Text style={styles.statValue}>{item.parents?.full_name || 'N/A'}</Text>
+          <Text style={styles.statValue}>{item.parents?.full_name || item.users?.full_name || 'N/A'}</Text>
         </View>
       </View>
     </TouchableOpacity>
@@ -360,16 +569,45 @@ const ViewStudentInfo = () => {
         </View>
 
         {/* Export Buttons */}
-        <View style={styles.exportSection}>
-          <TouchableOpacity style={styles.exportButton} onPress={handleExportCSV}>
-            <Ionicons name="document-text" size={20} color="#fff" />
-            <Text style={styles.exportButtonText}>Export CSV</Text>
-          </TouchableOpacity>
-          <TouchableOpacity style={styles.exportButton} onPress={handleExportPDF}>
-            <Ionicons name="print" size={20} color="#fff" />
-            <Text style={styles.exportButtonText}>Export PDF</Text>
-          </TouchableOpacity>
-        </View>
+        {filteredStudents.length > 0 && (
+          <View style={styles.exportSection}>
+            <View style={styles.exportHeader}>
+              <Ionicons name="download-outline" size={20} color="#666" />
+              <Text style={styles.exportHeaderText}>
+                Export {filteredStudents.length} student{filteredStudents.length !== 1 ? 's' : ''}
+              </Text>
+            </View>
+            <View style={styles.exportButtons}>
+              <TouchableOpacity
+                style={[styles.exportButton, styles.csvButton]}
+                onPress={handleExportCSV}
+                activeOpacity={0.8}
+              >
+                <View style={styles.exportButtonContent}>
+                  <Ionicons name="document-text" size={22} color="#fff" />
+                  <View style={styles.exportButtonTextContainer}>
+                    <Text style={styles.exportButtonText}>Export CSV</Text>
+                    <Text style={styles.exportButtonSubtext}>Spreadsheet format</Text>
+                  </View>
+                </View>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={[styles.exportButton, styles.pdfButton]}
+                onPress={handleExportPDF}
+                activeOpacity={0.8}
+              >
+                <View style={styles.exportButtonContent}>
+                  <Ionicons name="document" size={22} color="#fff" />
+                  <View style={styles.exportButtonTextContainer}>
+                    <Text style={styles.exportButtonText}>Export PDF</Text>
+                    <Text style={styles.exportButtonSubtext}>Printable report</Text>
+                  </View>
+                </View>
+              </TouchableOpacity>
+            </View>
+          </View>
+        )}
 
         {/* Students List */}
         {filteredStudents.length === 0 ? (
@@ -424,12 +662,16 @@ const ViewStudentInfo = () => {
                     <Text style={styles.detailValue}>{selectedStudent.classSection}</Text>
                   </View>
                   <View style={styles.detailRow}>
-                    <Text style={styles.detailLabel}>Email:</Text>
-                    <Text style={styles.detailValue}>{selectedStudent.email || 'N/A'}</Text>
+                    <Text style={styles.detailLabel}>Admission No:</Text>
+                    <Text style={styles.detailValue}>{selectedStudent.admission_no || 'N/A'}</Text>
                   </View>
                   <View style={styles.detailRow}>
-                    <Text style={styles.detailLabel}>Phone:</Text>
-                    <Text style={styles.detailValue}>{selectedStudent.phone || 'N/A'}</Text>
+                    <Text style={styles.detailLabel}>Date of Birth:</Text>
+                    <Text style={styles.detailValue}>{selectedStudent.dob || 'N/A'}</Text>
+                  </View>
+                  <View style={styles.detailRow}>
+                    <Text style={styles.detailLabel}>Gender:</Text>
+                    <Text style={styles.detailValue}>{selectedStudent.gender || 'N/A'}</Text>
                   </View>
                 </View>
 
@@ -437,15 +679,19 @@ const ViewStudentInfo = () => {
                   <Text style={styles.detailTitle}>Parent Information</Text>
                   <View style={styles.detailRow}>
                     <Text style={styles.detailLabel}>Name:</Text>
-                    <Text style={styles.detailValue}>{selectedStudent.parents?.name || 'N/A'}</Text>
+                    <Text style={styles.detailValue}>{selectedStudent.parents?.full_name || selectedStudent.users?.full_name || 'N/A'}</Text>
                   </View>
                   <View style={styles.detailRow}>
                     <Text style={styles.detailLabel}>Phone:</Text>
-                    <Text style={styles.detailValue}>{selectedStudent.parents?.phone || 'N/A'}</Text>
+                    <Text style={styles.detailValue}>{selectedStudent.parents?.phone || selectedStudent.users?.phone || 'N/A'}</Text>
                   </View>
                   <View style={styles.detailRow}>
                     <Text style={styles.detailLabel}>Email:</Text>
-                    <Text style={styles.detailValue}>{selectedStudent.parents?.email || 'N/A'}</Text>
+                    <Text style={styles.detailValue}>{selectedStudent.parents?.email || selectedStudent.users?.email || 'N/A'}</Text>
+                  </View>
+                  <View style={styles.detailRow}>
+                    <Text style={styles.detailLabel}>Address:</Text>
+                    <Text style={styles.detailValue}>{selectedStudent.address || 'N/A'}</Text>
                   </View>
                 </View>
 
@@ -546,22 +792,65 @@ const styles = StyleSheet.create({
     color: '#fff',
   },
   exportSection: {
-    flexDirection: 'row',
+    backgroundColor: '#fff',
+    borderRadius: 12,
+    padding: 16,
     marginBottom: 16,
+    elevation: 2,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
   },
-  exportButton: {
+  exportHeader: {
     flexDirection: 'row',
     alignItems: 'center',
+    marginBottom: 12,
+  },
+  exportHeaderText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#333',
+    marginLeft: 8,
+  },
+  exportButtons: {
+    flexDirection: 'row',
+    gap: 12,
+  },
+  exportButton: {
+    flex: 1,
+    borderRadius: 12,
+    elevation: 3,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.15,
+    shadowRadius: 4,
+  },
+  csvButton: {
     backgroundColor: '#4CAF50',
-    borderRadius: 8,
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    marginRight: 12,
+  },
+  pdfButton: {
+    backgroundColor: '#f44336',
+  },
+  exportButtonContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 16,
+  },
+  exportButtonTextContainer: {
+    marginLeft: 12,
+    flex: 1,
   },
   exportButtonText: {
     color: '#fff',
-    fontWeight: 'bold',
-    marginLeft: 4,
+    fontWeight: '700',
+    fontSize: 16,
+    marginBottom: 2,
+  },
+  exportButtonSubtext: {
+    color: 'rgba(255, 255, 255, 0.8)',
+    fontSize: 12,
+    fontWeight: '400',
   },
   studentCard: {
     backgroundColor: '#fff',
