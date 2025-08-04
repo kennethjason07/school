@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -7,31 +7,17 @@ import {
   TouchableOpacity,
   ActivityIndicator,
   RefreshControl,
-  Dimensions,
-  Platform,
-  Alert,
-  TextInput,
-  Modal,
-  KeyboardAvoidingView,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import Header from '../../components/Header';
 import { supabase, TABLES, dbHelpers } from '../../utils/supabase';
 import { useAuth } from '../../utils/AuthContext';
-import { format } from 'date-fns';
-import * as Animatable from 'react-native-animatable';
 
 export default function MarksEntry({ navigation }) {
   const [classes, setClasses] = useState([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [selectedClass, setSelectedClass] = useState(null);
-  const [selectedSubject, setSelectedSubject] = useState(null);
-  const [students, setStudents] = useState([]);
-  const [examDate, setExamDate] = useState(new Date());
-  const [showDatePicker, setShowDatePicker] = useState(false);
-  const [marks, setMarks] = useState({});
-  const [saving, setSaving] = useState(false);
   const [error, setError] = useState(null);
   const { user } = useAuth();
 
@@ -46,13 +32,23 @@ export default function MarksEntry({ navigation }) {
 
       if (teacherError || !teacherData) throw new Error('Teacher not found');
 
-      // Get assigned classes and subjects
+      // Get assigned classes and subjects through proper relationships
       const { data: assignedData, error: assignedError } = await supabase
         .from(TABLES.TEACHER_SUBJECTS)
         .select(`
           *,
-          classes(id, class_name),
-          subjects(id, name)
+          subjects(
+            id,
+            name,
+            class_id,
+            academic_year,
+            classes(
+              id,
+              class_name,
+              section,
+              academic_year
+            )
+          )
         `)
         .eq('teacher_id', teacherData.id);
 
@@ -60,25 +56,29 @@ export default function MarksEntry({ navigation }) {
 
       // Organize data by class
       const classMap = new Map();
-      
+
       assignedData.forEach(assignment => {
-        const classKey = assignment.classes.id;
-        
+        if (!assignment.subjects?.classes) return; // Skip if no class data
+
+        const classKey = assignment.subjects.classes.id;
+
         if (!classMap.has(classKey)) {
           classMap.set(classKey, {
-            id: assignment.classes.id,
-            name: `${assignment.classes.class_name} - ${assignment.classes.section}`,
-            classId: assignment.classes.id,
+            id: assignment.subjects.classes.id,
+            name: `${assignment.subjects.classes.class_name} - ${assignment.subjects.classes.section}`,
+            classId: assignment.subjects.classes.id,
+            academicYear: assignment.subjects.classes.academic_year,
             subjects: [],
             students: []
           });
         }
-        
+
         const classData = classMap.get(classKey);
         if (!classData.subjects.find(s => s.id === assignment.subjects.id)) {
           classData.subjects.push({
             id: assignment.subjects.id,
-            name: assignment.subjects.name
+            name: assignment.subjects.name,
+            academicYear: assignment.subjects.academic_year
           });
         }
       });
@@ -130,90 +130,30 @@ export default function MarksEntry({ navigation }) {
     };
   }, []);
 
+
+
   const handleClassSelect = (classId) => {
     setSelectedClass(classId);
-    setSelectedSubject(null);
-    setMarks({});
   };
 
   const handleSubjectSelect = (subjectId) => {
-    setSelectedSubject(subjectId);
-    setMarks({});
-  };
-
-  const handleExamDateChange = (event, selectedDate) => {
-    setShowDatePicker(false);
-    if (selectedDate) {
-      setExamDate(selectedDate);
-    }
-  };
-
-  const handleMarksEntry = async (studentId, marksValue) => {
-    if (!selectedClass || !selectedSubject) {
-      Alert.alert('Error', 'Please select class and subject first');
-      return;
-    }
-
-    if (!marksValue || isNaN(marksValue) || marksValue < 0 || marksValue > 100) {
-      Alert.alert('Error', 'Please enter valid marks (0-100)');
-      return;
-    }
-
-    setMarks(prev => ({ ...prev, [studentId]: marksValue }));
-  };
-
-  const handleSaveMarks = async () => {
-    if (!selectedClass || !selectedSubject) {
-      Alert.alert('Error', 'Please select class and subject first');
-      return;
-    }
-
     const selectedClassData = classes.find(c => c.id === selectedClass);
-    if (!selectedClassData) {
-      Alert.alert('Error', 'Class not found');
-      return;
-    }
+    const selectedSubjectData = selectedClassData?.subjects.find(s => s.id === subjectId);
 
-    const studentsWithMarks = selectedClassData.students.filter(student => 
-      marks[student.id] && marks[student.id] > 0
-    );
-
-    if (studentsWithMarks.length === 0) {
-      Alert.alert('Error', 'Please enter marks for at least one student');
-      return;
-    }
-
-    try {
-      setSaving(true);
-
-      const marksData = studentsWithMarks.map(student => ({
-        student_id: student.id,
-        subject_id: selectedSubject,
-        marks_obtained: parseInt(marks[student.id]),
-        total_marks: 100,
-        exam_name: 'Class Test',
-        exam_date: format(examDate, 'yyyy-MM-dd'),
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString()
-      }));
-
-      const { error: upsertError } = await supabase
-        .from(TABLES.MARKS)
-        .upsert(marksData, { 
-          onConflict: 'student_id,subject_id,exam_name',
-          ignoreDuplicates: false 
-        });
-
-      if (upsertError) throw upsertError;
-
-      Alert.alert('Success', 'Marks saved successfully!');
-      setMarks({});
-      
-    } catch (err) {
-      Alert.alert('Error', err.message);
-      console.error('Error saving marks:', err);
-    } finally {
-      setSaving(false);
+    if (selectedClassData && selectedSubjectData) {
+      // Navigate to the new ExamMarksEntry screen
+      navigation.navigate('ExamMarksEntry', {
+        classData: {
+          id: selectedClassData.id,
+          name: selectedClassData.name,
+          academicYear: selectedClassData.academicYear
+        },
+        subjectData: {
+          id: selectedSubjectData.id,
+          name: selectedSubjectData.name,
+          academicYear: selectedSubjectData.academicYear
+        }
+      });
     }
   };
 
@@ -302,16 +242,10 @@ export default function MarksEntry({ navigation }) {
                     {classes.find(c => c.id === selectedClass)?.subjects.map(subject => (
                       <TouchableOpacity
                         key={subject.id}
-                        style={[
-                          styles.subjectCard,
-                          selectedSubject === subject.id && styles.selectedSubjectCard
-                        ]}
+                        style={styles.subjectCard}
                         onPress={() => handleSubjectSelect(subject.id)}
                       >
-                        <Text style={[
-                          styles.subjectText,
-                          selectedSubject === subject.id && styles.selectedSubjectText
-                        ]}>
+                        <Text style={styles.subjectText}>
                           {subject.name}
                         </Text>
                       </TouchableOpacity>
@@ -320,53 +254,13 @@ export default function MarksEntry({ navigation }) {
                 </View>
               )}
 
-              {/* Exam Date */}
-              {selectedClass && selectedSubject && (
-                <View style={styles.section}>
-                  <Text style={styles.sectionTitle}>Exam Date</Text>
-                  <TouchableOpacity
-                    style={styles.dateButton}
-                    onPress={() => setShowDatePicker(true)}
-                  >
-                    <Ionicons name="calendar" size={20} color="#1976d2" />
-                    <Text style={styles.dateText}>
-                      {format(examDate, 'dd MMM yyyy')}
-                    </Text>
-                  </TouchableOpacity>
-                </View>
-              )}
-
-              {/* Students Marks Entry */}
-              {selectedClass && selectedSubject && (
-                <View style={styles.section}>
-                  <Text style={styles.sectionTitle}>Enter Marks</Text>
-                  {classes.find(c => c.id === selectedClass)?.students.map(student => (
-                    <View key={student.id} style={styles.studentRow}>
-                      <View style={styles.studentInfo}>
-                        <Text style={styles.studentName}>{student.name}</Text>
-                        <Text style={styles.studentRoll}>Roll: {student.roll_no}</Text>
-                      </View>
-                      <TextInput
-                        style={styles.marksInput}
-                        value={marks[student.id]?.toString() || ''}
-                        onChangeText={(value) => handleMarksEntry(student.id, value)}
-                        keyboardType="numeric"
-                        maxLength={3}
-                        placeholder="0-100"
-                      />
-                    </View>
-                  ))}
-                  
-                  <TouchableOpacity
-                    style={[styles.saveButton, saving && styles.saveButtonDisabled]}
-                    onPress={handleSaveMarks}
-                    disabled={saving}
-                  >
-                    <Ionicons name="save" size={20} color="#fff" />
-                    <Text style={styles.saveButtonText}>
-                      {saving ? 'Saving...' : 'Save Marks'}
-                    </Text>
-                  </TouchableOpacity>
+              {/* Instructions */}
+              {selectedClass && (
+                <View style={styles.instructionCard}>
+                  <Ionicons name="information-circle" size={24} color="#2196F3" />
+                  <Text style={styles.instructionText}>
+                    Select a subject to open the marks entry screen where you can create exams and enter marks for students.
+                  </Text>
                 </View>
               )}
             </>
@@ -437,16 +331,10 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.1,
     shadowRadius: 4,
   },
-  selectedSubjectCard: {
-    backgroundColor: '#4CAF50',
-  },
   subjectText: {
     fontSize: 16,
     fontWeight: 'bold',
     color: '#333',
-  },
-  selectedSubjectText: {
-    color: '#fff',
   },
   dateButton: {
     flexDirection: 'row',
@@ -572,5 +460,200 @@ const styles = StyleSheet.create({
     color: '#999',
     marginTop: 4,
     textAlign: 'center',
+  },
+  instructionCard: {
+    backgroundColor: '#e3f2fd',
+    borderRadius: 12,
+    padding: 16,
+    marginTop: 16,
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderLeftWidth: 4,
+    borderLeftColor: '#2196F3',
+  },
+  instructionText: {
+    fontSize: 14,
+    color: '#1976d2',
+    marginLeft: 12,
+    flex: 1,
+    lineHeight: 20,
+  },
+  // New styles for exam selection and modal
+  sectionHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  createExamButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#e3f2fd',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 16,
+  },
+  createExamText: {
+    color: '#1976d2',
+    fontSize: 12,
+    fontWeight: '600',
+    marginLeft: 4,
+  },
+  noExamsContainer: {
+    alignItems: 'center',
+    paddingVertical: 20,
+    backgroundColor: '#fff',
+    borderRadius: 12,
+    elevation: 1,
+  },
+  noExamsText: {
+    fontSize: 16,
+    color: '#666',
+    fontWeight: '600',
+  },
+  noExamsSubtext: {
+    fontSize: 14,
+    color: '#999',
+    marginTop: 4,
+  },
+  examCard: {
+    backgroundColor: '#fff',
+    borderRadius: 12,
+    padding: 16,
+    marginRight: 12,
+    minWidth: 120,
+    elevation: 2,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+  },
+  selectedExamCard: {
+    backgroundColor: '#4CAF50',
+  },
+  examText: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: '#333',
+  },
+  selectedExamText: {
+    color: '#fff',
+  },
+  examDate: {
+    fontSize: 12,
+    color: '#666',
+    marginTop: 4,
+  },
+  marksInputContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  gradeText: {
+    fontSize: 14,
+    fontWeight: 'bold',
+    color: '#4CAF50',
+    minWidth: 24,
+  },
+  // Modal styles
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+  },
+  modalContent: {
+    backgroundColor: '#fff',
+    borderRadius: 16,
+    width: '100%',
+    maxWidth: 400,
+    elevation: 5,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 8,
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    padding: 20,
+    borderBottomWidth: 1,
+    borderBottomColor: '#e0e0e0',
+  },
+  modalTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#333',
+  },
+  closeButton: {
+    padding: 4,
+  },
+  modalBody: {
+    padding: 20,
+  },
+  inputGroup: {
+    marginBottom: 16,
+  },
+  inputLabel: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#333',
+    marginBottom: 8,
+  },
+  textInput: {
+    borderWidth: 1,
+    borderColor: '#e0e0e0',
+    borderRadius: 8,
+    padding: 12,
+    fontSize: 16,
+    backgroundColor: '#fafafa',
+  },
+  dateInput: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#e0e0e0',
+    borderRadius: 8,
+    padding: 12,
+    backgroundColor: '#fafafa',
+  },
+  dateInputText: {
+    fontSize: 16,
+    color: '#333',
+  },
+  modalFooter: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    padding: 20,
+    borderTopWidth: 1,
+    borderTopColor: '#e0e0e0',
+    gap: 12,
+  },
+  cancelButton: {
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 8,
+  },
+  cancelButtonText: {
+    color: '#666',
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  createButton: {
+    backgroundColor: '#1976d2',
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 8,
+  },
+  createButtonDisabled: {
+    backgroundColor: '#ccc',
+  },
+  createButtonText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '600',
   },
 });

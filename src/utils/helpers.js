@@ -23,17 +23,97 @@ export const formatCurrency = (amount, currency = '$') => {
  */
 export const formatDate = (date) => {
   if (!date) return '';
-  
+
   try {
-    const dateObj = new Date(date);
+    // Fix common invalid dates before parsing
+    let dateString = date;
+    if (typeof date === 'string') {
+      // Fix invalid dates like 2025-07-32
+      dateString = fixInvalidDate(date);
+    }
+
+    const dateObj = new Date(dateString);
+    if (isNaN(dateObj.getTime())) {
+      console.warn('Invalid date:', date);
+      return 'Invalid Date';
+    }
+
     return dateObj.toLocaleDateString('en-US', {
       year: 'numeric',
       month: 'short',
       day: 'numeric'
     });
   } catch (error) {
-    return '';
+    console.warn('Error formatting date:', date, error);
+    return 'Invalid Date';
   }
+};
+
+/**
+ * Fix invalid date strings
+ * @param {string} dateString - The date string to fix
+ * @returns {string} - Fixed date string
+ */
+export const fixInvalidDate = (dateString) => {
+  if (!dateString || typeof dateString !== 'string') return dateString;
+
+  // Fix common invalid dates
+  const fixes = {
+    '2025-07-32': '2025-07-31',
+    '2025-06-31': '2025-06-30',
+    '2025-04-31': '2025-04-30',
+    '2025-09-31': '2025-09-30',
+    '2025-11-31': '2025-11-30',
+    // Add more fixes as needed
+  };
+
+  for (const [invalid, valid] of Object.entries(fixes)) {
+    if (dateString.includes(invalid)) {
+      console.warn(`Fixing invalid date: ${invalid} -> ${valid}`);
+      dateString = dateString.replace(invalid, valid);
+    }
+  }
+
+  return dateString;
+};
+
+/**
+ * Validate and parse a date safely
+ * @param {string|Date} date - The date to validate
+ * @returns {Date|null} - Valid date object or null
+ */
+export const parseDate = (date) => {
+  if (!date) return null;
+
+  try {
+    let dateString = date;
+    if (typeof date === 'string') {
+      dateString = fixInvalidDate(date);
+    }
+
+    const dateObj = new Date(dateString);
+    if (isNaN(dateObj.getTime())) {
+      console.warn('Could not parse date:', date);
+      return null;
+    }
+
+    return dateObj;
+  } catch (error) {
+    console.warn('Error parsing date:', date, error);
+    return null;
+  }
+};
+
+/**
+ * Format date for database storage (YYYY-MM-DD)
+ * @param {string|Date} date - The date to format
+ * @returns {string|null} - Formatted date string or null
+ */
+export const formatDateForDb = (date) => {
+  const parsedDate = parseDate(date);
+  if (!parsedDate) return null;
+
+  return parsedDate.toISOString().split('T')[0];
 };
 
 /**
@@ -73,96 +153,4 @@ export const isValidEmail = (email) => {
 export const calculatePercentage = (value, total) => {
   if (!total || total === 0) return 0;
   return Math.round((value / total) * 100);
-};
-
-/**
- * Get student fees with fee structure details using proper joins
- * @param {string} academicYear - The academic year to filter by
- * @returns {Promise} - Promise resolving to student fees data
- */
-export const getStudentFeesWithStructure = async (supabase, academicYear = '2024-25') => {
-  try {
-    // Get all fee structures for the academic year
-    const { data: feeStructures, error: feeError } = await supabase
-      .from('fee_structure')
-      .select('*')
-      .eq('academic_year', academicYear);
-
-    if (feeError) throw feeError;
-
-    // Get all students with their classes
-    const { data: students, error: studentError } = await supabase
-      .from('students')
-      .select(`
-        id,
-        full_name,
-        admission_no,
-        class_id,
-        classes(class_name, section)
-      `);
-
-    if (studentError) throw studentError;
-
-    // Get all student fee payments - NO RELATIONSHIP QUERY
-    const { data: payments, error: paymentError } = await supabase
-      .from('student_fees')
-      .select('*');
-
-    if (paymentError) throw paymentError;
-
-    // Combine the data to show all student-fee combinations
-    const result = [];
-    
-    students.forEach(student => {
-      // Find fee structures for this student's class
-      const classFees = feeStructures.filter(fee => fee.class_id === student.class_id);
-      
-      classFees.forEach(fee => {
-        // Find payment for this student-fee combination
-        const payment = payments.find(p => 
-          p.student_id === student.id && p.fee_id === fee.id
-        );
-
-        result.push({
-          student_name: student.full_name,
-          admission_no: student.admission_no,
-          class_name: student.classes ? `${student.classes.class_name} ${student.classes.section || ''}`.trim() : 'Unknown',
-          academic_year: fee.academic_year,
-          fee_component: fee.type,
-          defined_amount: fee.amount,
-          amount_paid: payment ? payment.amount : 0,
-          payment_date: payment ? payment.payment_date : null,
-          payment_status: payment ? 
-            (payment.amount >= fee.amount ? 'paid' : 'partial') : 
-            'unpaid'
-        });
-      });
-    });
-
-    return { data: result, error: null };
-  } catch (error) {
-    return { data: null, error };
-  }
-};
-
-/**
- * Get unpaid fees for students
- * @param {string} academicYear - The academic year to filter by
- * @returns {Promise} - Promise resolving to unpaid fees data
- */
-export const getUnpaidFees = async (supabase, academicYear = '2024-25') => {
-  try {
-    const { data: allFees, error } = await getStudentFeesWithStructure(supabase, academicYear);
-    
-    if (error) throw error;
-    
-    // Filter for unpaid and partial fees
-    const unpaidFees = allFees.filter(fee => 
-      fee.payment_status === 'unpaid' || fee.payment_status === 'partial'
-    );
-    
-    return { data: unpaidFees, error: null };
-  } catch (error) {
-    return { data: null, error };
-  }
 };
