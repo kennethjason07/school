@@ -24,7 +24,7 @@ export const TABLES = {
   EXAMS: 'exams',
   MARKS: 'marks',
   HOMEWORKS: 'homeworks',
-  HOMEWORK: 'homeworks', // Alias for backward compatibility
+  HOMEWORK: 'homeworks',
   ASSIGNMENTS: 'assignments',
   TIMETABLE: 'timetable_entries',
   NOTIFICATIONS: 'notifications',
@@ -32,6 +32,7 @@ export const TABLES = {
   TASKS: 'tasks',
   PERSONAL_TASKS: 'personal_tasks',
   SCHOOL_DETAILS: 'school_details',
+  MESSAGES: 'messages',
 };
 
 // Authentication helper functions

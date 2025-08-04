@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, FlatList, TouchableOpacity, TextInput, KeyboardAvoidingView, Platform, ScrollView, Image, ActivityIndicator, Alert } from 'react-native';
+import { View, Text, StyleSheet, FlatList, TouchableOpacity, TextInput, KeyboardAvoidingView, Platform, ScrollView, Image, ActivityIndicator, Alert, Keyboard, Linking } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import Header from '../../components/Header';
 import { useRef } from 'react';
@@ -7,6 +7,8 @@ import * as ImagePicker from 'expo-image-picker';
 import { useFocusEffect } from '@react-navigation/native';
 import { useAuth } from '../../utils/AuthContext';
 import { supabase, TABLES, dbHelpers } from '../../utils/supabase';
+import * as DocumentPicker from 'expo-document-picker';
+import * as Animatable from 'react-native-animatable';
 
 const ChatWithTeacher = () => {
   const [selectedTeacher, setSelectedTeacher] = useState(null);
@@ -15,8 +17,25 @@ const ChatWithTeacher = () => {
   const [teachers, setTeachers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [deletingMessageId, setDeletingMessageId] = useState(null);
+  const [showAttachmentMenu, setShowAttachmentMenu] = useState(false);
   const flatListRef = useRef(null);
   const { user } = useAuth();
+
+  // Helper function to get teacher's user ID
+  const getTeacherUserId = async (teacherId) => {
+    try {
+      const { data: teacherUser } = await supabase
+        .from(TABLES.USERS)
+        .select('id')
+        .eq('linked_teacher_id', teacherId)
+        .single();
+      return teacherUser?.id;
+    } catch (error) {
+      console.log('Error getting teacher user ID:', error);
+      return null;
+    }
+  };
 
   // Fetch teachers and chat data
   const fetchTeachersAndChats = async () => {
@@ -24,32 +43,33 @@ const ChatWithTeacher = () => {
       setLoading(true);
       setError(null);
 
-      // Get parent's student data using the helper function
-      const { data: parentUserData, error: parentError } = await dbHelpers.getParentByUserId(user.id);
-      if (parentError || !parentUserData) {
+      // Get parent's student data directly
+      const { data: parentUser, error: parentError } = await supabase
+        .from(TABLES.USERS)
+        .select(`
+          linked_parent_of,
+          students!users_linked_parent_of_fkey(
+            id,
+            name,
+            class_id,
+            classes(id, class_name, section)
+          )
+        `)
+        .eq('id', user.id)
+        .single();
+
+      if (parentError || !parentUser?.linked_parent_of) {
         throw new Error('Parent data not found');
       }
 
       // Get student details from the linked student
-      const studentData = parentUserData.students;
+      const studentData = parentUser.students;
       if (!studentData) {
         throw new Error('Student data not found');
       }
 
-      // Get teachers for the student's class (simplified approach)
-      const { data: classTeachers, error: teachersError } = await supabase
-        .from(TABLES.TEACHER_SUBJECTS)
-        .select(`
-          teachers(id, name)
-        `)
-        .eq('class_id', studentData.class_id);
-
-      if (teachersError && teachersError.code !== '42P01') {
-        console.log('Teachers error:', teachersError);
-      }
-
-      // Get chat messages (simplified - using messages table)
-      const { data: chatMessages, error: messagesError } = await supabase
+      // First, get all messages for this parent
+      const { data: allMessages, error: messagesError } = await supabase
         .from(TABLES.MESSAGES)
         .select('*')
         .or(`sender_id.eq.${user.id},receiver_id.eq.${user.id}`)
@@ -59,40 +79,109 @@ const ChatWithTeacher = () => {
         console.log('Messages error:', messagesError);
       }
 
-      // Organize messages by sender/receiver (simplified approach)
+      // Group messages by teacher (the other participant in the conversation)
       const messagesByTeacher = {};
-      if (chatMessages && chatMessages.length > 0) {
-        chatMessages.forEach(msg => {
-          // Use sender_id or receiver_id to group messages
+      if (allMessages) {
+        allMessages.forEach(msg => {
           const teacherId = msg.sender_id === user.id ? msg.receiver_id : msg.sender_id;
           if (!messagesByTeacher[teacherId]) {
             messagesByTeacher[teacherId] = [];
           }
-          messagesByTeacher[teacherId].push({
-            id: msg.id,
-            sender: msg.sender_id === user.id ? 'parent' : 'teacher',
+          // Format message for display
+          const formattedMsg = {
+            ...msg,
             text: msg.message,
             timestamp: new Date(msg.sent_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-            type: 'text',
-            created_at: msg.sent_at
-          });
+            sender: msg.sender_id === user.id ? 'parent' : 'teacher',
+            type: 'text'
+          };
+          messagesByTeacher[teacherId].push(formattedMsg);
         });
       }
 
-      // Sort messages by timestamp
-      Object.keys(messagesByTeacher).forEach(teacherId => {
-        messagesByTeacher[teacherId].sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
-      });
+      // Get teachers for the student's class
+      // Method 1: Get class teacher directly
+      const { data: classData, error: classError } = await supabase
+        .from(TABLES.CLASSES)
+        .select(`
+          class_teacher_id,
+          teachers!classes_class_teacher_id_fkey(id, name)
+        `)
+        .eq('id', studentData.class_id)
+        .single();
 
-      // Combine teacher data with their messages
-      const teachersWithChats = (classTeachers || []).map(assignment => ({
-        id: assignment.teachers?.id,
-        name: assignment.teachers?.name || 'Unknown Teacher',
-        subject: 'Subject', // Simplified for now
-        messages: messagesByTeacher[assignment.teachers?.id] || []
-      }));
+      let allTeachers = [];
 
-      setTeachers(teachersWithChats);
+      // Add class teacher if exists
+      if (classData?.teachers) {
+        const teacherUserId = await getTeacherUserId(classData.teachers.id);
+        allTeachers.push({
+          id: classData.teachers.id,
+          userId: teacherUserId,
+          name: classData.teachers.name,
+          subject: 'Class Teacher',
+          messages: messagesByTeacher[teacherUserId] || []
+        });
+      }
+
+      // Method 2: Get subject teachers with proper joins
+      const { data: subjectTeachers, error: subjectError } = await supabase
+        .from(TABLES.TEACHER_SUBJECTS)
+        .select(`
+          teacher_id,
+          teachers!teacher_subjects_teacher_id_fkey(id, name),
+          subjects!teacher_subjects_subject_id_fkey(id, name, class_id)
+        `)
+        .eq('subjects.class_id', studentData.class_id);
+
+      console.log('Subject Teachers Data:', subjectTeachers);
+
+      // Add subject teachers
+      if (subjectTeachers) {
+        for (const assignment of subjectTeachers) {
+          if (assignment.teachers && assignment.subjects) {
+            const teacherUserId = await getTeacherUserId(assignment.teachers.id);
+            const existingTeacher = allTeachers.find(t => t.id === assignment.teachers.id);
+            
+            if (!existingTeacher) {
+              allTeachers.push({
+                id: assignment.teachers.id,
+                userId: teacherUserId,
+                name: assignment.teachers.name,
+                subject: assignment.subjects.name, // Use actual subject name
+                messages: messagesByTeacher[teacherUserId] || []
+              });
+            } else {
+              // If teacher already exists and is not class teacher, add subject
+              if (existingTeacher.subject === 'Class Teacher') {
+                existingTeacher.subject = `Class Teacher (${assignment.subjects.name})`;
+              } else {
+                existingTeacher.subject = `${existingTeacher.subject}, ${assignment.subjects.name}`;
+              }
+            }
+          }
+        }
+      }
+
+      // Fallback: Try alternative method if no teachers found
+      if (allTeachers.length === 0) {
+        const { data: altTeachers, error: altError } = await supabase
+          .from(TABLES.TEACHERS)
+          .select('id, name')
+          .eq('assigned_class_id', studentData.class_id);
+        
+        if (altTeachers && altTeachers.length > 0) {
+          allTeachers = altTeachers.map(teacher => ({
+            id: teacher.id,
+            name: teacher.name,
+            subject: 'Class Teacher',
+            messages: messagesByTeacher[teacher.id] || []
+          }));
+        }
+      }
+
+      console.log('Final teachers array:', allTeachers);
+      setTeachers(allTeachers);
     } catch (err) {
       console.error('Error fetching teachers and chats:', err);
       setError(err.message);
@@ -121,70 +210,264 @@ const ChatWithTeacher = () => {
     if (!input.trim() || !selectedTeacher) return;
     
     try {
+      console.log('Starting to send message...');
+      console.log('User ID:', user.id);
+      console.log('Selected Teacher:', selectedTeacher);
+
+      // Get parent's linked student ID directly from users table
+      const { data: parentUser, error: parentError } = await supabase
+        .from(TABLES.USERS)
+        .select('linked_parent_of')
+        .eq('id', user.id)
+        .single();
+
+      console.log('Parent User Data:', parentUser);
+      console.log('Parent Error:', parentError);
+
+      if (parentError || !parentUser?.linked_parent_of) {
+        throw new Error('Parent data not found or no student linked');
+      }
+
+      // Get teacher's user ID from the users table
+      const { data: teacherUser, error: teacherError } = await supabase
+        .from(TABLES.USERS)
+        .select('id')
+        .eq('linked_teacher_id', selectedTeacher.id)
+        .single();
+
+      console.log('Teacher User Data:', teacherUser);
+      console.log('Teacher Error:', teacherError);
+
+      if (teacherError || !teacherUser) {
+        throw new Error('Teacher user account not found');
+      }
+
+      // Create message for the messages table
       const newMsg = {
-        id: Date.now().toString(),
-        sender: 'parent',
-        text: input,
-        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-        type: 'text',
-        created_at: new Date().toISOString()
+        sender_id: user.id,
+        receiver_id: teacherUser.id, // Use teacher's user ID, not teacher table ID
+        student_id: parentUser.linked_parent_of,
+        message: input,
+        sent_at: new Date().toISOString(),
       };
 
-      // Add message to local state immediately for better UX
-      setMessages(prev => [...prev, newMsg]);
+      console.log('Message to insert:', newMsg);
+      console.log('Table name being used:', TABLES.MESSAGES);
+
+      const { data: insertedMsg, error: sendError } = await supabase
+        .from('messages')
+        .insert(newMsg)
+        .select();
+
+      console.log('Insert result:', insertedMsg);
+      console.log('Insert error:', sendError);
+      console.log('Insert error code:', sendError?.code);
+      console.log('Insert error message:', sendError?.message);
+      console.log('Insert error details:', sendError?.details);
+
+      if (sendError) {
+        console.error('Supabase error object:', JSON.stringify(sendError, null, 2));
+        throw new Error(`Database error: ${sendError.message || sendError.code || 'Unknown database error'}`);
+      }
+
+      if (!insertedMsg || insertedMsg.length === 0) {
+        throw new Error('Message was not inserted successfully');
+      }
+
+      // Add message to local state for immediate display
+      const displayMsg = {
+        id: Date.now().toString(),
+        sender_id: user.id,
+        receiver_id: teacherUser.id,
+        message: input,
+        text: input, // Add this for compatibility with render
+        sent_at: new Date().toISOString(),
+        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+        type: 'text',
+        sender: 'parent' // Add this for the render logic
+      };
+
+      setMessages(prev => [...prev, displayMsg]);
       setInput('');
 
-      // Save message to database
-      const parentData = await dbHelpers.read('parents', { user_id: user.id });
-      const parent = parentData[0];
-
-      await dbHelpers.create('chat_messages', {
-        parent_id: parent.id,
-        teacher_id: selectedTeacher.id,
-        message: input,
-        sender_type: 'parent',
-        message_type: 'text',
-        created_at: new Date().toISOString()
-      });
-
+      // Scroll to bottom after sending
+      setTimeout(() => {
+        if (flatListRef.current) {
+          flatListRef.current.scrollToEnd({ animated: true });
+        }
+      }, 100);
     } catch (err) {
       console.error('Error sending message:', err);
-      Alert.alert('Error', 'Failed to send message. Please try again.');
+      console.error('Error details:', JSON.stringify(err, null, 2));
+      Alert.alert('Error', `Failed to send message: ${err.message || 'Unknown error'}`);
     }
   };
 
   // Attachment handler
   const handleAttach = async () => {
+    Alert.alert(
+      'Select Attachment',
+      'Choose what you want to attach',
+      [
+        {
+          text: 'Photos',
+          onPress: handleImageUpload
+        },
+        {
+          text: 'Documents',
+          onPress: handleDocumentUpload
+        },
+        {
+          text: 'Cancel',
+          style: 'cancel'
+        }
+      ]
+    );
+  };
+
+  // Handle image upload with database save
+  const handleImageUpload = async () => {
+    setShowAttachmentMenu(false);
     try {
       const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
       if (status !== 'granted') {
-        alert('Permission to access media library is required!');
+        Alert.alert('Permission Required', 'Please grant permission to access your photo library.');
         return;
       }
-      let result = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: ImagePicker.MediaTypeOptions.All,
+      
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
         allowsEditing: false,
-        quality: 1,
+        quality: 0.8,
+        allowsMultipleSelection: false,
       });
+      
       if (!result.canceled && result.assets && result.assets.length > 0) {
         const asset = result.assets[0];
-        const isImage = asset.type && asset.type.startsWith('image');
         
-        // For now, we'll just show the file in the chat
-        // In a real app, you'd upload the file to storage and get a URL
+        // For now, create local message (you can add Supabase storage later)
         const newMsg = {
           id: Date.now().toString(),
-          sender: 'parent',
+          sender_id: user.id,
+          receiver_id: selectedTeacher.userId,
+          message: '📷 Photo',
+          message_type: 'image',
+          file_url: asset.uri, // Local URI for now
+          file_name: asset.fileName || 'image.jpg',
+          file_size: asset.fileSize || 0,
+          file_type: 'image/jpeg',
+          sent_at: new Date().toISOString(),
           timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-          type: isImage ? 'image' : 'file',
-          uri: asset.uri,
-          fileName: asset.fileName || asset.uri.split('/').pop(),
-          created_at: new Date().toISOString()
+          sender: 'parent'
         };
+        
         setMessages(prev => [...prev, newMsg]);
+        
+        // TODO: Save to database with actual file upload
+        // await sendFileMessage(newMsg);
       }
     } catch (e) {
-      alert('Failed to pick file: ' + e.message);
+      Alert.alert('Error', 'Failed to pick image: ' + e.message);
+    }
+  };
+
+  // Handle document upload with database save
+  const handleDocumentUpload = async () => {
+    setShowAttachmentMenu(false);
+    try {
+      const result = await DocumentPicker.getDocumentAsync({
+        type: '*/*',
+        copyToCacheDirectory: true,
+        multiple: false,
+      });
+      
+      if (!result.canceled && result.assets && result.assets.length > 0) {
+        const file = result.assets[0];
+        
+        const newMsg = {
+          id: Date.now().toString(),
+          sender_id: user.id,
+          receiver_id: selectedTeacher.userId,
+          message: `📎 ${file.name}`,
+          message_type: 'file',
+          file_url: file.uri, // Local URI for now
+          file_name: file.name,
+          file_size: file.size || 0,
+          file_type: file.mimeType || 'application/octet-stream',
+          sent_at: new Date().toISOString(),
+          timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+          sender: 'parent'
+        };
+        
+        setMessages(prev => [...prev, newMsg]);
+        
+        // TODO: Save to database with actual file upload
+        // await sendFileMessage(newMsg);
+      }
+    } catch (e) {
+      Alert.alert('Error', 'Failed to pick document: ' + e.message);
+    }
+  };
+
+  // Send file message to database
+  const sendFileMessage = async (fileData) => {
+    try {
+      // Get parent's linked student ID
+      const { data: parentUser, error: parentError } = await supabase
+        .from(TABLES.USERS)
+        .select('linked_parent_of')
+        .eq('id', user.id)
+        .single();
+
+      if (parentError || !parentUser?.linked_parent_of) {
+        throw new Error('Parent data not found');
+      }
+
+      // Get teacher's user ID
+      const { data: teacherUser, error: teacherError } = await supabase
+        .from(TABLES.USERS)
+        .select('id')
+        .eq('linked_teacher_id', selectedTeacher.id)
+        .single();
+
+      if (teacherError || !teacherUser) {
+        throw new Error('Teacher user account not found');
+      }
+
+      // Create message with file data
+      const newMsg = {
+        sender_id: user.id,
+        receiver_id: teacherUser.id,
+        student_id: parentUser.linked_parent_of,
+        message: fileData.message_type === 'image' ? '📷 Photo' : `📎 ${fileData.file_name}`,
+        message_type: fileData.message_type,
+        file_url: fileData.file_url,
+        file_name: fileData.file_name,
+        file_size: fileData.file_size,
+        file_type: fileData.file_type,
+        sent_at: new Date().toISOString(),
+      };
+
+      const { data: insertedMsg, error: sendError } = await supabase
+        .from('messages')
+        .insert(newMsg)
+        .select();
+
+      if (sendError) throw sendError;
+
+      // Add to local state for immediate display
+      const displayMsg = {
+        ...newMsg,
+        id: insertedMsg[0].id,
+        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+        sender: 'parent'
+      };
+
+      setMessages(prev => [...prev, displayMsg]);
+
+    } catch (error) {
+      console.error('Error sending file message:', error);
+      Alert.alert('Error', 'Failed to send file: ' + error.message);
     }
   };
 
@@ -208,9 +491,79 @@ const ChatWithTeacher = () => {
   // Scroll to bottom when messages change
   useEffect(() => {
     if (flatListRef.current && messages.length > 0) {
-      flatListRef.current.scrollToOffset({ offset: 0, animated: true });
+      setTimeout(() => {
+        if (flatListRef.current) {
+          flatListRef.current.scrollToEnd({ animated: true });
+        }
+      }, 100);
     }
   }, [messages]);
+
+  // Auto-scroll when keyboard opens
+  useEffect(() => {
+    const keyboardDidShowListener = Keyboard.addListener('keyboardDidShow', () => {
+      setTimeout(() => {
+        if (flatListRef.current && messages.length > 0) {
+          flatListRef.current.scrollToEnd({ animated: true });
+        }
+      }, 100);
+    });
+
+    return () => {
+      keyboardDidShowListener?.remove();
+    };
+  }, [messages]);
+
+  // Delete message function
+  const handleDeleteMessage = async (messageId) => {
+    Alert.alert(
+      'Delete Message',
+      'Are you sure you want to delete this message?',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              setDeletingMessageId(messageId);
+              
+              // Delete from database
+              const { error } = await supabase
+                .from(TABLES.MESSAGES)
+                .delete()
+                .eq('id', messageId);
+
+              if (error) throw error;
+
+              // Remove from local state with animation
+              setTimeout(() => {
+                setMessages(prev => prev.filter(msg => msg.id !== messageId));
+                
+                // Update teacher's messages as well
+                setTeachers(prev => prev.map(teacher => {
+                  if (teacher.id === selectedTeacher.id) {
+                    return {
+                      ...teacher,
+                      messages: teacher.messages.filter(msg => msg.id !== messageId)
+                    };
+                  }
+                  return teacher;
+                }));
+                
+                setDeletingMessageId(null);
+              }, 500);
+
+            } catch (error) {
+              console.error('Error deleting message:', error);
+              setDeletingMessageId(null);
+              Alert.alert('Error', 'Failed to delete message');
+            }
+          }
+        }
+      ]
+    );
+  };
 
   if (loading) {
     return (
@@ -255,11 +608,16 @@ const ChatWithTeacher = () => {
               renderItem={({ item }) => (
                 <TouchableOpacity style={styles.teacherCard} onPress={() => handleSelectTeacher(item)}>
                   <Ionicons name="person-circle" size={36} color="#1976d2" style={{ marginRight: 12 }} />
-                  <View>
+                  <View style={{ flex: 1 }}>
                     <Text style={styles.teacherName}>{item.name}</Text>
-                    <Text style={styles.teacherSubject}>{item.subject}</Text>
+                    <Text style={styles.teacherSubject}>{item.subject || 'Teacher'}</Text>
                   </View>
-                  <Ionicons name="chatbubbles" size={22} color="#9c27b0" style={{ marginLeft: 'auto' }} />
+                  <View style={{ alignItems: 'center' }}>
+                    <Ionicons name="chatbubbles" size={22} color="#9c27b0" />
+                    {item.messages && item.messages.length > 0 && (
+                      <Text style={styles.messageCount}>{item.messages.length}</Text>
+                    )}
+                  </View>
                 </TouchableOpacity>
               )}
               contentContainerStyle={{ padding: 16 }}
@@ -270,7 +628,7 @@ const ChatWithTeacher = () => {
         <KeyboardAvoidingView
           style={{ flex: 1 }}
           behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-          keyboardVerticalOffset={80}
+          keyboardVerticalOffset={Platform.OS === 'ios' ? 80 : 0}
         >
           <View style={styles.chatHeader}>
             <TouchableOpacity onPress={handleBack} style={{ marginRight: 10 }}>
@@ -282,31 +640,120 @@ const ChatWithTeacher = () => {
               <Text style={styles.teacherSubject}>{selectedTeacher.subject}</Text>
             </View>
           </View>
+          
           <FlatList
             ref={flatListRef}
             data={[...messages]}
             keyExtractor={item => item.id}
             renderItem={({ item }) => (
-              <View style={[styles.messageRow, item.sender === 'parent' ? styles.messageRight : styles.messageLeft]}>
-                <View style={[styles.messageBubble, item.sender === 'parent' ? styles.bubbleParent : styles.bubbleTeacher]}>
-                  {item.type === 'image' && (
-                    <Image source={{ uri: item.uri }} style={styles.chatImage} />
-                  )}
-                  {item.type === 'file' && (
-                    <View style={styles.fileRow}>
-                      <Ionicons name="document" size={20} color="#1976d2" style={{ marginRight: 6 }} />
-                      <Text style={styles.fileName}>{item.fileName}</Text>
-                    </View>
-                  )}
-                  {(!item.type || item.type === 'text') && (
-                    <Text style={styles.messageText}>{item.text}</Text>
-                  )}
-                  <Text style={styles.messageTime}>{item.timestamp}</Text>
-                </View>
-              </View>
+              <TouchableOpacity
+                onLongPress={() => {
+                  if (item.sender === 'parent' || item.sender_id === user.id) {
+                    handleDeleteMessage(item.id);
+                  }
+                }}
+                delayLongPress={500}
+                activeOpacity={0.7}
+                style={{ 
+                  opacity: deletingMessageId === item.id ? 0.5 : 1,
+                  transform: [{ scale: deletingMessageId === item.id ? 0.95 : 1 }]
+                }}
+              >
+                <Animatable.View 
+                  style={[styles.messageRow, (item.sender === 'parent' || item.sender_id === user.id) ? styles.messageRight : styles.messageLeft]}
+                  animation="fadeInUp"
+                  duration={300}
+                >
+                  <View style={[styles.messageBubble, (item.sender === 'parent' || item.sender_id === user.id) ? styles.bubbleParent : styles.bubbleTeacher]}>
+                    {deletingMessageId === item.id && (
+                      <Animatable.View 
+                        style={styles.deletingOverlay}
+                        animation="fadeIn"
+                        duration={200}
+                      >
+                        <ActivityIndicator size="small" color="#fff" />
+                        <Ionicons name="trash" size={16} color="#fff" style={{ marginLeft: 5 }} />
+                      </Animatable.View>
+                    )}
+                    
+                    {/* Image Messages */}
+                    {item.message_type === 'image' && item.file_url && (
+                      <TouchableOpacity onPress={() => {
+                        // Open image in full screen
+                        Alert.alert('Image', 'Image viewer coming soon');
+                      }}>
+                        <Image 
+                          source={{ uri: item.file_url }} 
+                          style={styles.chatImage}
+                          resizeMode="cover"
+                        />
+                      </TouchableOpacity>
+                    )}
+                    
+                    {/* File Messages */}
+                    {item.message_type === 'file' && (
+                      <TouchableOpacity 
+                        style={styles.fileContainer}
+                        onPress={() => {
+                          if (item.file_url) {
+                            Linking.openURL(item.file_url).catch(() => {
+                              Alert.alert('Error', 'Cannot open this file');
+                            });
+                          }
+                        }}
+                      >
+                        <View style={styles.fileRow}>
+                          <Ionicons name="document" size={24} color="#1976d2" />
+                          <View style={styles.fileInfo}>
+                            <Text style={styles.fileName} numberOfLines={1}>
+                              {item.file_name || 'Document'}
+                            </Text>
+                            {item.file_size && (
+                              <Text style={styles.fileSize}>
+                                {item.file_size > 1024 * 1024 
+                                  ? `${(item.file_size / (1024 * 1024)).toFixed(1)} MB`
+                                  : `${(item.file_size / 1024).toFixed(1)} KB`
+                                }
+                              </Text>
+                            )}
+                          </View>
+                          <Ionicons name="download" size={20} color="#666" />
+                        </View>
+                      </TouchableOpacity>
+                    )}
+                    
+                    {/* Text Messages */}
+                    {(!item.message_type || item.message_type === 'text') && (
+                      <Text style={[styles.messageText, { opacity: deletingMessageId === item.id ? 0.3 : 1 }]}>
+                        {item.text || item.message}
+                      </Text>
+                    )}
+                    
+                    <Text style={[styles.messageTime, { opacity: deletingMessageId === item.id ? 0.3 : 1 }]}>
+                      {item.timestamp || (item.sent_at ? new Date(item.sent_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '')}
+                    </Text>
+                  </View>
+                </Animatable.View>
+              </TouchableOpacity>
             )}
             contentContainerStyle={styles.chatList}
+            style={{ flex: 1 }}
+            onContentSizeChange={() => {
+              setTimeout(() => {
+                if (flatListRef.current) {
+                  flatListRef.current.scrollToEnd({ animated: true });
+                }
+              }, 50);
+            }}
+            onLayout={() => {
+              setTimeout(() => {
+                if (flatListRef.current && messages.length > 0) {
+                  flatListRef.current.scrollToEnd({ animated: false });
+                }
+              }, 50);
+            }}
           />
+          
           <View style={styles.inputRow}>
             <TouchableOpacity style={styles.attachBtn} onPress={handleAttach}>
               <Ionicons name="attach" size={22} color="#1976d2" />
@@ -325,6 +772,54 @@ const ChatWithTeacher = () => {
           </View>
         </KeyboardAvoidingView>
       )}
+      {/* WhatsApp-style Attachment Menu with Animations */}
+      {showAttachmentMenu && (
+        <Animatable.View 
+          style={styles.attachmentOverlay}
+          animation="fadeIn"
+          duration={200}
+        >
+          <TouchableOpacity 
+            style={styles.attachmentBackdrop} 
+            onPress={() => setShowAttachmentMenu(false)}
+            activeOpacity={1}
+          />
+          <Animatable.View 
+            style={styles.attachmentMenu}
+            animation="slideInUp"
+            duration={300}
+            delay={100}
+          >
+            <Animatable.View
+              animation="bounceIn"
+              delay={200}
+              duration={400}
+            >
+              <TouchableOpacity 
+                style={[styles.attachmentOption, { backgroundColor: '#7C4DFF' }]}
+                onPress={handleDocumentUpload}
+              >
+                <Ionicons name="document" size={24} color="#fff" />
+              </TouchableOpacity>
+              <Text style={styles.attachmentText}>Document</Text>
+            </Animatable.View>
+            
+            <Animatable.View
+              animation="bounceIn"
+              delay={300}
+              duration={400}
+            >
+              <TouchableOpacity 
+                style={[styles.attachmentOption, { backgroundColor: '#FF5722' }]}
+                onPress={handleImageUpload}
+              >
+                <Ionicons name="camera" size={24} color="#fff" />
+              </TouchableOpacity>
+              <Text style={styles.attachmentText}>Photos</Text>
+            </Animatable.View>
+          </Animatable.View>
+        </Animatable.View>
+      )}
     </View>
   );
 };
@@ -336,6 +831,17 @@ const styles = StyleSheet.create({
   teacherCard: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#fff', borderRadius: 10, padding: 14, marginBottom: 12, elevation: 2 },
   teacherName: { fontSize: 16, fontWeight: 'bold', color: '#222' },
   teacherSubject: { fontSize: 14, color: '#666' },
+  lastMessage: {
+    fontSize: 12,
+    color: '#888',
+    marginTop: 2,
+  },
+  messageCount: {
+    fontSize: 10,
+    color: '#9c27b0',
+    marginTop: 2,
+    fontWeight: 'bold',
+  },
   chatHeader: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#fff', padding: 12, borderBottomWidth: 1, borderColor: '#eee' },
   chatList: { flexGrow: 1, justifyContent: 'flex-end', padding: 16 },
   messageRow: { flexDirection: 'row', marginBottom: 10 },
@@ -346,27 +852,48 @@ const styles = StyleSheet.create({
   bubbleTeacher: { backgroundColor: '#f1f8e9', alignSelf: 'flex-start' },
   messageText: { fontSize: 15, color: '#222' },
   messageTime: { fontSize: 11, color: '#888', marginTop: 4, textAlign: 'right' },
-  inputRow: { flexDirection: 'row', alignItems: 'center', padding: 10, backgroundColor: '#fff', borderTopWidth: 1, borderColor: '#eee' },
+  inputRow: { 
+    flexDirection: 'row', 
+    alignItems: 'center', 
+    padding: 10, 
+    backgroundColor: '#fff', 
+    borderTopWidth: 1, 
+    borderColor: '#eee',
+    paddingBottom: Platform.OS === 'ios' ? 34 : 10,
+  },
   attachBtn: { marginRight: 8 },
   input: { flex: 1, backgroundColor: '#f5f5f5', borderRadius: 20, paddingHorizontal: 16, paddingVertical: 8, fontSize: 15, marginRight: 8 },
   sendBtn: { backgroundColor: '#1976d2', borderRadius: 20, padding: 10 },
   chatImage: {
-    width: 160,
-    height: 120,
-    borderRadius: 10,
-    marginBottom: 6,
-    backgroundColor: '#eee',
+    width: 200,
+    height: 150,
+    borderRadius: 12,
+    marginBottom: 8,
+  },
+  fileContainer: {
+    backgroundColor: 'rgba(255, 255, 255, 0.1)',
+    borderRadius: 8,
+    padding: 12,
+    marginBottom: 8,
+    minWidth: 200,
   },
   fileRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 4,
+  },
+  fileInfo: {
+    flex: 1,
+    marginLeft: 10,
   },
   fileName: {
-    fontSize: 14,
     color: '#1976d2',
-    textDecorationLine: 'underline',
-    maxWidth: 120,
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  fileSize: {
+    color: '#666',
+    fontSize: 12,
+    marginTop: 2,
   },
   loadingContainer: {
     flex: 1,
@@ -410,6 +937,63 @@ const styles = StyleSheet.create({
   emptyText: {
     fontSize: 16,
     color: '#666',
+    textAlign: 'center',
+  },
+  deletingOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(244, 67, 54, 0.8)',
+    borderRadius: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    zIndex: 1,
+  },
+  attachmentOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'flex-end',
+    alignItems: 'flex-end',
+    paddingRight: 20,
+    paddingBottom: 80,
+    zIndex: 1000,
+  },
+  attachmentBackdrop: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+  },
+  attachmentMenu: {
+    alignItems: 'center',
+  },
+  attachmentOption: {
+    width: 60,
+    height: 60,
+    borderRadius: 30,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 10,
+    elevation: 8,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 5,
+  },
+  attachmentText: {
+    color: '#fff',
+    fontSize: 10,
+    marginTop: -5,
+    marginBottom: 15,
+    fontWeight: '500',
     textAlign: 'center',
   },
 });

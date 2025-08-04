@@ -136,7 +136,9 @@ const TeacherAccountManagement = ({ navigation }) => {
       let errorMessage = 'Failed to create teacher account';
 
       if (error.message) {
-        if (error.message.includes('User already registered')) {
+        if (error.message.includes('For security purposes')) {
+          errorMessage = 'Please wait a moment before creating another account. Try again in 1 minute.';
+        } else if (error.message.includes('User already registered')) {
           errorMessage = 'This email is already registered. Please use a different email address.';
         } else if (error.message.includes('Invalid email')) {
           errorMessage = 'Please enter a valid email address.';
@@ -289,11 +291,9 @@ const TeacherAccountManagement = ({ navigation }) => {
         transparent={true}
         animationType="slide"
         onRequestClose={() => setModalVisible(false)}
+        statusBarTranslucent={true}
       >
-        <KeyboardAvoidingView
-          style={styles.modalOverlay}
-          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-        >
+        <View style={styles.modalOverlay}>
           <View style={styles.modalContainer}>
             <View style={styles.modalHeader}>
               <Text style={styles.modalTitle}>
@@ -418,7 +418,7 @@ const TeacherAccountManagement = ({ navigation }) => {
               </TouchableOpacity>
             </View>
           </View>
-        </KeyboardAvoidingView>
+        </View>
       </Modal>
     </View>
   );
@@ -579,20 +579,18 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(0, 0, 0, 0.5)',
     justifyContent: 'center',
     alignItems: 'center',
-    padding: 20,
+    paddingVertical: 40,
   },
   modalContainer: {
     backgroundColor: '#fff',
-    borderRadius: 16,
-    width: '100%',
-    maxWidth: 400,
-    height: '95%',
-    maxHeight: '95%',
-    elevation: 8,
+    borderRadius: 20,
+    width: '90%',
+    height: '80%',
+    elevation: 10,
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.25,
-    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.5,
+    shadowRadius: 20,
     flexDirection: 'column',
   },
   modalHeader: {

@@ -23,112 +23,135 @@ import { useAuth } from '../../utils/AuthContext';
 const { width } = Dimensions.get('window');
 
 const ViewReportCard = () => {
-  const { user } = useAuth();
-  const [reportCards, setReportCards] = useState([]);
-  const [selectedReportCard, setSelectedReportCard] = useState(null);
-  const [modalVisible, setModalVisible] = useState(false);
+  const [student, setStudent] = useState(null);
+  const [reportCards, setReportCards] = useState({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [selectedReportCard, setSelectedReportCard] = useState(null);
+  const [modalVisible, setModalVisible] = useState(false);
+  const [showExportModal, setShowExportModal] = useState(false);
+  const [showPreviewModal, setShowPreviewModal] = useState(false);
+  const [previewContent, setPreviewContent] = useState('');
+  const [previewType, setPreviewType] = useState('');
+  const [exams, setExams] = useState([]);
+  const [subjects, setSubjects] = useState([]);
+  const [marks, setMarks] = useState([]);
+  const { user } = useAuth();
 
-  useEffect(() => {
-    const fetchReportCards = async () => {
+  const fetchReportCardData = async () => {
+    try {
       setLoading(true);
       setError(null);
-      try {
-        // Get parent's student data using the helper function
-        const { data: parentUserData, error: parentError } = await dbHelpers.getParentByUserId(user.id);
-        if (parentError || !parentUserData) {
-          throw new Error('Parent data not found');
-        }
 
-        // Get student details from the linked student
-        const studentDetails = parentUserData.students;
+      // Get parent's linked student
+      const { data: parentUser, error: parentError } = await supabase
+        .from(TABLES.USERS)
+        .select(`
+          linked_parent_of,
+          students!users_linked_parent_of_fkey(
+            id,
+            name,
+            admission_no,
+            class_id,
+            academic_year,
+            classes(id, class_name, section, academic_year)
+          )
+        `)
+        .eq('id', user.id)
+        .single();
 
-        // Get exams for student's class
-        const { data: exams, error: examsError } = await supabase
-          .from(TABLES.EXAMS)
-          .select('*')
-          .eq('class_id', studentDetails.class_id)
-          .order('date', { ascending: false });
-
-        if (examsError && examsError.code !== '42P01') {
-          throw examsError;
-        }
-        
-        // Get marks for each exam
-        const reportCardsData = [];
-        if (exams && exams.length > 0) {
-          for (const exam of exams) {
-            const { data: marks, error: marksError } = await supabase
-              .from(TABLES.MARKS)
-              .select(`
-                *,
-                subjects(name)
-              `)
-              .eq('student_id', studentDetails.id)
-              .eq('exam_id', exam.id);
-
-            if (marksError && marksError.code !== '42P01') {
-              console.log('Marks error:', marksError);
-              continue;
-            }
-
-            if (marks && marks.length > 0) {
-              // Process marks data
-              const subjectsData = [];
-              let totalMarks = 0;
-              let maxTotalMarks = 0;
-
-              for (const mark of marks) {
-                subjectsData.push({
-                  name: mark.subjects?.name || 'Unknown Subject',
-                  marksObtained: mark.marks_obtained,
-                  maxMarks: mark.max_marks,
-                  grade: calculateGrade(mark.marks_obtained, mark.max_marks),
-                  remarks: mark.remarks || 'Good performance'
-                });
-                totalMarks += mark.marks_obtained;
-                maxTotalMarks += mark.max_marks;
-              }
-            
-              if (subjectsData.length > 0) {
-                const averagePercentage = Math.round((totalMarks / maxTotalMarks) * 100);
-                const overallGrade = calculateGrade(totalMarks, maxTotalMarks);
-
-                reportCardsData.push({
-                  id: exam.id,
-                  examName: exam.name,
-                  examDate: exam.date,
-                  academicYear: '2024-2025',
-                  class: studentDetails.classes?.class_name || 'N/A',
-                  studentName: studentDetails.name,
-                  rollNumber: studentDetails.roll_no,
-                  subjects: subjectsData,
-                  totalMarks: totalMarks,
-                  maxTotalMarks: maxTotalMarks,
-                  averagePercentage: averagePercentage,
-                  overallGrade: overallGrade,
-                  rank: 1, // Simplified for now
-                  classTeacher: 'Class Teacher', // Simplified for now
-                  principal: 'Principal' // Simplified for now
-                });
-              }
-            } // Added missing closing brace for marks check
-          }
-        }
-        
-        setReportCards(reportCardsData);
-      } catch (err) {
-        console.error('Error fetching report cards:', err);
-        setError(err.message);
-        Alert.alert('Error', 'Failed to load report cards');
-      } finally {
-        setLoading(false);
+      if (parentError || !parentUser?.linked_parent_of) {
+        throw new Error('Student data not found');
       }
-    };
 
+      const studentData = parentUser.students;
+      setStudent(studentData);
+
+      // Get all exams for the student's class and academic year
+      const { data: examsData, error: examsError } = await supabase
+        .from(TABLES.EXAMS)
+        .select('*')
+        .eq('class_id', studentData.class_id)
+        .eq('academic_year', studentData.academic_year)
+        .order('start_date', { ascending: false });
+
+      if (examsError) throw examsError;
+      setExams(examsData || []);
+
+      // Get all subjects for the student's class
+      const { data: subjectsData, error: subjectsError } = await supabase
+        .from(TABLES.SUBJECTS)
+        .select('*')
+        .eq('class_id', studentData.class_id)
+        .eq('academic_year', studentData.academic_year)
+        .order('name');
+
+      if (subjectsError) throw subjectsError;
+      setSubjects(subjectsData || []);
+
+      // Get all marks for the student
+      const { data: marksData, error: marksError } = await supabase
+        .from(TABLES.MARKS)
+        .select(`
+          *,
+          exams(id, name, start_date, end_date),
+          subjects(id, name)
+        `)
+        .eq('student_id', studentData.id)
+        .order('created_at', { ascending: false });
+
+      if (marksError) throw marksError;
+      setMarks(marksData || []);
+
+      // Process report cards by exam
+      const reportCards = {};
+      if (marksData) {
+        marksData.forEach(mark => {
+          const examId = mark.exam_id;
+          if (!reportCards[examId]) {
+            reportCards[examId] = {
+              exam: mark.exams,
+              subjects: [],
+              totalMarks: 0,
+              totalMaxMarks: 0,
+              percentage: 0
+            };
+          }
+          
+          reportCards[examId].subjects.push({
+            subject: mark.subjects,
+            marks_obtained: mark.marks_obtained,
+            max_marks: mark.max_marks,
+            grade: mark.grade,
+            remarks: mark.remarks
+          });
+          
+          reportCards[examId].totalMarks += parseFloat(mark.marks_obtained || 0);
+          reportCards[examId].totalMaxMarks += parseFloat(mark.max_marks || 0);
+        });
+      }
+
+      // Calculate percentages
+      Object.keys(reportCards).forEach(examId => {
+        const card = reportCards[examId];
+        card.percentage = card.totalMaxMarks > 0 
+          ? ((card.totalMarks / card.totalMaxMarks) * 100).toFixed(2)
+          : 0;
+      });
+
+      setReportCards(reportCards);
+
+    } catch (err) {
+      console.error('Error fetching report card data:', err);
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
     if (user) {
-      fetchReportCards();
+      fetchReportCardData();
     }
   }, [user]);
 
@@ -192,17 +215,21 @@ const ViewReportCard = () => {
     }
   };
 
-  // Group report cards by academic year
-  const groupedReportCards = reportCards.reduce((groups, card) => {
-    const year = card.academicYear;
-    if (!groups[year]) {
-      groups[year] = [];
-    }
-    groups[year].push(card);
-    return groups;
-  }, {});
+  const groupReportCardsByYear = () => {
+    const grouped = {};
+    Object.keys(reportCards).forEach(examId => {
+      const reportCard = reportCards[examId];
+      const year = reportCard.exam?.academic_year || student?.academic_year || '2024-25';
+      
+      if (!grouped[year]) {
+        grouped[year] = [];
+      }
+      grouped[year].push({ examId, ...reportCard });
+    });
+    return grouped;
+  };
 
-  // Sort years in descending order (current year first)
+  const groupedReportCards = groupReportCardsByYear();
   const sortedYears = Object.keys(groupedReportCards).sort((a, b) => b.localeCompare(a));
 
   const handleReportCardPress = (reportCard) => {
@@ -540,68 +567,382 @@ const ViewReportCard = () => {
   };
 
   const getGradeColor = (grade) => {
+    if (typeof grade === 'number') {
+      if (grade >= 90) return '#4CAF50';
+      if (grade >= 75) return '#FF9800';
+      if (grade >= 60) return '#FFC107';
+      return '#F44336';
+    }
+    
     switch (grade) {
-      case 'A+': return '#4CAF50';
-      case 'A': return '#4CAF50';
-      case 'A-': return '#8BC34A';
-      case 'B+': return '#2196F3';
-      case 'B': return '#2196F3';
-      case 'B-': return '#03A9F4';
-      case 'C+': return '#FF9800';
-      case 'C': return '#FF9800';
-      case 'C-': return '#FF5722';
+      case 'A+': case 'A': return '#4CAF50';
+      case 'B+': case 'B': return '#FF9800';
+      case 'C+': case 'C': return '#FFC107';
       default: return '#F44336';
     }
   };
 
-  const renderReportCardItem = ({ item }) => (
-    <TouchableOpacity 
-      style={styles.reportCardItem}
-      onPress={() => handleReportCardPress(item)}
-    >
-      <View style={styles.reportCardHeader}>
-        <View style={styles.reportCardInfo}>
-          <Text style={styles.examName}>{item.examName}</Text>
-          <Text style={styles.examDate}>{new Date(item.examDate).toLocaleDateString('en-US', { 
-            year: 'numeric', 
-            month: 'long', 
-            day: 'numeric' 
-          })}</Text>
-          <Text style={styles.classInfo}>Class {item.class}</Text>
-        </View>
-        <View style={styles.reportCardStats}>
-          <Text style={styles.percentage}>{item.averagePercentage}%</Text>
-          <Text style={[styles.grade, { color: getGradeColor(item.overallGrade) }]}>
-            {item.overallGrade}
+  const renderReportCard = ({ item: examId }) => {
+    const reportCard = reportCards[examId];
+    if (!reportCard) return null;
+
+    return (
+      <View style={styles.reportCard}>
+        <View style={styles.examHeader}>
+          <Text style={styles.examName}>{reportCard.exam?.name}</Text>
+          <Text style={styles.examDate}>
+            {new Date(reportCard.exam?.start_date).toLocaleDateString()} - {' '}
+            {new Date(reportCard.exam?.end_date).toLocaleDateString()}
           </Text>
         </View>
+
+        <View style={styles.summarySection}>
+          <View style={styles.summaryItem}>
+            <Text style={styles.summaryLabel}>Total Marks</Text>
+            <Text style={styles.summaryValue}>
+              {reportCard.totalMarks}/{reportCard.totalMaxMarks}
+            </Text>
+          </View>
+          <View style={styles.summaryItem}>
+            <Text style={styles.summaryLabel}>Percentage</Text>
+            <Text style={[styles.summaryValue, { color: getGradeColor(reportCard.percentage) }]}>
+              {reportCard.percentage}%
+            </Text>
+          </View>
+        </View>
+
+        <View style={styles.subjectsHeader}>
+          <Text style={styles.subjectHeaderText}>Subject</Text>
+          <Text style={styles.subjectHeaderText}>Marks</Text>
+          <Text style={styles.subjectHeaderText}>Grade</Text>
+        </View>
+
+        {reportCard.subjects.map((subjectMark, index) => (
+          <View key={index} style={styles.subjectRow}>
+            <Text style={styles.subjectName}>{subjectMark.subject?.name}</Text>
+            <Text style={styles.subjectMarks}>
+              {subjectMark.marks_obtained}/{subjectMark.max_marks}
+            </Text>
+            <Text style={[styles.subjectGrade, { color: getGradeColor(subjectMark.grade) }]}>
+              {subjectMark.grade || 'N/A'}
+            </Text>
+          </View>
+        ))}
       </View>
-      <View style={styles.reportCardFooter}>
-        <Text style={styles.rankText}>Rank: {item.rank}</Text>
-        <Ionicons name="chevron-forward" size={20} color="#666" />
-      </View>
-    </TouchableOpacity>
-  );
+    );
+  };
 
   const renderYearSection = ({ item: year }) => (
     <View style={styles.yearSection}>
       <Text style={styles.yearTitle}>{year}</Text>
       <FlatList
         data={groupedReportCards[year]}
-        renderItem={renderReportCardItem}
-        keyExtractor={(item) => item.id}
+        renderItem={({ item }) => renderReportCard({ item: item.examId })}
+        keyExtractor={(item) => item.examId}
         showsVerticalScrollIndicator={false}
         scrollEnabled={false}
       />
     </View>
   );
 
+  const handleExportAllPDF = async () => {
+    try {
+      const htmlContent = generateAllReportCardsPDF();
+      
+      const { uri } = await Print.printToFileAsync({
+        html: htmlContent,
+        base64: false
+      });
+
+      const fileName = `AllReportCards_${student?.name?.replace(/\s+/g, '_')}_${new Date().toISOString().split('T')[0]}.pdf`;
+
+      if (Platform.OS === 'android') {
+        try {
+          const permissions = await FileSystem.StorageAccessFramework.requestDirectoryPermissionsAsync();
+          if (!permissions.granted) {
+            Alert.alert('Permission Required', 'Please grant storage permission to save the PDF file.');
+            return;
+          }
+
+          const destUri = await FileSystem.StorageAccessFramework.createFileAsync(
+            permissions.directoryUri,
+            fileName,
+            'application/pdf'
+          );
+
+          const fileData = await FileSystem.readAsStringAsync(uri, { 
+            encoding: FileSystem.EncodingType.Base64 
+          });
+          await FileSystem.writeAsStringAsync(destUri, fileData, { 
+            encoding: FileSystem.EncodingType.Base64 
+          });
+
+          Alert.alert('PDF Saved Successfully', `All report cards saved as ${fileName}`);
+        } catch (error) {
+          console.error('Android save error:', error);
+          await sharePDF(uri, fileName);
+        }
+      } else {
+        await sharePDF(uri, fileName);
+      }
+    } catch (error) {
+      console.error('PDF generation error:', error);
+      Alert.alert('Error', 'Failed to generate PDF. Please try again.');
+    }
+  };
+
+  const handleExportCurrentPDF = async () => {
+    try {
+      const currentYear = new Date().getFullYear();
+      const currentYearKey = `${currentYear}-${(currentYear + 1).toString().slice(-2)}`;
+      const currentYearReports = groupedReportCards[currentYearKey] || [];
+      
+      if (currentYearReports.length === 0) {
+        Alert.alert('No Data', 'No report cards found for current academic year.');
+        return;
+      }
+
+      const htmlContent = generateYearReportCardsPDF(currentYearReports, currentYearKey);
+      
+      const { uri } = await Print.printToFileAsync({
+        html: htmlContent,
+        base64: false
+      });
+
+      const fileName = `ReportCards_${student?.name?.replace(/\s+/g, '_')}_${currentYearKey}.pdf`;
+      await sharePDF(uri, fileName);
+    } catch (error) {
+      console.error('PDF generation error:', error);
+      Alert.alert('Error', 'Failed to generate PDF. Please try again.');
+    }
+  };
+
+  const generateAllReportCardsPDF = () => {
+    const allReportsHtml = Object.keys(reportCards).map(examId => {
+      const reportCard = reportCards[examId];
+      return generateSingleReportHTML(reportCard);
+    }).join('');
+
+    return `
+      <!DOCTYPE html>
+      <html>
+        <head>
+          <meta charset="utf-8">
+          <title>Complete Report Card</title>
+          <style>
+            body { 
+              font-family: Arial, sans-serif; 
+              margin: 20px; 
+              line-height: 1.4;
+            }
+            .header { 
+              text-align: center; 
+              margin-bottom: 20px; 
+            }
+            .school-name { 
+              font-size: 24px; 
+              font-weight: bold; 
+              color: #2196F3; 
+              margin-bottom: 10px;
+            }
+            .student-info { 
+              background: #f8f9fa; 
+              padding: 15px; 
+              border-radius: 8px; 
+              margin-bottom: 20px;
+              display: inline-block;
+              width: 100%;
+            }
+            .report-section {
+              margin-bottom: 30px;
+              page-break-inside: avoid;
+            }
+            table { 
+              width: 100%; 
+              border-collapse: collapse; 
+              margin: 15px 0; 
+            }
+            th, td { 
+              border: 1px solid #ddd; 
+              padding: 8px; 
+              text-align: center; 
+            }
+            th { 
+              background: #1976d2; 
+              color: white; 
+            }
+            .subject-cell {
+              text-align: left;
+              padding-left: 15px;
+            }
+            .exam-title {
+              color: #1976d2;
+              font-size: 18px;
+              font-weight: bold;
+              margin: 20px 0 10px 0;
+            }
+            .total-row {
+              background: #f8f9fa;
+              font-weight: bold;
+            }
+          </style>
+        </head>
+        <body>
+          <div class="header">
+            <div class="school-name">ABC School</div>
+            <h1>Complete Report Card</h1>
+            <div class="student-info">
+              <strong>Student:</strong> ${student?.name} | 
+              <strong>Class:</strong> ${student?.classes?.class_name} ${student?.classes?.section} | 
+              <strong>Admission No:</strong> ${student?.admission_no}
+            </div>
+          </div>
+          ${allReportsHtml}
+        </body>
+      </html>
+    `;
+  };
+
+  const generateYearReportCardsPDF = (yearReports, year) => {
+    const reportsHtml = yearReports.map(report => 
+      generateSingleReportHTML(reportCards[report.examId])
+    ).join('');
+
+    return `
+      <!DOCTYPE html>
+      <html>
+        <head>
+          <meta charset="utf-8">
+          <title>Report Cards - ${year}</title>
+          <style>
+            body { 
+              font-family: Arial, sans-serif; 
+              margin: 20px; 
+              line-height: 1.4;
+            }
+            .header { 
+              text-align: center; 
+              margin-bottom: 20px; 
+            }
+            .school-name { 
+              font-size: 24px; 
+              font-weight: bold; 
+              color: #2196F3; 
+              margin-bottom: 10px;
+            }
+            .student-info { 
+              background: #f8f9fa; 
+              padding: 15px; 
+              border-radius: 8px; 
+              margin-bottom: 20px;
+              display: inline-block;
+              width: 100%;
+            }
+            .report-section {
+              margin-bottom: 30px;
+              page-break-inside: avoid;
+            }
+            table { 
+              width: 100%; 
+              border-collapse: collapse; 
+              margin: 15px 0; 
+            }
+            th, td { 
+              border: 1px solid #ddd; 
+              padding: 8px; 
+              text-align: center; 
+            }
+            th { 
+              background: #1976d2; 
+              color: white; 
+            }
+            .subject-cell {
+              text-align: left;
+              padding-left: 15px;
+            }
+            .exam-title {
+              color: #1976d2;
+              font-size: 18px;
+              font-weight: bold;
+              margin: 20px 0 10px 0;
+            }
+            .total-row {
+              background: #f8f9fa;
+              font-weight: bold;
+            }
+          </style>
+        </head>
+        <body>
+          <div class="header">
+            <div class="school-name">ABC School</div>
+            <h1>Report Cards - Academic Year ${year}</h1>
+            <div class="student-info">
+              <strong>Student:</strong> ${student?.name} | 
+              <strong>Class:</strong> ${student?.classes?.class_name} ${student?.classes?.section} | 
+              <strong>Admission No:</strong> ${student?.admission_no}
+            </div>
+          </div>
+          ${reportsHtml}
+        </body>
+      </html>
+    `;
+  };
+
+  const generateSingleReportHTML = (reportCard) => {
+    if (!reportCard) return '';
+    
+    return `
+      <div class="report-section">
+        <h3 class="exam-title">${reportCard.exam?.name}</h3>
+        <p><strong>Date:</strong> ${new Date(reportCard.exam?.start_date).toLocaleDateString()} - ${new Date(reportCard.exam?.end_date).toLocaleDateString()}</p>
+        <table>
+          <thead>
+            <tr>
+              <th>Subject</th>
+              <th>Marks Obtained</th>
+              <th>Max Marks</th>
+              <th>Grade</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${reportCard.subjects?.map(subject => `
+              <tr>
+                <td class="subject-cell">${subject.subject?.name}</td>
+                <td>${subject.marks_obtained}</td>
+                <td>${subject.max_marks}</td>
+                <td style="color: ${getGradeColor(subject.grade)}">${subject.grade}</td>
+              </tr>
+            `).join('') || ''}
+            <tr class="total-row">
+              <td class="subject-cell"><strong>Total</strong></td>
+              <td><strong>${reportCard.totalMarks}</strong></td>
+              <td><strong>${reportCard.totalMaxMarks}</strong></td>
+              <td><strong>${reportCard.percentage}%</strong></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    `;
+  };
+
+  const handlePreviewAllPDF = () => {
+    const htmlContent = generateAllReportCardsPDF();
+    setPreviewContent(htmlContent);
+    setPreviewType('all');
+    setShowPreviewModal(true);
+  };
+
+  const handleConfirmExport = async () => {
+    setShowPreviewModal(false);
+    await handleExportAllPDF();
+  };
+
   if (loading) {
     return (
       <View style={styles.container}>
-        <Header title="View Report Card" showBack={true} />
+        <Header title="Report Card" showBack={true} />
         <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color="#2196F3" />
+          <ActivityIndicator size="large" color="#1976d2" />
           <Text style={styles.loadingText}>Loading report cards...</Text>
         </View>
       </View>
@@ -611,165 +952,157 @@ const ViewReportCard = () => {
   if (error) {
     return (
       <View style={styles.container}>
-        <Header title="View Report Card" showBack={true} />
+        <Header title="Report Card" showBack={true} />
         <View style={styles.errorContainer}>
           <Ionicons name="alert-circle" size={48} color="#F44336" />
-          <Text style={styles.errorText}>Failed to load report cards</Text>
-          <TouchableOpacity style={styles.retryButton} onPress={() => window.location.reload()}>
-            <Text style={styles.retryButtonText}>Retry</Text>
+          <Text style={styles.errorText}>{error}</Text>
+          <TouchableOpacity style={styles.retryButton} onPress={fetchReportCardData}>
+            <Text style={styles.retryText}>Retry</Text>
           </TouchableOpacity>
         </View>
       </View>
     );
   }
 
+  const reportCardKeys = Object.keys(reportCards);
+
   return (
     <View style={styles.container}>
-      <Header title="View Report Card" showBack={true} />
+      <Header title="Report Card" showBack={true} />
       
-      <View style={styles.content}>
-        <Text style={styles.title}>Report Cards</Text>
-        <Text style={styles.subtitle}>
-          View and download your child's academic performance reports
-        </Text>
-        
-        {reportCards.length === 0 ? (
-          <View style={styles.emptyContainer}>
-            <Ionicons name="document-text" size={64} color="#ccc" />
-            <Text style={styles.emptyText}>No report cards available</Text>
-            <Text style={styles.emptySubtext}>Report cards will appear here once exams are completed and marks are entered.</Text>
-          </View>
-        ) : (
+      {student && (
+        <View style={styles.studentInfo}>
+          <Text style={styles.studentName}>{student.name}</Text>
+          <Text style={styles.studentDetails}>
+            Class: {student.classes?.class_name} {student.classes?.section} | 
+            Admission No: {student.admission_no}
+          </Text>
+        </View>
+      )}
+
+      {reportCardKeys.length === 0 ? (
+        <View style={styles.noDataContainer}>
+          <Ionicons name="document-text-outline" size={64} color="#ccc" />
+          <Text style={styles.noDataText}>No report cards available</Text>
+        </View>
+      ) : (
+        <>
           <FlatList
-            data={sortedYears}
-            renderItem={renderYearSection}
+            data={reportCardKeys}
+            renderItem={renderReportCard}
             keyExtractor={(item) => item}
-            showsVerticalScrollIndicator={false}
             contentContainerStyle={styles.listContainer}
+            showsVerticalScrollIndicator={false}
           />
-        )}
-      </View>
-
-      {/* Report Card Detail Modal */}
-      <Modal
-        visible={modalVisible}
-        animationType="slide"
-        transparent={true}
-        onRequestClose={handleCloseModal}
-      >
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalContainer}>
-            <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>Report Card</Text>
-              <TouchableOpacity onPress={handleCloseModal} style={styles.closeButton}>
-                <Ionicons name="close" size={24} color="#666" />
-              </TouchableOpacity>
-            </View>
-            
-            {selectedReportCard && (
-              <ScrollView style={styles.modalContent} showsVerticalScrollIndicator={false}>
-                {/* Student and Exam Info */}
-                <View style={styles.studentInfo}>
-                  <Text style={styles.studentName}>{selectedReportCard.studentName}</Text>
-                  <Text style={styles.studentDetails}>
-                    Class: {selectedReportCard.class} | Roll No: {selectedReportCard.rollNumber}
-                  </Text>
-                  <Text style={styles.examDetails}>
-                    {selectedReportCard.examName} - {new Date(selectedReportCard.examDate).toLocaleDateString('en-US', { 
-                      year: 'numeric', 
-                      month: 'long', 
-                      day: 'numeric' 
-                    })}
-                  </Text>
-                  <Text style={styles.academicYear}>{selectedReportCard.academicYear}</Text>
-                </View>
-
-                {/* Marks Table */}
-                <View style={styles.marksSection}>
-                  <Text style={styles.sectionTitle}>Subject-wise Marks</Text>
-                  <View style={styles.marksTable}>
-                    <View style={styles.tableHeader}>
-                      <Text style={styles.headerCell}>Subject</Text>
-                      <Text style={styles.headerCell}>Marks</Text>
-                      <Text style={styles.headerCell}>Grade</Text>
-                    </View>
-                    {selectedReportCard.subjects.map((subject, index) => (
-                      <View key={index} style={styles.tableRow}>
-                        <Text style={styles.subjectCell}>{subject.name}</Text>
-                        <Text style={styles.marksCell}>
-                          {subject.marksObtained}/{subject.maxMarks}
-                        </Text>
-                        <Text style={[styles.gradeCell, { color: getGradeColor(subject.grade) }]}>
-                          {subject.grade}
-                        </Text>
-                      </View>
-                    ))}
-                  </View>
-                </View>
-
-                {/* Performance Summary */}
-                <View style={styles.summarySection}>
-                  <Text style={styles.sectionTitle}>Performance Summary</Text>
-                  <View style={styles.summaryGrid}>
-                    <View style={styles.summaryItem}>
-                      <Text style={styles.summaryLabel}>Total Marks</Text>
-                      <Text style={styles.summaryValue}>
-                        {selectedReportCard.totalMarks}/{selectedReportCard.maxTotalMarks}
-                      </Text>
-                    </View>
-                    <View style={styles.summaryItem}>
-                      <Text style={styles.summaryLabel}>Average</Text>
-                      <Text style={styles.summaryValue}>{selectedReportCard.averagePercentage}%</Text>
-                    </View>
-                    <View style={styles.summaryItem}>
-                      <Text style={styles.summaryLabel}>Overall Grade</Text>
-                      <Text style={[styles.summaryValue, { color: getGradeColor(selectedReportCard.overallGrade) }]}>
-                        {selectedReportCard.overallGrade}
-                      </Text>
-                    </View>
-                    <View style={styles.summaryItem}>
-                      <Text style={styles.summaryLabel}>Class Rank</Text>
-                      <Text style={styles.summaryValue}>{selectedReportCard.rank}</Text>
-                    </View>
-                  </View>
-                </View>
-
-                {/* Teacher Remarks */}
-                <View style={styles.remarksSection}>
-                  <Text style={styles.sectionTitle}>Subject-wise Remarks</Text>
-                  {selectedReportCard.subjects.map((subject, index) => (
-                    <View key={index} style={styles.remarkItem}>
-                      <Text style={styles.remarkSubject}>{subject.name}</Text>
-                      <Text style={styles.remarkText}>{subject.remarks}</Text>
-                    </View>
-                  ))}
-                </View>
-
-                {/* Signatures */}
-                <View style={styles.signatureSection}>
-                  <View style={styles.signatureItem}>
-                    <Text style={styles.signatureLabel}>Class Teacher</Text>
-                    <Text style={styles.signatureName}>{selectedReportCard.classTeacher}</Text>
-                  </View>
-                  <View style={styles.signatureItem}>
-                    <Text style={styles.signatureLabel}>Principal</Text>
-                    <Text style={styles.signatureName}>{selectedReportCard.principal}</Text>
-                  </View>
-                </View>
-              </ScrollView>
-            )}
-
-            {/* Modal Footer */}
-            <View style={styles.modalFooter}>
-              <TouchableOpacity style={styles.closeModalButton} onPress={handleCloseModal}>
-                <Text style={styles.closeModalButtonText}>Close</Text>
-              </TouchableOpacity>
-              <TouchableOpacity style={styles.exportButton} onPress={handleExportPDF}>
-                <Ionicons name="download" size={20} color="#fff" />
-                <Text style={styles.exportButtonText}>Save PDF</Text>
-              </TouchableOpacity>
-            </View>
+          
+          {/* Export Button */}
+          <View style={styles.exportSection}>
+            <TouchableOpacity style={styles.exportButton} onPress={handlePreviewAllPDF}>
+              <Ionicons name="download" size={20} color="#fff" />
+              <Text style={styles.exportButtonText}>Export Report Card</Text>
+            </TouchableOpacity>
           </View>
+        </>
+      )}
+
+      {/* Export Modal - Removed, direct preview */}
+
+      {/* Preview Modal */}
+      <Modal
+        visible={showPreviewModal}
+        animationType="slide"
+        onRequestClose={() => setShowPreviewModal(false)}
+      >
+        <View style={styles.previewContainer}>
+          <View style={styles.previewHeader}>
+            <TouchableOpacity 
+              style={styles.previewBackButton}
+              onPress={() => setShowPreviewModal(false)}
+            >
+              <Ionicons name="arrow-back" size={24} color="#fff" />
+              <Text style={styles.previewBackText}>Back</Text>
+            </TouchableOpacity>
+            
+            <Text style={styles.previewTitle}>PDF Preview</Text>
+            
+            <TouchableOpacity 
+              style={styles.previewExportButton}
+              onPress={handleConfirmExport}
+            >
+              <Ionicons name="download" size={20} color="#fff" />
+              <Text style={styles.previewExportText}>Export</Text>
+            </TouchableOpacity>
+          </View>
+          
+          <ScrollView style={styles.previewContent}>
+            <View style={styles.previewWebView}>
+              <Text style={styles.previewNote}>
+                Preview of your PDF report. Scroll down to see all content.
+              </Text>
+              
+              <View style={styles.htmlPreview}>
+                <View style={styles.previewDocument}>
+                  <View style={styles.documentHeader}>
+                    <Text style={styles.schoolName}>ABC School</Text>
+                    <Text style={styles.documentTitle}>
+                      Complete Report Card
+                    </Text>
+                  </View>
+                  
+                  {student && (
+                    <View style={styles.studentInfoPreview}>
+                      <Text style={styles.previewText}>
+                        <Text style={styles.boldText}>Student:</Text> {student.name}
+                      </Text>
+                      <Text style={styles.previewText}>
+                        <Text style={styles.boldText}>Class:</Text> {student.classes?.class_name} {student.classes?.section}
+                      </Text>
+                      <Text style={styles.previewText}>
+                        <Text style={styles.boldText}>Admission No:</Text> {student.admission_no}
+                      </Text>
+                    </View>
+                  )}
+                  
+                  {/* All Report Cards Preview */}
+                  {Object.keys(reportCards).map(examId => {
+                    const reportCard = reportCards[examId];
+                    return (
+                      <View key={examId} style={styles.reportPreview}>
+                        <Text style={styles.examTitle}>{reportCard.exam?.name}</Text>
+                        <Text style={styles.examDate}>
+                          {new Date(reportCard.exam?.start_date).toLocaleDateString()} - {new Date(reportCard.exam?.end_date).toLocaleDateString()}
+                        </Text>
+                        
+                        <View style={styles.marksTable}>
+                          <View style={styles.tableHeader}>
+                            <Text style={styles.tableHeaderText}>Subject</Text>
+                            <Text style={styles.tableHeaderText}>Marks</Text>
+                            <Text style={styles.tableHeaderText}>Max</Text>
+                            <Text style={styles.tableHeaderText}>Grade</Text>
+                          </View>
+                          
+                          {reportCard.subjects?.map((subject, index) => (
+                            <View key={index} style={styles.tableRow}>
+                              <Text style={styles.subjectCellText}>{subject.subject?.name}</Text>
+                              <Text style={styles.tableCellText}>{subject.marks_obtained}</Text>
+                              <Text style={styles.tableCellText}>{subject.max_marks}</Text>
+                              <Text style={styles.tableCellText}>{subject.grade}</Text>
+                            </View>
+                          ))}
+                          
+                          <View style={styles.totalRow}>
+                            <Text style={styles.totalText}>
+                              Total: {reportCard.totalMarks}/{reportCard.totalMaxMarks} ({reportCard.percentage}%)
+                            </Text>
+                          </View>
+                        </View>
+                      </View>
+                    );
+                  })}
+                </View>
+              </View>
+            </View>
+          </ScrollView>
         </View>
       </Modal>
     </View>
@@ -781,95 +1114,186 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#f5f5f5',
   },
-  content: {
+  loadingContainer: {
     flex: 1,
-    padding: 16,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#f5f5f5',
   },
-  title: {
-    fontSize: 24,
-    fontWeight: 'bold',
-    color: '#333',
-    marginBottom: 8,
-  },
-  subtitle: {
+  loadingText: {
+    marginTop: 12,
     fontSize: 16,
     color: '#666',
-    marginBottom: 24,
-    lineHeight: 22,
   },
-  listContainer: {
-    paddingBottom: 20,
+  errorContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#f5f5f5',
+    padding: 20,
   },
-  yearSection: {
-    marginBottom: 24,
+  errorText: {
+    fontSize: 16,
+    color: '#F44336',
+    textAlign: 'center',
+    marginTop: 12,
+    marginBottom: 20,
   },
-  yearTitle: {
-    fontSize: 18,
+  retryButton: {
+    backgroundColor: '#1976d2',
+    paddingHorizontal: 20,
+    paddingVertical: 10,
+    borderRadius: 8,
+  },
+  retryText: {
+    color: '#fff',
+    fontSize: 16,
     fontWeight: 'bold',
-    color: '#2196F3',
-    marginBottom: 12,
-    paddingHorizontal: 4,
   },
-  reportCardItem: {
+  studentInfo: {
     backgroundColor: '#fff',
-    borderRadius: 12,
-    padding: 16,
-    marginBottom: 12,
+    padding: 20,
+    paddingTop: 30, // Reduced from 40 to 30
+    paddingBottom: 12,
+    marginBottom: 4,
+    alignItems: 'center',
     elevation: 2,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.1,
     shadowRadius: 4,
   },
-  reportCardHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'flex-start',
-    marginBottom: 12,
-  },
-  reportCardInfo: {
-    flex: 1,
-  },
-  examName: {
-    fontSize: 16,
+  studentName: {
+    fontSize: 22,
     fontWeight: 'bold',
     color: '#333',
+    marginBottom: 6, // Reduced from 10 to 6
+    textAlign: 'center',
+    lineHeight: 28,
+  },
+  studentDetails: {
+    fontSize: 14,
+    color: '#666',
+    textAlign: 'center',
+    lineHeight: 20,
+    paddingHorizontal: 10,
+    marginBottom: 0, // Remove any bottom margin
+  },
+  noDataContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 40,
+  },
+  noDataText: {
+    fontSize: 18,
+    color: '#999',
+    marginTop: 16,
+    textAlign: 'center',
+  },
+  listContainer: {
+    padding: 16,
+    paddingBottom: 20,
+  },
+  reportCard: {
+    backgroundColor: '#fff',
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 16,
+    elevation: 3,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 6,
+  },
+  examHeader: {
+    marginBottom: 16,
+    paddingBottom: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: '#e0e0e0',
+  },
+  examName: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#1976d2',
     marginBottom: 4,
   },
   examDate: {
     fontSize: 14,
     color: '#666',
-    marginBottom: 4,
   },
-  classInfo: {
-    fontSize: 14,
-    color: '#2196F3',
+  summarySection: {
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+    marginBottom: 16,
+    paddingVertical: 12,
+    backgroundColor: '#f8f9fa',
+    borderRadius: 8,
+  },
+  summaryItem: {
+    alignItems: 'center',
+  },
+  summaryLabel: {
+    fontSize: 12,
+    color: '#666',
+    marginBottom: 4,
     fontWeight: '500',
   },
-  reportCardStats: {
-    alignItems: 'flex-end',
-  },
-  percentage: {
-    fontSize: 18,
+  summaryValue: {
+    fontSize: 16,
     fontWeight: 'bold',
     color: '#333',
   },
-  grade: {
-    fontSize: 16,
-    fontWeight: 'bold',
-    marginTop: 2,
-  },
-  reportCardFooter: {
+  subjectsHeader: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingTop: 8,
-    borderTopWidth: 1,
-    borderTopColor: '#f0f0f0',
+    backgroundColor: '#1976d2',
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    borderRadius: 8,
+    marginBottom: 8,
   },
-  rankText: {
+  subjectHeaderText: {
+    flex: 1,
+    fontSize: 14,
+    fontWeight: 'bold',
+    color: '#fff',
+    textAlign: 'center',
+  },
+  subjectRow: {
+    flexDirection: 'row',
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: '#f0f0f0',
+    alignItems: 'center',
+  },
+  subjectName: {
+    flex: 1,
+    fontSize: 14,
+    color: '#333',
+    fontWeight: '500',
+  },
+  subjectMarks: {
+    flex: 1,
     fontSize: 14,
     color: '#666',
+    textAlign: 'center',
+  },
+  subjectGrade: {
+    flex: 1,
+    fontSize: 14,
+    fontWeight: 'bold',
+    textAlign: 'center',
+  },
+  yearSection: {
+    marginBottom: 24,
+  },
+  yearTitle: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    color: '#1976d2',
+    marginBottom: 12,
+    paddingHorizontal: 4,
   },
   modalOverlay: {
     flex: 1,
@@ -880,7 +1304,7 @@ const styles = StyleSheet.create({
   modalContainer: {
     backgroundColor: '#fff',
     borderRadius: 16,
-    width: width * 0.9,
+    width: '90%',
     maxHeight: '90%',
     elevation: 5,
     shadowColor: '#000',
@@ -895,42 +1319,21 @@ const styles = StyleSheet.create({
     padding: 20,
     borderBottomWidth: 1,
     borderBottomColor: '#f0f0f0',
+    backgroundColor: '#1976d2',
+    borderTopLeftRadius: 16,
+    borderTopRightRadius: 16,
   },
   modalTitle: {
     fontSize: 20,
     fontWeight: 'bold',
-    color: '#333',
+    color: '#fff',
   },
   closeButton: {
     padding: 4,
   },
   modalContent: {
     padding: 20,
-  },
-  studentInfo: {
-    marginBottom: 24,
-    alignItems: 'center',
-  },
-  studentName: {
-    fontSize: 20,
-    fontWeight: 'bold',
-    color: '#333',
-    marginBottom: 4,
-  },
-  studentDetails: {
-    fontSize: 14,
-    color: '#666',
-    marginBottom: 4,
-  },
-  examDetails: {
-    fontSize: 16,
-    fontWeight: '500',
-    color: '#2196F3',
-    marginBottom: 4,
-  },
-  academicYear: {
-    fontSize: 14,
-    color: '#666',
+    maxHeight: '80%',
   },
   marksSection: {
     marginBottom: 24,
@@ -945,10 +1348,11 @@ const styles = StyleSheet.create({
     backgroundColor: '#f8f9fa',
     borderRadius: 8,
     overflow: 'hidden',
+    marginBottom: 16,
   },
   tableHeader: {
     flexDirection: 'row',
-    backgroundColor: '#2196F3',
+    backgroundColor: '#1976d2',
     paddingVertical: 12,
     paddingHorizontal: 16,
   },
@@ -961,16 +1365,16 @@ const styles = StyleSheet.create({
   },
   tableRow: {
     flexDirection: 'row',
-    paddingVertical: 12,
-    paddingHorizontal: 16,
     borderBottomWidth: 1,
-    borderBottomColor: '#e0e0e0',
+    borderBottomColor: '#ddd',
+    paddingVertical: 8,
   },
-  subjectCell: {
-    flex: 2,
+  subjectCellText: {
+    flex: 1,
+    textAlign: 'left',
+    paddingLeft: 15,
     fontSize: 14,
     color: '#333',
-    fontWeight: '500',
   },
   marksCell: {
     flex: 1,
@@ -984,171 +1388,274 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     textAlign: 'center',
   },
-  summarySection: {
-    marginBottom: 24,
-  },
   summaryGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
     justifyContent: 'space-between',
-  },
-  summaryItem: {
-    width: '48%',
-    backgroundColor: '#fff',
-    padding: 16,
-    borderRadius: 8,
-    marginBottom: 8,
-    elevation: 1,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.1,
-    shadowRadius: 2,
-  },
-  summaryLabel: {
-    fontSize: 12,
-    color: '#666',
-    marginBottom: 4,
-  },
-  summaryValue: {
-    fontSize: 16,
-    fontWeight: 'bold',
-    color: '#333',
-  },
-  remarksSection: {
-    marginBottom: 24,
-  },
-  remarkItem: {
-    backgroundColor: '#fff',
-    padding: 12,
-    borderRadius: 8,
-    marginBottom: 8,
-    elevation: 1,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.1,
-    shadowRadius: 2,
-  },
-  remarkSubject: {
-    fontSize: 14,
-    fontWeight: 'bold',
-    color: '#333',
-    marginBottom: 4,
-  },
-  remarkText: {
-    fontSize: 14,
-    color: '#666',
-    lineHeight: 20,
-  },
-  signatureSection: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
     marginBottom: 20,
   },
-  signatureItem: {
+  summaryCard: {
+    backgroundColor: '#fff',
+    borderRadius: 8,
+    padding: 16,
+    width: '48%',
+    marginBottom: 12,
+    elevation: 2,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.1,
+    shadowRadius: 2,
     alignItems: 'center',
-    flex: 1,
   },
-  signatureLabel: {
+  summaryCardLabel: {
     fontSize: 12,
     color: '#666',
     marginBottom: 4,
+    textAlign: 'center',
   },
-  signatureName: {
-    fontSize: 14,
-    fontWeight: '500',
+  summaryCardValue: {
+    fontSize: 18,
+    fontWeight: 'bold',
     color: '#333',
+    textAlign: 'center',
   },
-  modalFooter: {
-    flexDirection: 'row',
-    padding: 20,
+  exportSection: {
+    padding: 16,
+    backgroundColor: '#fff',
     borderTopWidth: 1,
-    borderTopColor: '#f0f0f0',
-    gap: 12,
-  },
-  closeModalButton: {
-    flex: 1,
-    paddingVertical: 12,
-    paddingHorizontal: 20,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: '#ddd',
-    alignItems: 'center',
-  },
-  closeModalButtonText: {
-    fontSize: 16,
-    color: '#666',
-    fontWeight: '500',
+    borderTopColor: '#e0e0e0',
   },
   exportButton: {
-    flex: 1,
-    backgroundColor: '#2196F3',
-    paddingVertical: 12,
-    paddingHorizontal: 20,
-    borderRadius: 8,
+    backgroundColor: '#4CAF50',
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
+    paddingVertical: 12,
+    paddingHorizontal: 20,
+    borderRadius: 8,
+    elevation: 2,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
   },
   exportButtonText: {
-    fontSize: 16,
     color: '#fff',
-    fontWeight: '500',
+    fontSize: 16,
+    fontWeight: 'bold',
     marginLeft: 8,
   },
-  loadingContainer: {
+  exportModalOverlay: {
     flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
     justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: '#f5f5f5',
   },
-  loadingText: {
-    marginTop: 10,
-    color: '#666',
-    fontSize: 16,
-  },
-  errorContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
+  exportModalContainer: {
+    backgroundColor: '#fff',
+    borderRadius: 16,
     padding: 20,
-    backgroundColor: '#f5f5f5',
+    width: '85%',
+    elevation: 5,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.25,
+    shadowRadius: 8,
   },
-  errorText: {
-    fontSize: 18,
-    color: '#F44336',
-    marginTop: 10,
+  exportModalTitle: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    color: '#333',
     textAlign: 'center',
+    marginBottom: 20,
   },
-  retryButton: {
-    marginTop: 20,
-    paddingVertical: 10,
+  exportOption: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 15,
     paddingHorizontal: 20,
-    backgroundColor: '#2196F3',
     borderRadius: 8,
+    backgroundColor: '#f8f9fa',
+    marginBottom: 12,
   },
-  retryButtonText: {
-    color: '#fff',
+  exportOptionText: {
     fontSize: 16,
+    color: '#333',
+    marginLeft: 12,
     fontWeight: '500',
   },
-  emptyContainer: {
-    flex: 1,
-    justifyContent: 'center',
+  exportCancel: {
+    paddingVertical: 12,
     alignItems: 'center',
-    padding: 20,
+    marginTop: 10,
+  },
+  exportCancelText: {
+    fontSize: 16,
+    color: '#666',
+    fontWeight: '500',
+  },
+  previewContainer: {
+    flex: 1,
     backgroundColor: '#f5f5f5',
   },
-  emptyText: {
+  previewHeader: {
+    backgroundColor: '#1976d2',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingTop: 50,
+    paddingBottom: 15,
+    paddingHorizontal: 16,
+    elevation: 4,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 4,
+  },
+  previewBackButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  previewBackText: {
+    color: '#fff',
+    fontSize: 16,
+    marginLeft: 8,
+  },
+  previewTitle: {
+    color: '#fff',
     fontSize: 18,
-    color: '#666',
-    marginTop: 10,
+    fontWeight: 'bold',
+  },
+  previewExportButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#4CAF50',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 6,
+  },
+  previewExportText: {
+    color: '#fff',
+    fontSize: 14,
+    marginLeft: 4,
+    fontWeight: '500',
+  },
+  previewContent: {
+    flex: 1,
+  },
+  previewWebView: {
+    flex: 1,
+    margin: 16,
+  },
+  previewNote: {
+    backgroundColor: '#e3f2fd',
+    padding: 12,
+    borderRadius: 8,
+    marginBottom: 16,
+    fontSize: 14,
+    color: '#1976d2',
     textAlign: 'center',
   },
-  emptySubtext: {
+  htmlPreview: {
+    backgroundColor: '#fff',
+    borderRadius: 8,
+    elevation: 2,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+  },
+  previewDocument: {
+    padding: 20,
+  },
+  documentHeader: {
+    alignItems: 'center',
+    marginBottom: 30,
+    borderBottomWidth: 2,
+    borderBottomColor: '#1976d2',
+    paddingBottom: 20,
+  },
+  schoolName: {
+    fontSize: 24,
+    fontWeight: 'bold',
+    color: '#2196F3',
+    marginBottom: 8,
+  },
+  documentTitle: {
+    fontSize: 18,
+    fontWeight: '600',
+    color: '#333',
+  },
+  studentInfoPreview: {
+    backgroundColor: '#f8f9fa',
+    padding: 15,
+    borderRadius: 8,
+    marginBottom: 20,
+  },
+  previewText: {
     fontSize: 14,
-    color: '#999',
-    marginTop: 5,
+    color: '#333',
+    marginBottom: 4,
+  },
+  boldText: {
+    fontWeight: 'bold',
+  },
+  reportPreview: {
+    marginBottom: 30,
+    borderBottomWidth: 1,
+    borderBottomColor: '#e0e0e0',
+    paddingBottom: 20,
+  },
+  examTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#1976d2',
+    marginBottom: 8,
+  },
+  examDate: {
+    fontSize: 14,
+    color: '#666',
+    marginBottom: 15,
+  },
+  marksTable: {
+    borderWidth: 1,
+    borderColor: '#ddd',
+    borderRadius: 8,
+    overflow: 'hidden',
+  },
+  tableHeader: {
+    flexDirection: 'row',
+    backgroundColor: '#1976d2',
+    paddingVertical: 12,
+  },
+  tableHeaderText: {
+    flex: 1,
+    color: '#fff',
+    fontWeight: 'bold',
     textAlign: 'center',
+    fontSize: 14,
+  },
+  tableRow: {
+    flexDirection: 'row',
+    borderBottomWidth: 1,
+    borderBottomColor: '#ddd',
+    paddingVertical: 8,
+  },
+  tableCellText: {
+    flex: 1,
+    textAlign: 'center',
+    fontSize: 14,
+    color: '#333',
+  },
+  totalRow: {
+    backgroundColor: '#f8f9fa',
+    paddingVertical: 12,
+    alignItems: 'center',
+  },
+  totalText: {
+    fontSize: 14,
+    fontWeight: 'bold',
+    color: '#333',
   },
 });
 
