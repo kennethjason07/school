@@ -135,23 +135,49 @@ function groupAndSortSchedule(schedule) {
 
       // Get today's schedule (timetable) with error handling
       try {
+        console.log('Fetching today\'s schedule for teacher:', teacher.id, 'Day:', todayName);
+
+        // Get current academic year
+        const currentYear = new Date().getFullYear();
+        const academicYear = `${currentYear}-${(currentYear + 1).toString().slice(-2)}`;
+
         const { data: timetableData, error: timetableError } = await supabase
           .from(TABLES.TIMETABLE)
           .select(`
             *,
             subjects(name),
-            teachers(name)
+            classes(class_name, section)
           `)
           .eq('teacher_id', teacher.id)
           .eq('day_of_week', todayName)
+          .eq('academic_year', academicYear)
           .order('start_time');
 
-        if (timetableError && timetableError.code !== '42P01') {
-          throw timetableError;
+        if (timetableError) {
+          console.error('Timetable query error:', timetableError);
+          if (timetableError.code !== '42P01') {
+            throw timetableError;
+          }
         }
-        setSchedule(timetableData || []);
+
+        console.log('Raw timetable data:', timetableData);
+
+        // Process the timetable data to match the expected format
+        const processedSchedule = (timetableData || []).map(entry => ({
+          id: entry.id,
+          subject: entry.subjects?.name || 'Unknown Subject',
+          class: entry.classes ? `${entry.classes.class_name} ${entry.classes.section}` : 'Unknown Class',
+          start_time: entry.start_time,
+          end_time: entry.end_time,
+          period_number: entry.period_number,
+          day_of_week: entry.day_of_week,
+          academic_year: entry.academic_year
+        }));
+
+        console.log('Processed schedule:', processedSchedule);
+        setSchedule(processedSchedule);
       } catch (err) {
-        console.log('Timetable error:', err);
+        console.error('Timetable fetch error:', err);
         setSchedule([]);
       }
 
@@ -481,7 +507,7 @@ function groupAndSortSchedule(schedule) {
           color: '#2196F3',
           subtitle: `Across ${uniqueClasses} class${uniqueClasses !== 1 ? 'es' : ''}`,
           trend: 0,
-          onPress: () => navigation?.navigate('Students')
+          onPress: () => navigation?.navigate('ViewStudentInfo')
         },
         {
           title: 'My Subjects',
@@ -490,7 +516,7 @@ function groupAndSortSchedule(schedule) {
           color: '#4CAF50',
           subtitle: `${uniqueClasses} class${uniqueClasses !== 1 ? 'es' : ''} assigned`,
           trend: 0,
-          onPress: () => navigation?.navigate('Marks')
+          onPress: () => navigation?.navigate('TeacherSubjects')
         },
         {
           title: 'Today\'s Classes',
@@ -499,7 +525,7 @@ function groupAndSortSchedule(schedule) {
           color: '#FF9800',
           subtitle: schedule.length > 0 ? `Next: ${schedule[0]?.start_time || 'N/A'}` : 'No classes today',
           trend: 0,
-          onPress: () => navigation?.navigate('TeacherDashboard')
+          onPress: () => navigation?.navigate('TeacherTimetable')
         },
         {
           title: 'Attendance Rate',
@@ -845,29 +871,96 @@ function groupAndSortSchedule(schedule) {
             )}
           </View>
         </View>
+
+        {/* Quick Actions */}
+        <View style={styles.section}>
+          <View style={styles.sectionTitleAccent} />
+          <Text style={styles.sectionTitle}>Quick Actions</Text>
+          <View style={styles.quickActionsGrid}>
+            <TouchableOpacity
+              style={styles.quickActionCard}
+              onPress={() => navigation.navigate('TeacherTimetable')}
+            >
+              <View style={[styles.actionIcon, { backgroundColor: '#1976d2' }]}>
+                <Ionicons name="calendar" size={24} color="#fff" />
+              </View>
+              <Text style={styles.actionTitle}>My Timetable</Text>
+              <Text style={styles.actionSubtitle}>View weekly schedule</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={styles.quickActionCard}
+              onPress={() => navigation.navigate('Attendance')}
+            >
+              <View style={[styles.actionIcon, { backgroundColor: '#4caf50' }]}>
+                <Ionicons name="checkmark-circle" size={24} color="#fff" />
+              </View>
+              <Text style={styles.actionTitle}>Attendance</Text>
+              <Text style={styles.actionSubtitle}>Mark student attendance</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={styles.quickActionCard}
+              onPress={() => navigation.navigate('Marks')}
+            >
+              <View style={[styles.actionIcon, { backgroundColor: '#ff9800' }]}>
+                <Ionicons name="document-text" size={24} color="#fff" />
+              </View>
+              <Text style={styles.actionTitle}>Marks & Exams</Text>
+              <Text style={styles.actionSubtitle}>Manage assessments</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={styles.quickActionCard}
+              onPress={() => navigation.navigate('ViewStudentInfo')}
+            >
+              <View style={[styles.actionIcon, { backgroundColor: '#9c27b0' }]}>
+                <Ionicons name="people" size={24} color="#fff" />
+              </View>
+              <Text style={styles.actionTitle}>Students</Text>
+              <Text style={styles.actionSubtitle}>View student info</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+
         {/* Today's Schedule below stats */}
         <View style={styles.section}>
           <View style={styles.sectionTitleAccent} />
           <Text style={styles.sectionTitle}>Today's Schedule & Upcoming Classes</Text>
           <View style={{ marginHorizontal: 4, marginTop: 8 }}>
-            {groupedSchedule.map(group => (
-              <View key={group.classKey} style={{ marginBottom: 8 }}>
-                <Text style={{ fontWeight: 'bold', fontSize: 15, color: '#1976d2', marginBottom: 4, marginLeft: 4 }}>
-                  Class: {group.classKey}
-                </Text>
-                {group.items.map((item, index) => (
-                  <View key={`schedule-${group.classKey}-${item.id || index}`} style={{ backgroundColor: '#fff', borderRadius: 10, padding: 14, marginBottom: 8, flexDirection: 'row', alignItems: 'center', elevation: 2, shadowColor: '#1976d2', shadowOpacity: 0.08, shadowRadius: 4 }}>
-                    <View style={{ backgroundColor: '#e3f2fd', borderRadius: 20, width: 40, height: 40, alignItems: 'center', justifyContent: 'center', marginRight: 12 }}>
-                      <Ionicons name="time" size={20} color="#1976d2" />
-                    </View>
-                    <View style={{ flex: 1 }}>
-                      <Text style={{ color: '#333', fontWeight: 'bold', fontSize: 15 }}>{item.subject}</Text>
-                      <Text style={{ color: '#888', fontSize: 13 }}>{item.time}  |  Room: {item.room}</Text>
-                    </View>
-                  </View>
-                ))}
+            {schedule.length === 0 ? (
+              <View style={styles.emptyScheduleContainer}>
+                <Ionicons name="calendar-outline" size={48} color="#ccc" />
+                <Text style={styles.emptyScheduleText}>No classes scheduled for today</Text>
+                <Text style={styles.emptyScheduleSubtext}>Enjoy your free day!</Text>
               </View>
-            ))}
+            ) : (
+              groupedSchedule.map(group => (
+                <View key={group.classKey} style={{ marginBottom: 8 }}>
+                  <Text style={{ fontWeight: 'bold', fontSize: 15, color: '#1976d2', marginBottom: 4, marginLeft: 4 }}>
+                    Class: {group.classKey}
+                  </Text>
+                  {group.items.map((item, index) => (
+                    <TouchableOpacity
+                      key={`schedule-${group.classKey}-${item.id || index}`}
+                      style={{ backgroundColor: '#fff', borderRadius: 10, padding: 14, marginBottom: 8, flexDirection: 'row', alignItems: 'center', elevation: 2, shadowColor: '#1976d2', shadowOpacity: 0.08, shadowRadius: 4 }}
+                      onPress={() => navigation.navigate('TeacherTimetable')}
+                    >
+                      <View style={{ backgroundColor: '#e3f2fd', borderRadius: 20, width: 40, height: 40, alignItems: 'center', justifyContent: 'center', marginRight: 12 }}>
+                        <Ionicons name="time" size={20} color="#1976d2" />
+                      </View>
+                      <View style={{ flex: 1 }}>
+                        <Text style={{ color: '#333', fontWeight: 'bold', fontSize: 15 }}>{item.subject}</Text>
+                        <Text style={{ color: '#888', fontSize: 13 }}>
+                          {item.start_time} - {item.end_time} | Period {item.period_number}
+                        </Text>
+                      </View>
+                      <Ionicons name="chevron-forward" size={20} color="#666" />
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              ))
+            )}
           </View>
         </View>
         {/* Enhanced Tasks Section */}
@@ -1422,6 +1515,7 @@ function groupAndSortSchedule(schedule) {
             ))
           )}
         </View>
+
         {/* Recent Activities */}
         <View style={styles.section}>
           <View style={styles.sectionTitleAccent} />
@@ -1722,6 +1816,12 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: 'bold',
     color: '#333',
+    textAlign: 'center',
+  },
+  actionSubtitle: {
+    fontSize: 12,
+    color: '#666',
+    marginTop: 4,
     textAlign: 'center',
   },
   // Enhanced section title style
@@ -2365,6 +2465,26 @@ const styles = StyleSheet.create({
     color: '#999',
     marginTop: 8,
     fontWeight: '500',
+  },
+
+  // Empty Schedule Styles
+  emptyScheduleContainer: {
+    alignItems: 'center',
+    paddingVertical: 40,
+    backgroundColor: '#fff',
+    borderRadius: 12,
+    marginHorizontal: 4,
+  },
+  emptyScheduleText: {
+    fontSize: 16,
+    color: '#666',
+    marginTop: 12,
+    fontWeight: '600',
+  },
+  emptyScheduleSubtext: {
+    fontSize: 14,
+    color: '#999',
+    marginTop: 4,
   },
 });
 

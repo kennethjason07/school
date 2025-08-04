@@ -50,8 +50,26 @@ CREATE TABLE public.fee_structure (
   created_at timestamp without time zone DEFAULT CURRENT_TIMESTAMP,
   due_date date,
   CONSTRAINT fee_structure_pkey PRIMARY KEY (id),
-  CONSTRAINT fee_structure_class_id_fkey FOREIGN KEY (class_id) REFERENCES public.classes(id),
-  CONSTRAINT fee_structure_student_id_fkey FOREIGN KEY (student_id) REFERENCES public.students(id)
+  CONSTRAINT fee_structure_student_id_fkey FOREIGN KEY (student_id) REFERENCES public.students(id),
+  CONSTRAINT fee_structure_class_id_fkey FOREIGN KEY (class_id) REFERENCES public.classes(id)
+);
+CREATE TABLE public.homeworks (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  title text NOT NULL,
+  description text,
+  instructions text,
+  due_date date,
+  class_id uuid,
+  subject_id uuid,
+  teacher_id uuid,
+  assigned_students ARRAY,
+  files jsonb DEFAULT '[]'::jsonb,
+  created_at timestamp with time zone DEFAULT now(),
+  updated_at timestamp with time zone DEFAULT now(),
+  CONSTRAINT homeworks_pkey PRIMARY KEY (id),
+  CONSTRAINT homeworks_subject_id_fkey FOREIGN KEY (subject_id) REFERENCES public.subjects(id),
+  CONSTRAINT homeworks_class_id_fkey FOREIGN KEY (class_id) REFERENCES public.classes(id),
+  CONSTRAINT homeworks_teacher_id_fkey FOREIGN KEY (teacher_id) REFERENCES public.teachers(id)
 );
 CREATE TABLE public.marks (
   id uuid NOT NULL DEFAULT gen_random_uuid(),
@@ -76,10 +94,15 @@ CREATE TABLE public.messages (
   message text NOT NULL,
   sent_at timestamp without time zone DEFAULT CURRENT_TIMESTAMP,
   is_read boolean DEFAULT false,
+  message_type text DEFAULT 'text'::text CHECK (message_type = ANY (ARRAY['text'::text, 'image'::text, 'file'::text])),
+  file_url text,
+  file_name text,
+  file_size integer,
+  file_type text,
   CONSTRAINT messages_pkey PRIMARY KEY (id),
+  CONSTRAINT messages_receiver_id_fkey FOREIGN KEY (receiver_id) REFERENCES public.users(id),
   CONSTRAINT messages_student_id_fkey FOREIGN KEY (student_id) REFERENCES public.students(id),
-  CONSTRAINT messages_sender_id_fkey FOREIGN KEY (sender_id) REFERENCES public.users(id),
-  CONSTRAINT messages_receiver_id_fkey FOREIGN KEY (receiver_id) REFERENCES public.users(id)
+  CONSTRAINT messages_sender_id_fkey FOREIGN KEY (sender_id) REFERENCES public.users(id)
 );
 CREATE TABLE public.notification_recipients (
   id uuid NOT NULL DEFAULT gen_random_uuid(),
@@ -88,6 +111,8 @@ CREATE TABLE public.notification_recipients (
   recipient_type text NOT NULL CHECK (recipient_type = ANY (ARRAY['Student'::text, 'Parent'::text])),
   delivery_status text DEFAULT 'Pending'::text CHECK (delivery_status = ANY (ARRAY['Pending'::text, 'Sent'::text, 'Failed'::text])),
   sent_at timestamp without time zone,
+  is_read boolean DEFAULT false,
+  read_at timestamp without time zone,
   CONSTRAINT notification_recipients_pkey PRIMARY KEY (id),
   CONSTRAINT fk_notification FOREIGN KEY (notification_id) REFERENCES public.notifications(id),
   CONSTRAINT fk_user FOREIGN KEY (recipient_id) REFERENCES public.users(id)
@@ -116,10 +141,45 @@ CREATE TABLE public.parents (
   CONSTRAINT parents_pkey PRIMARY KEY (id),
   CONSTRAINT parents_student_id_fkey FOREIGN KEY (student_id) REFERENCES public.students(id)
 );
+CREATE TABLE public.personal_tasks (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  user_id uuid NOT NULL,
+  task_title character varying NOT NULL,
+  task_description text,
+  task_type character varying NOT NULL DEFAULT 'general'::character varying CHECK (task_type::text = ANY (ARRAY['attendance'::character varying, 'marks'::character varying, 'homework'::character varying, 'meeting'::character varying, 'report'::character varying, 'planning'::character varying, 'general'::character varying]::text[])),
+  priority character varying NOT NULL DEFAULT 'medium'::character varying CHECK (priority::text = ANY (ARRAY['high'::character varying, 'medium'::character varying, 'low'::character varying]::text[])),
+  status character varying NOT NULL DEFAULT 'pending'::character varying CHECK (status::text = ANY (ARRAY['pending'::character varying, 'in_progress'::character varying, 'completed'::character varying, 'cancelled'::character varying]::text[])),
+  due_date date,
+  completed_at timestamp with time zone,
+  created_at timestamp with time zone DEFAULT now(),
+  updated_at timestamp with time zone DEFAULT now(),
+  CONSTRAINT personal_tasks_pkey PRIMARY KEY (id),
+  CONSTRAINT personal_tasks_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.users(id)
+);
 CREATE TABLE public.roles (
   id integer NOT NULL DEFAULT nextval('roles_id_seq'::regclass),
   role_name text NOT NULL UNIQUE,
   CONSTRAINT roles_pkey PRIMARY KEY (id)
+);
+CREATE TABLE public.school_details (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  name text NOT NULL,
+  type text DEFAULT 'School'::text,
+  address text,
+  city text,
+  state text,
+  pincode text,
+  phone text,
+  email text,
+  website text,
+  principal_name text,
+  established_year text,
+  affiliation text,
+  logo_url text,
+  description text,
+  created_at timestamp without time zone DEFAULT CURRENT_TIMESTAMP,
+  updated_at timestamp without time zone DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT school_details_pkey PRIMARY KEY (id)
 );
 CREATE TABLE public.student_attendance (
   id uuid NOT NULL DEFAULT gen_random_uuid(),
@@ -131,8 +191,8 @@ CREATE TABLE public.student_attendance (
   created_at timestamp without time zone DEFAULT CURRENT_TIMESTAMP,
   CONSTRAINT student_attendance_pkey PRIMARY KEY (id),
   CONSTRAINT student_attendance_student_id_fkey FOREIGN KEY (student_id) REFERENCES public.students(id),
-  CONSTRAINT student_attendance_marked_by_fkey FOREIGN KEY (marked_by) REFERENCES public.users(id),
-  CONSTRAINT student_attendance_class_id_fkey FOREIGN KEY (class_id) REFERENCES public.classes(id)
+  CONSTRAINT student_attendance_class_id_fkey FOREIGN KEY (class_id) REFERENCES public.classes(id),
+  CONSTRAINT student_attendance_marked_by_fkey FOREIGN KEY (marked_by) REFERENCES public.users(id)
 );
 CREATE TABLE public.student_fees (
   id uuid NOT NULL DEFAULT gen_random_uuid(),
@@ -195,6 +255,8 @@ CREATE TABLE public.tasks (
   assigned_teacher_ids ARRAY,
   created_at timestamp with time zone DEFAULT CURRENT_TIMESTAMP,
   updated_at timestamp with time zone DEFAULT CURRENT_TIMESTAMP,
+  task_type character varying DEFAULT 'general'::character varying CHECK (task_type::text = ANY (ARRAY['attendance'::character varying, 'marks'::character varying, 'homework'::character varying, 'meeting'::character varying, 'report'::character varying, 'planning'::character varying, 'general'::character varying, 'administrative'::character varying]::text[])),
+  completed_at timestamp with time zone,
   CONSTRAINT tasks_pkey PRIMARY KEY (id)
 );
 CREATE TABLE public.teacher_attendance (
@@ -214,8 +276,8 @@ CREATE TABLE public.teacher_subjects (
   subject_id uuid,
   assigned_on timestamp without time zone DEFAULT CURRENT_TIMESTAMP,
   CONSTRAINT teacher_subjects_pkey PRIMARY KEY (id),
-  CONSTRAINT teacher_subjects_teacher_id_fkey FOREIGN KEY (teacher_id) REFERENCES public.teachers(id),
-  CONSTRAINT teacher_subjects_subject_id_fkey FOREIGN KEY (subject_id) REFERENCES public.subjects(id)
+  CONSTRAINT teacher_subjects_subject_id_fkey FOREIGN KEY (subject_id) REFERENCES public.subjects(id),
+  CONSTRAINT teacher_subjects_teacher_id_fkey FOREIGN KEY (teacher_id) REFERENCES public.teachers(id)
 );
 CREATE TABLE public.teachers (
   id uuid NOT NULL DEFAULT gen_random_uuid(),
@@ -258,29 +320,8 @@ CREATE TABLE public.users (
   full_name text NOT NULL DEFAULT ''::text,
   phone text,
   CONSTRAINT users_pkey PRIMARY KEY (id),
-  CONSTRAINT users_linked_teacher_id_fkey FOREIGN KEY (linked_teacher_id) REFERENCES public.teachers(id),
-  CONSTRAINT users_linked_parent_of_fkey FOREIGN KEY (linked_parent_of) REFERENCES public.students(id),
   CONSTRAINT users_role_id_fkey FOREIGN KEY (role_id) REFERENCES public.roles(id),
-  CONSTRAINT users_linked_student_id_fkey FOREIGN KEY (linked_student_id) REFERENCES public.students(id)
-);
-
-CREATE TABLE public.school_details (
-  id uuid NOT NULL DEFAULT gen_random_uuid(),
-  name text NOT NULL,
-  type text DEFAULT 'School',
-  address text,
-  city text,
-  state text,
-  pincode text,
-  phone text,
-  email text,
-  website text,
-  principal_name text,
-  established_year text,
-  affiliation text,
-  logo_url text,
-  description text,
-  created_at timestamp without time zone DEFAULT CURRENT_TIMESTAMP,
-  updated_at timestamp without time zone DEFAULT CURRENT_TIMESTAMP,
-  CONSTRAINT school_details_pkey PRIMARY KEY (id)
+  CONSTRAINT users_linked_student_id_fkey FOREIGN KEY (linked_student_id) REFERENCES public.students(id),
+  CONSTRAINT users_linked_teacher_id_fkey FOREIGN KEY (linked_teacher_id) REFERENCES public.teachers(id),
+  CONSTRAINT users_linked_parent_of_fkey FOREIGN KEY (linked_parent_of) REFERENCES public.students(id)
 );

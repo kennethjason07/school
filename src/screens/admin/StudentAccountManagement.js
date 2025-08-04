@@ -186,6 +186,18 @@ const StudentAccountManagement = ({ navigation }) => {
 
       console.log('Verification - User found in database:', verifyUser);
 
+      // Close modal and reset form first
+      setModalVisible(false);
+      setSelectedStudent(null);
+      setAccountForm({
+        email: '',
+        password: '',
+        confirmPassword: ''
+      });
+      setShowPassword(false);
+      setShowConfirmPassword(false);
+
+      // Then show success alert
       Alert.alert(
         'Success',
         `✅ Login account created successfully for ${selectedStudent.name}!\n\n📧 Email: ${accountForm.email}\n🔑 Password: ${accountForm.password}\n\n✨ The student can now log in with these credentials.\n\n${verifyUser ? '✅ Account verified in database' : '⚠️ Account created but verification pending'}`,
@@ -193,7 +205,6 @@ const StudentAccountManagement = ({ navigation }) => {
           {
             text: 'OK',
             onPress: () => {
-              setModalVisible(false);
               loadStudents(); // Refresh the list
             }
           }

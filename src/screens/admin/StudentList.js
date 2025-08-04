@@ -65,9 +65,13 @@ const StudentList = ({ route, navigation }) => {
   }, [classId]);
 
   const renderStudent = ({ item }) => (
-    <TouchableOpacity 
-      style={styles.card} 
-      onPress={() => navigation.navigate('StudentDetails', { student: item })}
+    <TouchableOpacity
+      style={styles.card}
+      onPress={() => {
+        console.log('StudentList: Navigating to StudentDetails with student:', item);
+        console.log('StudentList: Student ID:', item.id);
+        navigation.navigate('StudentDetails', { student: item });
+      }}
     >
       <View style={styles.avatar}>
         <Ionicons name="person" size={28} color="#2196F3" />

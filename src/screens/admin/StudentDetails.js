@@ -15,17 +15,30 @@ const StudentDetails = ({ route }) => {
       setLoading(true);
       setError(null);
       try {
+        console.log('Fetching student details for ID:', student.id);
         // Fetch student details from DB
         const { data, error } = await dbHelpers.getStudentById(student.id);
-        if (error) throw error;
+        console.log('Student data response:', { data, error });
+        if (error) {
+          console.error('Error fetching student:', error);
+          throw error;
+        }
         setStudentData(data);
+
         // Fetch fee status
+        console.log('Fetching fees for student ID:', student.id);
         const { data: fees, error: feeError } = await dbHelpers.getStudentFees(student.id);
-        if (feeError) throw feeError;
+        console.log('Fees data response:', { fees, feeError });
+        if (feeError) {
+          console.error('Error fetching fees:', feeError);
+          // Don't throw error for fees, just log it
+          console.warn('Fee fetch failed, continuing without fee data');
+        }
         // Determine fee status (simple: if any paid, show Paid, else Unpaid)
         setFeeStatus(fees && fees.length > 0 ? 'Paid' : 'Unpaid');
       } catch (err) {
-        setError('Failed to load student details.');
+        console.error('Full error in fetchStudentDetails:', err);
+        setError(`Failed to load student details: ${err.message || err}`);
       } finally {
         setLoading(false);
       }

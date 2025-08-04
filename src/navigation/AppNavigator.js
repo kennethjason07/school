@@ -28,8 +28,7 @@ import TeacherDetails from '../screens/admin/TeacherDetails';
 import TeacherAccountManagement from '../screens/admin/TeacherAccountManagement';
 import StudentAccountManagement from '../screens/admin/StudentAccountManagement';
 import ParentAccountManagement from '../screens/admin/ParentAccountManagement';
-import AccountTestScreen from '../screens/admin/AccountTestScreen';
-import DatabaseCleanup from '../screens/admin/DatabaseCleanup';
+
 import FeeClassDetails from '../screens/admin/FeeClassDetails';
 import AssignTaskToTeacher from '../screens/admin/AssignTaskToTeacher';
 import SchoolDetails from '../screens/admin/SchoolDetails';
@@ -42,10 +41,13 @@ import StudentOverview from '../screens/admin/reports/StudentOverview';
 
 // Teacher Screens
 import TeacherDashboard from '../screens/teacher/TeacherDashboard';
+import TeacherTimetable from '../screens/teacher/TeacherTimetable';
 import TakeAttendance from '../screens/teacher/TakeAttendance';
 import MarksEntry from '../screens/teacher/MarksEntry';
 import UploadHomework from '../screens/teacher/UploadHomework';
 import ViewStudentInfo from '../screens/teacher/ViewStudentInfo';
+import TeacherSubjects from '../screens/teacher/TeacherSubjects';
+import TeacherChat from '../screens/teacher/TeacherChat';
 import MarksEntryStudentsScreen from '../screens/teacher/MarksEntryStudentsScreen';
 import StudentAttendanceScreen from '../screens/teacher/StudentAttendanceScreen';
 import StudentMarksScreen from '../screens/teacher/StudentMarksScreen';
@@ -138,8 +140,8 @@ function TeacherTabNavigator() {
             iconName = focused ? 'document-text' : 'document-text-outline';
           } else if (route.name === 'Homework') {
             iconName = focused ? 'library' : 'library-outline';
-          } else if (route.name === 'Students') {
-            iconName = focused ? 'people' : 'people-outline';
+          } else if (route.name === 'Chat') {
+            iconName = focused ? 'chatbubbles' : 'chatbubbles-outline';
           }
           return <Ionicons name={iconName} size={size} color={color} />;
         },
@@ -156,7 +158,7 @@ function TeacherTabNavigator() {
       <Tab.Screen name="Attendance" component={TakeAttendance} />
       <Tab.Screen name="Marks" component={MarksEntry} />
       <Tab.Screen name="Homework" component={UploadHomework} />
-      <Tab.Screen name="Students" component={ViewStudentInfo} />
+      <Tab.Screen name="Chat" component={TeacherChat} />
     </Tab.Navigator>
   );
 }
@@ -272,8 +274,7 @@ export default function AppNavigator() {
                 <Stack.Screen name="TeacherAccountManagement" component={TeacherAccountManagement} />
                 <Stack.Screen name="StudentAccountManagement" component={StudentAccountManagement} />
                 <Stack.Screen name="ParentAccountManagement" component={ParentAccountManagement} />
-                <Stack.Screen name="AccountTestScreen" component={AccountTestScreen} />
-                <Stack.Screen name="DatabaseCleanup" component={DatabaseCleanup} />
+
                 <Stack.Screen name="AssignTaskToTeacher" component={AssignTaskToTeacher} />
                 <Stack.Screen name="AttendanceReport" component={AttendanceReport} />
                 <Stack.Screen name="AcademicPerformance" component={AcademicPerformance} />
@@ -284,6 +285,9 @@ export default function AppNavigator() {
             {userType === 'teacher' && (
               <>
                 <Stack.Screen name="TeacherTabs" component={TeacherTabNavigator} />
+                <Stack.Screen name="TeacherTimetable" component={TeacherTimetable} />
+                <Stack.Screen name="TeacherSubjects" component={TeacherSubjects} />
+                <Stack.Screen name="ViewStudentInfo" component={ViewStudentInfo} />
                 <Stack.Screen name="MarksEntryStudentsScreen" component={MarksEntryStudentsScreen} />
                 <Stack.Screen name="StudentAttendanceScreen" component={StudentAttendanceScreen} />
                 <Stack.Screen name="StudentMarksScreen" component={StudentMarksScreen} />

@@ -318,8 +318,6 @@ const AdminDashboard = ({ navigation }) => {
     { title: 'Fee Management', icon: 'card', color: '#9C27B0', screen: 'FeeManagement' }, // Stack screen
     { title: 'Exams & Marks', icon: 'document-text', color: '#795548', screen: 'ExamsMarks' }, // Stack screen
     { title: 'Notifications', icon: 'notifications', color: '#E91E63', screen: 'NotificationManagement' }, // Stack screen
-    { title: 'Database Cleanup', icon: 'build', color: '#607D8B', screen: 'DatabaseCleanup' }, // Stack screen
-    { title: 'Account Test', icon: 'bug', color: '#FF5722', screen: 'AccountTestScreen' }, // Stack screen
   ];
 
   // State for chart data
@@ -738,56 +736,48 @@ const AdminDashboard = ({ navigation }) => {
           })}</Text>
         </View>
 
-        {/* Stats Cards - 2x2 grid layout */}
-        <View style={styles.statsGridContainer}>
-          <View style={styles.statsRow}>
-            <View style={styles.statsCol}>
-              {stats[0] && (
-                <StatCard
-                  title={stats[0].title}
-                  value={stats[0].value}
-                  icon={stats[0].icon}
-                  color={stats[0].color}
-                  subtitle={stats[0].subtitle}
-                />
-              )}
-            </View>
-            <View style={styles.statsCol}>
-              {stats[1] && (
-                <StatCard
-                  title={stats[1].title}
-                  value={stats[1].value}
-                  icon={stats[1].icon}
-                  color={stats[1].color}
-                  subtitle={stats[1].subtitle}
-                />
-              )}
-            </View>
-          </View>
-          <View style={styles.statsRow}>
-            <View style={styles.statsCol}>
-              {stats[2] && (
-                <StatCard
-                  title={stats[2].title}
-                  value={stats[2].value}
-                  icon={stats[2].icon}
-                  color={stats[2].color}
-                  subtitle={stats[2].subtitle}
-                />
-              )}
-            </View>
-            <View style={styles.statsCol}>
-              {stats[3] && (
-                <StatCard
-                  title={stats[3].title}
-                  value={stats[3].value}
-                  icon={stats[3].icon}
-                  color={stats[3].color}
-                  subtitle={stats[3].subtitle}
-                />
-              )}
-            </View>
-          </View>
+        {/* Stats Cards - Teacher Dashboard Style */}
+        <View style={styles.statsColumnContainer}>
+          {stats[0] && (
+            <StatCard
+              title={stats[0].title}
+              value={stats[0].value}
+              icon={stats[0].icon}
+              color={stats[0].color}
+              subtitle={stats[0].subtitle}
+              onPress={() => navigation.navigate('Students')}
+            />
+          )}
+          {stats[1] && (
+            <StatCard
+              title={stats[1].title}
+              value={stats[1].value}
+              icon={stats[1].icon}
+              color={stats[1].color}
+              subtitle={stats[1].subtitle}
+              onPress={() => navigation.navigate('Teachers')}
+            />
+          )}
+          {stats[2] && (
+            <StatCard
+              title={stats[2].title}
+              value={stats[2].value}
+              icon={stats[2].icon}
+              color={stats[2].color}
+              subtitle={stats[2].subtitle}
+              onPress={() => navigation.navigate('AttendanceManagement')}
+            />
+          )}
+          {stats[3] && (
+            <StatCard
+              title={stats[3].title}
+              value={stats[3].value}
+              icon={stats[3].icon}
+              color={stats[3].color}
+              subtitle={stats[3].subtitle}
+              onPress={() => navigation.navigate('FeeManagement')}
+            />
+          )}
         </View>
 
         {/* Quick Actions */}
@@ -1112,27 +1102,8 @@ const styles = StyleSheet.create({
     flex: 1,
     padding: 16,
   },
-  statsGridContainer: {
-    width: '100%',
-    marginBottom: 24,
-  },
-  statsRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginBottom: 12,
-  },
-  statsCol: {
-    flex: 1,
-    marginRight: 8,
-  },
-  statsFirstCol: {
-    marginRight: 8,
-  },
-  statsSecondCol: {
-    marginLeft: 8,
-  },
-  statsColLast: {
-    marginRight: 0,
+  statsColumnContainer: {
+    paddingHorizontal: 8,
   },
   quickActionsContainer: {
     flexDirection: 'row',
@@ -1620,19 +1591,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 18,
     borderRadius: 8,
   },
-  statsGridContainer: {
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-  },
-  statsRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginBottom: 12,
-  },
-  statsCol: {
-    flex: 1,
-    marginHorizontal: 4,
-  },
+
 });
 
 export default AdminDashboard;

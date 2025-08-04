@@ -222,6 +222,21 @@ const ParentAccountManagement = ({ navigation }) => {
       const parentVerified = !!verifyParent;
       const fullyVerified = userVerified && parentVerified;
 
+      // Close modal and reset form first
+      setModalVisible(false);
+      setSelectedStudent(null);
+      setAccountForm({
+        full_name: '',
+        email: '',
+        phone: '',
+        relation: 'Father',
+        password: '',
+        confirmPassword: ''
+      });
+      setShowPassword(false);
+      setShowConfirmPassword(false);
+
+      // Then show success alert
       Alert.alert(
         'Success',
         `✅ Parent account created successfully for ${selectedStudent.name}!\n\n📧 Email: ${accountForm.email}\n🔑 Password: ${accountForm.password}\n👤 Relation: ${accountForm.relation}\n\n✨ The parent can now log in with these credentials.\n\n${fullyVerified ? '✅ Both login account and parent record verified' : userVerified ? '✅ Login account verified, ⚠️ Parent record pending' : '⚠️ Verification pending'}`,
@@ -229,7 +244,6 @@ const ParentAccountManagement = ({ navigation }) => {
           {
             text: 'OK',
             onPress: () => {
-              setModalVisible(false);
               loadStudents(); // Refresh the list
             }
           }

@@ -183,8 +183,23 @@ const SubjectsTimetable = () => {
 
     try {
       setLoading(true);
+
+      // Validate that a class is selected
+      if (!selectedClass) {
+        Alert.alert('Error', 'Please select a class first');
+        setLoading(false);
+        return;
+      }
+
+      // Get current academic year
+      const currentYear = new Date().getFullYear();
+      const academicYear = `${currentYear}-${(currentYear + 1).toString().slice(-2)}`;
+
       const subjectData = {
-        name: subjectForm.name
+        name: subjectForm.name,
+        class_id: selectedClass,
+        academic_year: academicYear,
+        is_optional: false // Default to false, can be made configurable later
       };
 
       if (editSubject) {
@@ -358,17 +373,55 @@ const SubjectsTimetable = () => {
 
     try {
       setLoading(true);
-      const dayNumber = getDayNumber(periodModal.day);
+
+      // Validate that a subject is selected (current schema only supports subjects, not breaks)
+      if (!subjectId) {
+        Alert.alert('Error', 'Please select a subject. The current system only supports subject periods.');
+        setLoading(false);
+        return;
+      }
+
+      // Get current academic year
+      const currentYear = new Date().getFullYear();
+      const academicYear = `${currentYear}-${(currentYear + 1).toString().slice(-2)}`;
+
+      // Generate period number based on start time
+      const periodNumber = Math.floor((parseInt(startTime.split(':')[0]) - 8) * 2) + 1;
+
+      // Get teacher for the selected subject
+      let teacherId = null;
+      const { data: teacherSubject, error: teacherError } = await supabase
+        .from('teacher_subjects')
+        .select('teacher_id')
+        .eq('subject_id', subjectId)
+        .single();
+
+      if (teacherError) {
+        console.log('No teacher assigned to this subject yet');
+      } else {
+        teacherId = teacherSubject?.teacher_id;
+      }
+
+      // If no teacher is assigned to the subject, we need to assign one
+      if (!teacherId) {
+        Alert.alert(
+          'No Teacher Assigned',
+          'This subject has no teacher assigned. Please assign a teacher to this subject first, or select a different subject.',
+          [{ text: 'OK' }]
+        );
+        setLoading(false);
+        return;
+      }
 
       const timetableData = {
         class_id: selectedClass,
-        day_of_week: dayNumber,
+        subject_id: subjectId,
+        teacher_id: teacherId,
+        day_of_week: periodModal.day, // Use day name directly (Monday, Tuesday, etc.)
+        period_number: periodNumber,
         start_time: startTime,
         end_time: endTime,
-        period_type: type,
-        subject_id: type === 'subject' ? subjectId : null,
-        label: type === 'break' ? label : null,
-        room_number: periodForm.room || null
+        academic_year: academicYear
       };
 
       if (periodModal.period) {
@@ -382,15 +435,15 @@ const SubjectsTimetable = () => {
           const dayTT = classTT[periodModal.day] ? [...classTT[periodModal.day]] : [];
           const idx = dayTT.findIndex(p => p.id === periodModal.period.id);
           if (idx >= 0) {
+            // Find subject name for display
+            const subject = subjects.find(s => s.id === data[0].subject_id);
             dayTT[idx] = {
               id: data[0].id,
-              type: data[0].period_type,
               subjectId: data[0].subject_id,
-              subject: data[0].subjects,
+              subject: subject?.name || 'Unknown Subject',
               startTime: data[0].start_time,
               endTime: data[0].end_time,
-              label: data[0].label || data[0].subjects?.name,
-              room: data[0].room_number
+              periodNumber: data[0].period_number
             };
           }
           classTT[periodModal.day] = dayTT;
@@ -405,15 +458,15 @@ const SubjectsTimetable = () => {
         setTimetables(prev => {
           const classTT = { ...prev[selectedClass] };
           const dayTT = classTT[periodModal.day] ? [...classTT[periodModal.day]] : [];
+          // Find subject name for display
+          const subject = subjects.find(s => s.id === data[0].subject_id);
           dayTT.push({
             id: data[0].id,
-            type: data[0].period_type,
             subjectId: data[0].subject_id,
-            subject: data[0].subjects,
+            subject: subject?.name || 'Unknown Subject',
             startTime: data[0].start_time,
             endTime: data[0].end_time,
-            label: data[0].label || data[0].subjects?.name,
-            room: data[0].room_number
+            periodNumber: data[0].period_number
           });
           // Sort by start time
           dayTT.sort((a, b) => a.startTime.localeCompare(b.startTime));
@@ -617,7 +670,7 @@ const SubjectsTimetable = () => {
                 onValueChange={setSelectedClass}
               >
                 {classes.map(c => (
-                  <Picker.Item key={c.id} label={c.name} value={c.id} />
+                  <Picker.Item key={c.id} label={`${c.class_name} ${c.section}`} value={c.id} />
                 ))}
               </Picker>
             </View>

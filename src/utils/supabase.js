@@ -260,17 +260,66 @@ export const dbHelpers = {
 
   async getStudentById(studentId) {
     try {
-      const { data, error } = await supabase
+      console.log('getStudentById: Fetching student with ID:', studentId);
+
+      // First try a simple query without joins
+      const { data: basicData, error: basicError } = await supabase
         .from(TABLES.STUDENTS)
-        .select(`
-          *,
-          classes(class_name, section),
-          users!students_parent_id_fkey(full_name, phone, email)
-        `)
+        .select('*')
         .eq('id', studentId)
         .single();
-      return { data, error };
+
+      if (basicError) {
+        console.error('getStudentById: Basic query failed:', basicError);
+        return { data: null, error: basicError };
+      }
+
+      console.log('getStudentById: Basic student data:', basicData);
+
+      // Try to get class info separately
+      let classData = null;
+      if (basicData.class_id) {
+        const { data: classInfo, error: classError } = await supabase
+          .from(TABLES.CLASSES)
+          .select('class_name, section')
+          .eq('id', basicData.class_id)
+          .single();
+
+        if (!classError) {
+          classData = classInfo;
+        } else {
+          console.warn('getStudentById: Class query failed:', classError);
+        }
+      }
+
+      // Try to get parent info separately
+      let parentData = null;
+      if (basicData.parent_id) {
+        const { data: parentInfo, error: parentError } = await supabase
+          .from(TABLES.USERS)
+          .select('full_name, phone, email')
+          .eq('id', basicData.parent_id)
+          .single();
+
+        if (!parentError) {
+          parentData = parentInfo;
+        } else {
+          console.warn('getStudentById: Parent query failed:', parentError);
+        }
+      }
+
+      // Combine the data
+      const combinedData = {
+        ...basicData,
+        classes: classData,
+        users: parentData
+      };
+
+      console.log('getStudentById: Combined data:', combinedData);
+      return { data: combinedData, error: null };
+
     } catch (error) {
+      console.error('getStudentById: Unexpected error:', error);
       return { data: null, error };
     }
   },
@@ -779,14 +828,44 @@ export const dbHelpers = {
 
   async getStudentFees(studentId) {
     try {
+      console.log('getStudentFees: Fetching fees for student ID:', studentId);
+
+      // First try a simple query without joins
       const { data, error } = await supabase
         .from(TABLES.STUDENT_FEES)
-        .select(`
-          *,
-          fee_structure(amount, due_date)
-        `)
+        .select('*')
         .eq('student_id', studentId)
         .order('payment_date', { ascending: false });
+
+      console.log('getStudentFees: Query result:', { data, error });
+      return { data, error };
+    } catch (error) {
+      console.error('getStudentFees: Unexpected error:', error);
+      return { data: null, error };
+    }
+  },
+
+  // Timetable management
+  async getTeacherTimetable(teacherId, academicYear = null) {
+    try {
+      // If no academic year provided, use current year
+      if (!academicYear) {
+        const currentYear = new Date().getFullYear();
+        academicYear = `${currentYear}-${(currentYear + 1).toString().slice(-2)}`;
+      }
+
+      const { data, error } = await supabase
+        .from(TABLES.TIMETABLE)
+        .select(`
+          *,
+          classes(class_name, section),
+          subjects(subject_name)
+        `)
+        .eq('teacher_id', teacherId)
+        .eq('academic_year', academicYear)
+        .order('day_of_week')
+        .order('period_number');
+
       return { data, error };
     } catch (error) {
       return { data: null, error };

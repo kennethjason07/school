@@ -34,7 +34,7 @@ const StatCard = ({
           <Text
             style={[styles.title, isTeacher && styles.titleTeacher]}
             numberOfLines={isTeacher ? 2 : 1}
-            adjustsFontSizeToFit={!isTeacher}
+            adjustsFontSizeToFit={false}
           >
             {title}
           </Text>
@@ -121,12 +121,12 @@ const styles = StyleSheet.create({
     paddingRight: 8,
   },
   title: {
-    fontSize: 14, // Original size for admin, parent, student
+    fontSize: 18, // Increased significantly for better readability in admin dashboard
     color: '#666', // Original color
-    fontWeight: '600', // Original weight
+    fontWeight: '700', // Increased weight for better visibility
     marginRight: 8,
     flexShrink: 1,
-    lineHeight: 18, // Original line height
+    lineHeight: 22, // Adjusted line height proportionally
   },
   titleTeacher: {
     fontSize: 28, // Very large size for teachers (100% increase from original 14px)

@@ -39,7 +39,7 @@ const ViewStudentInfo = () => {
 
       console.log('ViewStudentInfo: Teacher data:', teacherData);
 
-      // Get assigned classes and subjects
+      // Get classes where teacher teaches subjects
       const { data: assignedData, error: assignedError } = await supabase
         .from(TABLES.TEACHER_SUBJECTS)
         .select(`
@@ -55,22 +55,58 @@ const ViewStudentInfo = () => {
 
       if (assignedError) throw assignedError;
 
-      console.log('ViewStudentInfo: Assigned data:', assignedData);
+      console.log('ViewStudentInfo: Subject assignments:', assignedData);
 
-      // Get unique classes
-      const uniqueClasses = [...new Set(assignedData
+      // Get classes where teacher is the class teacher
+      const { data: classTeacherData, error: classTeacherError } = await supabase
+        .from(TABLES.CLASSES)
+        .select(`
+          id,
+          class_name,
+          section,
+          academic_year
+        `)
+        .eq('class_teacher_id', teacherData.id);
+
+      if (classTeacherError) throw classTeacherError;
+
+      console.log('ViewStudentInfo: Class teacher data:', classTeacherData);
+
+      // Combine all unique classes
+      const subjectClasses = assignedData
         .filter(a => a.subjects?.classes)
-        .map(a => `${a.subjects.classes.class_name} - ${a.subjects.classes.section}`))];
-      setClasses(['All', ...uniqueClasses]);
+        .map(a => ({
+          id: a.subjects.classes.id,
+          class_name: a.subjects.classes.class_name,
+          section: a.subjects.classes.section,
+          type: 'subject'
+        }));
 
-      console.log('ViewStudentInfo: Unique classes:', uniqueClasses);
+      const classTeacherClasses = classTeacherData.map(c => ({
+        id: c.id,
+        class_name: c.class_name,
+        section: c.section,
+        type: 'class_teacher'
+      }));
 
-      // Get students from assigned classes
-      const validAssignments = assignedData.filter(assignment => assignment.subjects?.classes?.id);
-      console.log('ViewStudentInfo: Valid assignments:', validAssignments);
+      // Remove duplicates by class id
+      const allClasses = [...subjectClasses, ...classTeacherClasses];
+      const uniqueClassesMap = new Map();
+      allClasses.forEach(cls => {
+        if (!uniqueClassesMap.has(cls.id)) {
+          uniqueClassesMap.set(cls.id, cls);
+        }
+      });
 
-      const studentPromises = validAssignments.map(assignment => {
-        console.log('ViewStudentInfo: Fetching students for class:', assignment.subjects.classes.id);
+      const uniqueClassesArray = Array.from(uniqueClassesMap.values());
+      const uniqueClassNames = uniqueClassesArray.map(c => `${c.class_name} - ${c.section}`);
+      setClasses(['All', ...uniqueClassNames]);
+
+      console.log('ViewStudentInfo: All unique classes:', uniqueClassesArray);
+
+      // Get students from all classes (both subject and class teacher)
+      const studentPromises = uniqueClassesArray.map(classInfo => {
+        console.log('ViewStudentInfo: Fetching students for class:', classInfo.id, `(${classInfo.type})`);
         return supabase
           .from(TABLES.STUDENTS)
           .select(`
@@ -85,26 +121,28 @@ const ViewStudentInfo = () => {
             classes(class_name, section),
             users!students_parent_id_fkey(full_name, phone, email)
           `)
-          .eq('class_id', assignment.subjects.classes.id)
-          .order('roll_no');
+          .eq('class_id', classInfo.id)
+          .order('roll_no')
+          .then(result => ({ ...result, classInfo }));
       });
 
       const studentResults = await Promise.all(studentPromises);
       console.log('ViewStudentInfo: Student results:', studentResults);
       const allStudents = [];
 
-      studentResults.forEach((result, index) => {
-        if (result.data && validAssignments[index]) {
-          const assignment = validAssignments[index];
-          const classSection = `${assignment.subjects.classes.class_name} - ${assignment.subjects.classes.section}`;
-          console.log('ViewStudentInfo: Processing students for class:', classSection, 'Count:', result.data.length);
+      studentResults.forEach((result) => {
+        if (result.data && result.classInfo) {
+          const classInfo = result.classInfo;
+          const classSection = `${classInfo.class_name} - ${classInfo.section}`;
+          console.log('ViewStudentInfo: Processing students for class:', classSection, 'Count:', result.data.length, `(${classInfo.type})`);
 
           result.data.forEach(student => {
             allStudents.push({
               ...student,
               classSection,
-              className: assignment.subjects.classes.class_name,
-              sectionName: assignment.subjects.classes.section,
+              className: classInfo.class_name,
+              sectionName: classInfo.section,
+              teacherRole: classInfo.type, // 'subject' or 'class_teacher'
               parents: student.users // Fix parent data access
             });
           });
@@ -483,9 +521,19 @@ const ViewStudentInfo = () => {
     >
       <View style={styles.studentHeader}>
         <View style={styles.studentInfo}>
-          <Text style={styles.studentName}>{item.name}</Text>
+          <View style={styles.studentNameRow}>
+            <Text style={styles.studentName}>{item.name}</Text>
+            <View style={[
+              styles.roleBadge,
+              item.teacherRole === 'class_teacher' ? styles.classTeacherBadge : styles.subjectTeacherBadge
+            ]}>
+              <Text style={styles.roleBadgeText}>
+                {item.teacherRole === 'class_teacher' ? 'Class Teacher' : 'Subject Teacher'}
+              </Text>
+            </View>
+          </View>
           <Text style={styles.studentDetails}>
-            Roll: {item.roll_no} | ${item.classSection}
+            Roll: {item.roll_no} | {item.classSection}
           </Text>
         </View>
         <Ionicons name="chevron-forward" size={20} color="#666" />
@@ -535,6 +583,40 @@ const ViewStudentInfo = () => {
       <Header title="View Student Info" showBack={true} />
       
       <View style={styles.content}>
+        {/* Teacher Role Summary */}
+        {students.length > 0 && (
+          <View style={styles.summarySection}>
+            <Text style={styles.summaryTitle}>Your Students</Text>
+            <View style={styles.summaryCards}>
+              <View style={styles.summaryCard}>
+                <View style={[styles.summaryIcon, { backgroundColor: '#4CAF50' }]}>
+                  <Ionicons name="school" size={20} color="#fff" />
+                </View>
+                <Text style={styles.summaryNumber}>
+                  {students.filter(s => s.teacherRole === 'class_teacher').length}
+                </Text>
+                <Text style={styles.summaryLabel}>Class Teacher</Text>
+              </View>
+              <View style={styles.summaryCard}>
+                <View style={[styles.summaryIcon, { backgroundColor: '#2196F3' }]}>
+                  <Ionicons name="book" size={20} color="#fff" />
+                </View>
+                <Text style={styles.summaryNumber}>
+                  {students.filter(s => s.teacherRole === 'subject').length}
+                </Text>
+                <Text style={styles.summaryLabel}>Subject Teacher</Text>
+              </View>
+              <View style={styles.summaryCard}>
+                <View style={[styles.summaryIcon, { backgroundColor: '#FF9800' }]}>
+                  <Ionicons name="people" size={20} color="#fff" />
+                </View>
+                <Text style={styles.summaryNumber}>{students.length}</Text>
+                <Text style={styles.summaryLabel}>Total Students</Text>
+              </View>
+            </View>
+          </View>
+        )}
+
         {/* Search and Filter */}
         <View style={styles.searchSection}>
           <TextInput
@@ -748,6 +830,47 @@ const styles = StyleSheet.create({
     flex: 1,
     padding: 16,
   },
+  summarySection: {
+    backgroundColor: '#fff',
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 16,
+    elevation: 2,
+  },
+  summaryTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#333',
+    marginBottom: 12,
+    textAlign: 'center',
+  },
+  summaryCards: {
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+  },
+  summaryCard: {
+    alignItems: 'center',
+    flex: 1,
+  },
+  summaryIcon: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  summaryNumber: {
+    fontSize: 24,
+    fontWeight: 'bold',
+    color: '#333',
+    marginBottom: 4,
+  },
+  summaryLabel: {
+    fontSize: 12,
+    color: '#666',
+    textAlign: 'center',
+  },
   searchSection: {
     marginBottom: 16,
   },
@@ -872,10 +995,35 @@ const styles = StyleSheet.create({
   studentInfo: {
     flex: 1,
   },
+  studentNameRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 4,
+  },
   studentName: {
     fontSize: 18,
     fontWeight: 'bold',
     color: '#333',
+    flex: 1,
+  },
+  roleBadge: {
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 12,
+    marginLeft: 8,
+  },
+  classTeacherBadge: {
+    backgroundColor: '#4CAF50',
+  },
+  subjectTeacherBadge: {
+    backgroundColor: '#2196F3',
+  },
+  roleBadgeText: {
+    fontSize: 10,
+    fontWeight: '600',
+    color: '#fff',
+    textAlign: 'center',
   },
   studentDetails: {
     fontSize: 14,

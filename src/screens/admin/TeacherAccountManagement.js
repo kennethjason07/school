@@ -117,6 +117,19 @@ const TeacherAccountManagement = ({ navigation }) => {
 
       if (error) throw error;
 
+      // Close modal and reset form first
+      setModalVisible(false);
+      setSelectedTeacher(null);
+      setAccountForm({
+        full_name: '',
+        email: '',
+        password: '',
+        confirmPassword: ''
+      });
+      setShowPassword(false);
+      setShowConfirmPassword(false);
+
+      // Then show success alert
       Alert.alert(
         'Success',
         `Teacher account created successfully!\n\nLogin credentials:\nEmail: ${accountForm.email}\nPassword: ${accountForm.password}\n\nThe teacher can now login immediately with these credentials.\n\nPlease share these credentials with the teacher.`,
@@ -124,7 +137,6 @@ const TeacherAccountManagement = ({ navigation }) => {
           {
             text: 'OK',
             onPress: () => {
-              setModalVisible(false);
               loadTeachers(); // Refresh the list
             }
           }

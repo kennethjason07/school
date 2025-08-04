@@ -34,7 +34,7 @@ const ParentDashboard = ({ navigation }) => {
   const [showNotificationsModal, setShowNotificationsModal] = useState(false);
   const [showStudentDetailsModal, setShowStudentDetailsModal] = useState(false);
 
-useEffect(() => {
+  useEffect(() => {
     const fetchDashboardData = async () => {
       setLoading(true);
       setError(null);
@@ -45,70 +45,22 @@ useEffect(() => {
           throw new Error('Parent data not found');
         }
 
-        // Get complete student details from the linked student
-        const student = parentUserData.students;
-        if (!student) {
-          throw new Error('Student data not found');
-        }
+        // Get student details from the linked student
+        const studentDetails = parentUserData.students;
+        setStudentData(studentDetails);
 
-        // Set complete student data with all fields
-        setStudentData({
-          id: student.id,
-          name: student.name,
-          admission_no: student.admission_no,
-          roll_no: student.roll_no,
-          dob: student.dob,
-          gender: student.gender,
-          class_name: student.classes?.class_name || 'N/A',
-          section: student.classes?.section || 'N/A',
-          address: student.address,
-          phone: student.phone,
-          blood_group: student.blood_group,
-          nationality: student.nationality,
-          religion: student.religion,
-          caste: student.caste,
-          academic_year: student.academic_year,
-          general_behaviour: student.general_behaviour,
-          remarks: student.remarks
-        });
-
-        // Fetch notifications with read status for current user
+        // Get notifications for parent (simplified approach)
         try {
-          console.log('Fetching notifications for user:', user.id);
-          
-          // First, get all notifications
-          const { data: allNotifications, error: notificationsError } = await supabase
+          const { data: notificationsData, error: notificationsError } = await supabase
             .from(TABLES.NOTIFICATIONS)
             .select('*')
             .order('created_at', { ascending: false })
-            .limit(10);
+            .limit(5);
 
           if (notificationsError && notificationsError.code !== '42P01') {
             console.log('Notifications error:', notificationsError);
-            setNotifications([]);
-          } else {
-            console.log('Found notifications:', allNotifications?.length || 0);
-            
-            // For each notification, check if user has read it
-            const notificationsWithReadStatus = await Promise.all(
-              (allNotifications || []).map(async (notification) => {
-                const { data: recipientData } = await supabase
-                  .from(TABLES.NOTIFICATION_RECIPIENTS)
-                  .select('is_read')
-                  .eq('notification_id', notification.id)
-                  .eq('user_id', user.id)
-                  .single();
-                
-                return {
-                  ...notification,
-                  is_read: recipientData?.is_read || false
-                };
-              })
-            );
-            
-            console.log('Notifications with read status:', notificationsWithReadStatus.map(n => ({ id: n.id, title: n.title, is_read: n.is_read })));
-            setNotifications(notificationsWithReadStatus);
           }
+          setNotifications(notificationsData || []);
         } catch (err) {
           console.log('Notifications fetch error:', err);
           setNotifications([]);
@@ -119,7 +71,7 @@ useEffect(() => {
           const { data: examsData, error: examsError } = await supabase
             .from(TABLES.EXAMS)
             .select('*')
-            .eq('class_id', student.class_id)
+            .eq('class_id', studentDetails.class_id)
             .order('date', { ascending: true })
             .limit(5);
 
@@ -144,7 +96,7 @@ useEffect(() => {
           const { data: attendanceData, error: attendanceError } = await supabase
             .from(TABLES.STUDENT_ATTENDANCE)
             .select('*')
-            .eq('student_id', student.id)
+            .eq('student_id', studentDetails.id)
             .gte('date', monthStart.toISOString().split('T')[0])
             .lte('date', monthEnd.toISOString().split('T')[0])
             .order('date', { ascending: false });
@@ -170,16 +122,7 @@ useEffect(() => {
     if (user) {
       fetchDashboardData();
     }
-
-    // Add focus listener to refresh data when coming back to this screen
-    const unsubscribe = navigation.addListener('focus', () => {
-      if (user) {
-        fetchDashboardData();
-      }
-    });
-
-    return unsubscribe;
-  }, [user, navigation]);
+  }, [user]);
 
   // Calculate unread notifications count
   const unreadCount = notifications.filter(notification => !notification.is_read).length;
@@ -354,7 +297,7 @@ useEffect(() => {
             <Image source={studentImage} style={styles.studentAvatar} />
             <View style={{ flex: 1 }}>
               <Text style={styles.studentCardName}>{studentData?.name || 'Student Name'}</Text>
-              <Text style={styles.studentCardClass}>Class {studentData?.class_name} • Roll No: {studentData?.roll_no}</Text>
+              <Text style={styles.studentCardClass}>Class {studentData?.class_name} • Roll No: {studentData?.roll_number}</Text>
             </View>
             <Ionicons name="chevron-forward" size={28} color="#bbb" />
           </View>
@@ -606,7 +549,7 @@ useEffect(() => {
               <View style={styles.detailsRow}><Text style={styles.detailsLabel}>Blood Group:</Text><Text style={styles.detailsValue}>{studentData?.blood_group}</Text></View>
               <View style={styles.detailsRow}><Text style={styles.detailsLabel}>Mobile:</Text><Text style={styles.detailsValue}>{studentData?.phone}</Text></View>
               <View style={styles.detailsRow}><Text style={styles.detailsLabel}>Gender:</Text><Text style={styles.detailsValue}>{studentData?.gender}</Text></View>
-              <View style={styles.detailsRow}><Text style={styles.detailsLabel}>Admission No:</Text><Text style={styles.detailsValue}>{studentData?.admission_no}</Text></View>
+              <View style={styles.detailsRow}><Text style={styles.detailsLabel}>Admission No:</Text><Text style={styles.detailsValue}>{studentData?.admission_number}</Text></View>
               <View style={styles.detailsRow}><Text style={styles.detailsLabel}>Email:</Text><Text style={styles.detailsValue}>{studentData?.email}</Text></View>
               <View style={styles.detailsRow}><Text style={styles.detailsLabel}>Address:</Text><Text style={styles.detailsValue}>{studentData?.address}</Text></View>
             </ScrollView>
@@ -822,25 +765,22 @@ const styles = StyleSheet.create({
   },
   notificationItem: {
     flexDirection: 'row',
-    alignItems: 'center',
+    alignItems: 'flex-start',
     paddingVertical: 12,
     borderBottomWidth: 1,
     borderBottomColor: '#f0f0f0',
-    borderLeftWidth: 3,
   },
   notificationIcon: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: '#f8f9fa',
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: '#fff',
     alignItems: 'center',
     justifyContent: 'center',
     marginRight: 12,
-    flexShrink: 0,
   },
   notificationContent: {
     flex: 1,
-    justifyContent: 'center',
   },
   notificationTitle: {
     fontSize: 14,
