@@ -22,16 +22,38 @@ export const TABLES = {
   STUDENT_FEES: 'student_fees',
   EXAMS: 'exams',
   MARKS: 'marks',
-  HOMEWORKS: 'homeworks',
-  HOMEWORK: 'homeworks',
   ASSIGNMENTS: 'assignments',
   TIMETABLE_ENTRIES: 'timetable_entries',
   NOTIFICATIONS: 'notifications',
   MESSAGES: 'messages',
   TASKS: 'tasks',
-  PERSONAL_TASKS: 'personal_tasks',
-  SCHOOL_DETAILS: 'school_details',
-  MESSAGES: 'messages',
+};
+
+// UUID validation utility to prevent database errors
+export const isValidUUID = (uuid) => {
+  if (!uuid || typeof uuid !== 'string') {
+    return false;
+  }
+
+  // Check for common invalid values
+  if (uuid === 'undefined' || uuid === 'null' || uuid === '') {
+    return false;
+  }
+
+  // Check UUID format (basic validation)
+  const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  return uuidRegex.test(uuid);
+};
+
+// Safe database query wrapper
+export const safeQuery = async (queryFn, fallbackData = null) => {
+  try {
+    const result = await queryFn();
+    return result;
+  } catch (error) {
+    console.log('Safe query error:', error);
+    return { data: fallbackData, error: null };
+  }
 };
 
 // Authentication helper functions
@@ -291,66 +313,17 @@ export const dbHelpers = {
 
   async getStudentById(studentId) {
     try {
-      console.log('getStudentById: Fetching student with ID:', studentId);
-
-      // First try a simple query without joins
-      const { data: basicData, error: basicError } = await supabase
+      const { data, error } = await supabase
         .from(TABLES.STUDENTS)
-        .select('*')
+        .select(`
+          *,
+          classes(class_name, section),
+          users!students_parent_id_fkey(full_name, phone, email)
+        `)
         .eq('id', studentId)
         .single();
-
-      if (basicError) {
-        console.error('getStudentById: Basic query failed:', basicError);
-        return { data: null, error: basicError };
-      }
-
-      console.log('getStudentById: Basic student data:', basicData);
-
-      // Try to get class info separately
-      let classData = null;
-      if (basicData.class_id) {
-        const { data: classInfo, error: classError } = await supabase
-          .from(TABLES.CLASSES)
-          .select('class_name, section')
-          .eq('id', basicData.class_id)
-          .single();
-
-        if (!classError) {
-          classData = classInfo;
-        } else {
-          console.warn('getStudentById: Class query failed:', classError);
-        }
-      }
-
-      // Try to get parent info separately
-      let parentData = null;
-      if (basicData.parent_id) {
-        const { data: parentInfo, error: parentError } = await supabase
-          .from(TABLES.USERS)
-          .select('full_name, phone, email')
-          .eq('id', basicData.parent_id)
-          .single();
-
-        if (!parentError) {
-          parentData = parentInfo;
-        } else {
-          console.warn('getStudentById: Parent query failed:', parentError);
-        }
-      }
-
-      // Combine the data
-      const combinedData = {
-        ...basicData,
-        classes: classData,
-        users: parentData
-      };
-
-      console.log('getStudentById: Combined data:', combinedData);
-      return { data: combinedData, error: null };
-
+      return { data, error };
     } catch (error) {
-      console.error('getStudentById: Unexpected error:', error);
       return { data: null, error };
     }
   },
@@ -530,44 +503,14 @@ export const dbHelpers = {
 
   async getStudentFees(studentId) {
     try {
-      console.log('getStudentFees: Fetching fees for student ID:', studentId);
-
-      // First try a simple query without joins
       const { data, error } = await supabase
         .from(TABLES.STUDENT_FEES)
-        .select('*')
-        .eq('student_id', studentId)
-        .order('payment_date', { ascending: false });
-
-      console.log('getStudentFees: Query result:', { data, error });
-      return { data, error };
-    } catch (error) {
-      console.error('getStudentFees: Unexpected error:', error);
-      return { data: null, error };
-    }
-  },
-
-  // Timetable management
-  async getTeacherTimetable(teacherId, academicYear = null) {
-    try {
-      // If no academic year provided, use current year
-      if (!academicYear) {
-        const currentYear = new Date().getFullYear();
-        academicYear = `${currentYear}-${(currentYear + 1).toString().slice(-2)}`;
-      }
-
-      const { data, error } = await supabase
-        .from(TABLES.TIMETABLE)
         .select(`
           *,
-          classes(class_name, section),
-          subjects(subject_name)
+          fee_structure(amount, due_date)
         `)
-        .eq('teacher_id', teacherId)
-        .eq('academic_year', academicYear)
-        .order('day_of_week')
-        .order('period_number');
-
+        .eq('student_id', studentId)
+        .order('payment_date', { ascending: false });
       return { data, error };
     } catch (error) {
       return { data: null, error };
