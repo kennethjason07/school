@@ -44,6 +44,7 @@ import StudentOverview from '../screens/admin/reports/StudentOverview';
 import TeacherDashboard from '../screens/teacher/TeacherDashboard';
 import TakeAttendance from '../screens/teacher/TakeAttendance';
 import MarksEntry from '../screens/teacher/MarksEntry';
+import ExamMarksEntry from '../screens/teacher/ExamMarksEntry';
 import UploadHomework from '../screens/teacher/UploadHomework';
 import ViewStudentInfo from '../screens/teacher/ViewStudentInfo';
 import MarksEntryStudentsScreen from '../screens/teacher/MarksEntryStudentsScreen';
@@ -55,6 +56,9 @@ import ParentDashboard from '../screens/parent/ParentDashboard';
 import ViewReportCard from '../screens/parent/ViewReportCard';
 import AttendanceSummary from '../screens/parent/AttendanceSummary';
 import FeePayment from '../screens/parent/FeePayment';
+import CardPayment from '../screens/parent/CardPayment';
+import UPIPayment from '../screens/parent/UPIPayment';
+import OnlineBankingPayment from '../screens/parent/OnlineBankingPayment';
 import Notifications from '../screens/parent/Notifications';
 import ChatWithTeacher from '../screens/parent/ChatWithTeacher';
 
@@ -284,6 +288,7 @@ export default function AppNavigator() {
             {userType === 'teacher' && (
               <>
                 <Stack.Screen name="TeacherTabs" component={TeacherTabNavigator} />
+                <Stack.Screen name="ExamMarksEntry" component={ExamMarksEntry} />
                 <Stack.Screen name="MarksEntryStudentsScreen" component={MarksEntryStudentsScreen} />
                 <Stack.Screen name="StudentAttendanceScreen" component={StudentAttendanceScreen} />
                 <Stack.Screen name="StudentMarksScreen" component={StudentMarksScreen} />
@@ -293,6 +298,9 @@ export default function AppNavigator() {
               <>
               <Stack.Screen name="ParentTabs" component={ParentTabNavigator} />
                 <Stack.Screen name="Notifications" component={Notifications} />
+                <Stack.Screen name="CardPayment" component={CardPayment} />
+                <Stack.Screen name="UPIPayment" component={UPIPayment} />
+                <Stack.Screen name="OnlineBankingPayment" component={OnlineBankingPayment} />
               </>
             )}
             {userType === 'student' && (

@@ -36,13 +36,14 @@ const ChatWithTeacher = () => {
         throw new Error('Student data not found');
       }
 
-      // Get teachers for the student's class (simplified approach)
+      // Get teachers for the student's class (through subjects)
       const { data: classTeachers, error: teachersError } = await supabase
         .from(TABLES.TEACHER_SUBJECTS)
         .select(`
-          teachers(id, name)
+          teachers(id, name),
+          subjects(name, class_id)
         `)
-        .eq('class_id', studentData.class_id);
+        .eq('subjects.class_id', studentData.class_id);
 
       if (teachersError && teachersError.code !== '42P01') {
         console.log('Teachers error:', teachersError);
@@ -88,7 +89,7 @@ const ChatWithTeacher = () => {
       const teachersWithChats = (classTeachers || []).map(assignment => ({
         id: assignment.teachers?.id,
         name: assignment.teachers?.name || 'Unknown Teacher',
-        subject: 'Subject', // Simplified for now
+        subject: assignment.subjects?.name || 'Subject',
         messages: messagesByTeacher[assignment.teachers?.id] || []
       }));
 
